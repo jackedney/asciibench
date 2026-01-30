@@ -1,8 +1,11 @@
 from asciibench.common.display import (
+    LiveStatsDisplay,
+    create_generation_progress,
+    create_live_stats,
     get_console,
     get_theme,
     print_banner,
-    create_generation_progress,
+    update_live_stats,
 )
 
 
@@ -82,3 +85,71 @@ def test_create_generation_progress_updates_task():
         )
         p.update(task, advance=10, success_count=5, fail_count=2)
         assert True
+
+
+def test_live_stats_display_initializes():
+    display = LiveStatsDisplay()
+    assert display.total == 0
+    assert display.valid == 0
+    assert display.invalid == 0
+
+
+def test_live_stats_display_updates():
+    display = LiveStatsDisplay()
+    display.update(total=10, valid=8, invalid=2)
+    assert display.total == 10
+    assert display.valid == 8
+    assert display.invalid == 2
+
+
+def test_live_stats_display_partial_update():
+    display = LiveStatsDisplay(total=5, valid=4, invalid=1)
+    display.update(total=10)
+    assert display.total == 10
+    assert display.valid == 4
+    assert display.invalid == 1
+
+
+def test_live_stats_display_renders():
+    display = LiveStatsDisplay(total=10, valid=8, invalid=2)
+    panel = display.render()
+    assert panel is not None
+    assert "Generated" in str(panel.renderable)
+    assert "Valid" in str(panel.renderable)
+    assert "Invalid" in str(panel.renderable)
+
+
+def test_create_live_stats_returns_display():
+    display, _live = create_live_stats()
+    assert display is not None
+    assert isinstance(display, LiveStatsDisplay)
+
+
+def test_create_live_stats_on_terminal_returns_live():
+    get_console(force_terminal=True)
+    _display, live = create_live_stats()
+    assert live is not None
+
+
+def test_create_live_stats_non_terminal_no_live():
+    get_console(force_terminal=False)
+    _display, live = create_live_stats()
+    assert live is None
+
+
+def test_update_live_stats_updates_display():
+    display = LiveStatsDisplay()
+    live = None
+    update_live_stats(display, live, total=10, valid=8, invalid=2)
+    assert display.total == 10
+    assert display.valid == 8
+    assert display.invalid == 2
+
+
+def test_live_stats_with_progress():
+    display = LiveStatsDisplay()
+    for i in range(5):
+        update_live_stats(display, None, total=i + 1, valid=i + 1, invalid=0)
+    assert display.total == 5
+    assert display.valid == 5
+    assert display.invalid == 0

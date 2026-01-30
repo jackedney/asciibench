@@ -1,4 +1,5 @@
 from rich.console import Console
+from rich.live import Live
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
 from rich.text import Text
@@ -31,7 +32,7 @@ def get_theme() -> Theme:
 def get_console(force_terminal: bool | None = None) -> Console:
     global _console
 
-    if _console is None:
+    if _console is None or force_terminal is not None:
         _console = Console(
             theme=_neobrutalist_theme,
             force_terminal=force_terminal,
@@ -91,3 +92,73 @@ def create_generation_progress(total: int = 100):
     )
 
     return progress
+
+
+class LiveStatsDisplay:
+    def __init__(self, total: int = 0, valid: int = 0, invalid: int = 0):
+        self.total = total
+        self.valid = valid
+        self.invalid = invalid
+
+    def update(
+        self, total: int | None = None, valid: int | None = None, invalid: int | None = None
+    ):
+        if total is not None:
+            self.total = total
+        if valid is not None:
+            self.valid = valid
+        if invalid is not None:
+            self.invalid = invalid
+
+    def render(self) -> Panel:
+        stats_text = Text.assemble(
+            ("Generated: ", "info"),
+            (f"{self.total}", "accent bold"),
+            (" | ", "default"),
+            ("Valid: ", "success"),
+            (f"{self.valid}", "success bold"),
+            (" | ", "default"),
+            ("Invalid: ", "error"),
+            (f"{self.invalid}", "error bold"),
+        )
+
+        panel = Panel(
+            stats_text,
+            border_style=GOLD,
+            padding=(0, 2),
+        )
+        return panel
+
+
+def create_live_stats():
+    console = get_console()
+    display = LiveStatsDisplay()
+
+    if console.is_terminal:
+        live = Live(
+            display.render(),
+            console=console,
+            refresh_per_second=1,
+        )
+    else:
+        live = None
+
+    return display, live
+
+
+def update_live_stats(
+    display: LiveStatsDisplay,
+    live: Live | None,
+    total: int | None = None,
+    valid: int | None = None,
+    invalid: int | None = None,
+):
+    display.update(total=total, valid=valid, invalid=invalid)
+
+    if live is not None:
+        live.update(display.render())
+    else:
+        console = get_console()
+        console.print(
+            f"Generated: {display.total} | Valid: {display.valid} | Invalid: {display.invalid}"
+        )
