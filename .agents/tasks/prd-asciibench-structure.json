@@ -1,0 +1,344 @@
+{
+  "version": 1,
+  "project": "ASCIIBench Project Structure",
+  "overview": "Create a complete project skeleton and repository structure for ASCIIBench, an Elo-based LLM benchmark system with three modules (Generator, Judge UI, Analyst) using uv as package manager and following DRY principles.",
+  "goals": [
+    "Set up Python 3.12+ project with uv package manager",
+    "Create modular package structure for Generator, Judge UI, and Analyst",
+    "Configure FastAPI + HTMX web interface foundation",
+    "Set up pydantic v2 data models and pydantic-settings configuration",
+    "Implement quality gates (pytest, ruff, ty) and GitHub Actions CI/CD",
+    "Provide ready-to-develop structure without implementing core logic"
+  ],
+  "nonGoals": [
+    "Do not implement Generator batch processing logic",
+    "Do not implement Judge UI comparison interface",
+    "Do not implement Analyst Elo calculation",
+    "Do not write actual API calls or business logic",
+    "Do not include Docker configuration"
+  ],
+  "successMetrics": [
+    "Project structure follows SPECIFICATION.md module organization",
+    "All quality gates pass (pytest, ruff check/format, ty check)",
+    "GitHub Actions workflow runs successfully on push",
+    "uv dependency management and virtual environment setup complete"
+  ],
+  "openQuestions": [
+    "Should OpenRouter API key be required in .env or optional with placeholder?"
+  ],
+  "stack": {
+    "language": "Python 3.12+",
+    "packageManager": "uv",
+    "webFramework": "FastAPI + HTMX",
+    "apiClient": "smolagents with openrouter",
+    "dataValidation": "pydantic v2",
+    "config": "pydantic-settings",
+    "testing": "pytest + pytest-cov",
+    "linting": "ruff",
+    "typeChecking": "ty (astral typechecker)",
+    "cicd": "GitHub Actions",
+    "database": "JSONL files (database.jsonl, votes.jsonl)"
+  },
+  "routes": [
+    {
+      "path": "/",
+      "name": "Home",
+      "purpose": "Welcome page and navigation to modules"
+    },
+    {
+      "path": "/judge",
+      "name": "Judge Interface",
+      "purpose": "1v1 double-blind comparison interface (skeleton only)"
+    },
+    {
+      "path": "/api/votes",
+      "name": "Submit Vote",
+      "purpose": "API endpoint to receive judge votes (skeleton only)"
+    }
+  ],
+  "uiNotes": [
+    "Base HTML template with HTMX CDN inclusion",
+    "Triple-font rendering placeholder styles (Courier New, Consolas, Fira Code)",
+    "Keyboard input placeholders (A/D/S/F) with no actual event handlers"
+  ],
+  "dataModel": [
+    {
+      "entity": "ArtSample",
+      "fields": [
+        "model_id: str",
+        "prompt_text: str",
+        "category: str",
+        "attempt_number: int",
+        "raw_output: str",
+        "sanitized_output: str",
+        "is_valid: bool"
+      ]
+    },
+    {
+      "entity": "Vote",
+      "fields": [
+        "sample_a_id: str",
+        "sample_b_id: str",
+        "winner: Literal['A', 'B', 'tie', 'fail']",
+        "timestamp: datetime"
+      ]
+    },
+    {
+      "entity": "Model",
+      "fields": [
+        "id: str",
+        "name: str"
+      ]
+    },
+    {
+      "entity": "Prompt",
+      "fields": [
+        "text: str",
+        "category: str",
+        "template_type: str"
+      ]
+    }
+  ],
+  "importFormat": {
+    "description": "YAML configuration files for models, prompts, and generation settings",
+    "example": {
+      "models.yaml": "models: [openai/gpt-4o, anthropic/claude-3.5-sonnet]",
+      "prompts.yaml": "templates with categories",
+      "config.yaml": "generation settings (attempts_per_prompt, temperature, max_tokens, provider, system_prompt)"
+    }
+  },
+  "rules": [
+    "Follow DRY principles: shared utilities in common/ package",
+    "Use pydantic v2 for all data models and validation",
+    "Configuration via pydantic-settings with .env file support",
+    "JSONL files as data storage (database.jsonl, votes.jsonl)",
+    "Separate concerns: generator/, judge_ui/, analyst/ packages",
+    "Type hints required throughout (ty typechecker enforces)"
+  ],
+  "qualityGates": [
+    "uv run pytest",
+    "uv run ruff check",
+    "uv run ruff format --check",
+    "uv run ty check"
+  ],
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Initialize project with uv and basic structure",
+      "status": "in_progress",
+      "dependsOn": [],
+      "description": "As a developer, I want to initialize a new Python project with uv so that I have a proper package structure and dependency management.",
+      "acceptanceCriteria": [
+        "Run `uv init --name asciibench` to create project skeleton",
+        "Create package structure: asciibench/{generator,judge_ui,analyst,common}/",
+        "Create __init__.py in each package directory",
+        "Example: asciibench/generator/ exists with empty __init__.py",
+        "Negative case: uv init without --name flag -> ask user to specify name",
+        "Create tests/ directory with empty __init__.py",
+        "Create data/ directory placeholder for JSONL files"
+      ],
+      "startedAt": "2026-01-30T12:34:01.392877+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-01-30T12:34:01.393057+00:00"
+    },
+    {
+      "id": "US-002",
+      "title": "Configure pyproject.toml with all dependencies",
+      "status": "open",
+      "dependsOn": [
+        "US-001"
+      ],
+      "description": "As a developer, I want to configure all project dependencies in pyproject.toml so that uv can manage them properly.",
+      "acceptanceCriteria": [
+        "Add project metadata: name, version, description, requires-python='>=3.12'",
+        "Add dependencies: fastapi, uvicorn[standard], htmx, pydantic-settings, smolagents",
+        "Add dev dependencies: pytest, pytest-cov, ruff, ty",
+        "Example: `uv add fastapi uvicorn[standard] htmx pydantic-settings smolagents`",
+        "Example: `uv add --dev pytest pytest-cov ruff ty`",
+        "Negative case: adding incompatible python version -> uv error",
+        "Create scripts section with 'dev = \"uvicorn asciibench.judge_ui.main:app --reload\"'",
+        "Run `uv sync` successfully to install all dependencies"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Set up pydantic v2 data models for core entities",
+      "status": "open",
+      "dependsOn": [
+        "US-002"
+      ],
+      "description": "As a developer, I want pydantic v2 models for all data entities so that data validation is type-safe and consistent.",
+      "acceptanceCriteria": [
+        "Create asciibench/common/models.py with BaseModel classes",
+        "Define ArtSample model with fields: model_id, prompt_text, category, attempt_number, raw_output, sanitized_output, is_valid",
+        "Define Vote model with fields: sample_a_id, sample_b_id, winner (Literal['A','B','tie','fail']), timestamp",
+        "Define Model model with fields: id, name",
+        "Define Prompt model with fields: text, category, template_type",
+        "Example: ArtSample(model_id='openai/gpt-4o', prompt_text='Draw a cat', category='animal', attempt_number=1, raw_output='```\\n/\\_/\\\\n( o.o )\\n > ^ <\\n```', sanitized_output='/\\_/\\\\n( o.o )\\n > ^ <', is_valid=True) validates successfully",
+        "Negative case: Vote with winner='X' (invalid literal) -> ValidationError",
+        "Add type hints to all model fields",
+        "Run `uv run ty check` with no errors"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Implement pydantic-settings configuration",
+      "status": "open",
+      "dependsOn": [
+        "US-002"
+      ],
+      "description": "As a developer, I want a pydantic-settings configuration system so that environment variables and YAML config are managed centrally.",
+      "acceptanceCriteria": [
+        "Create asciibench/common/config.py with Settings(BaseSettings)",
+        "Add fields: openrouter_api_key: str (default=''), base_url: str (default='https://openrouter.ai/api/v1')",
+        "Add GenerationConfig model: attempts_per_prompt=5, temperature=0.0, max_tokens=1000, provider='openrouter', system_prompt",
+        "Create .env.example with OPENROUTER_API_KEY placeholder",
+        "Create config.yaml skeleton with generation section",
+        "Example: Settings() loads OPENROUTER_API_KEY from .env file",
+        "Negative case: missing .env file -> loads defaults without error",
+        "Create asciibench/common/yaml_config.py with functions to load models.yaml and prompts.yaml",
+        "Add load_models() and load_prompts() functions returning validated models",
+        "Run `uv run pytest` with no errors"
+      ]
+    },
+    {
+      "id": "US-005",
+      "title": "Create Generator package structure and skeleton",
+      "status": "open",
+      "dependsOn": [
+        "US-003",
+        "US-004"
+      ],
+      "description": "As a developer, I want the Generator module structure so that batch processing logic can be implemented later.",
+      "acceptanceCriteria": [
+        "Create asciibench/generator/main.py with placeholder main() function",
+        "Create asciibench/generator/client.py with placeholder OpenRouter client using smolagents",
+        "Create asciibench/generator/sampler.py with placeholder generate_samples() function",
+        "Create asciibench/generator/sanitizer.py with placeholder extract_ascii_from_markdown() function",
+        "Add module docstrings describing purpose and dependencies",
+        "Example: generate_samples() signature includes models, prompts, config parameters",
+        "Negative case: calling generate_samples() -> NotImplementedError or empty list",
+        "Create database.jsonl placeholder in data/ directory",
+        "Run `uv run ruff check` with no errors on generator package"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Create Judge UI FastAPI app skeleton with HTMX",
+      "status": "open",
+      "dependsOn": [
+        "US-002",
+        "US-003"
+      ],
+      "description": "As a developer, I want a FastAPI app skeleton with HTMX so that the double-blind comparison interface can be built later.",
+      "acceptanceCriteria": [
+        "Create asciibench/judge_ui/main.py with FastAPI app instance",
+        "Add root route '/' returning welcome HTML page",
+        "Add '/judge' route returning comparison HTML skeleton",
+        "Add POST '/api/votes' route accepting Vote model (placeholder logic)",
+        "Create templates/base.html with HTMX CDN script included",
+        "Create templates/judge.html with placeholder comparison layout",
+        "Add triple-font CSS styles: .font-classic (Courier New), .font-modern (Consolas), .font-condensed (Fira Code)",
+        "Example: GET '/' returns HTML with title 'ASCIIBench Judge UI'",
+        "Negative case: POST to '/api/votes' without body -> returns 422 validation error",
+        "Run `uv run uvicorn asciibench.judge_ui.main:app` and visit localhost:8000 successfully",
+        "Run `uv run ty check` with no errors"
+      ]
+    },
+    {
+      "id": "US-007",
+      "title": "Create Analyst package structure and skeleton",
+      "status": "open",
+      "dependsOn": [
+        "US-003"
+      ],
+      "description": "As a developer, I want the Analyst module structure so that Elo rating calculations can be implemented later.",
+      "acceptanceCriteria": [
+        "Create asciibench/analyst/main.py with placeholder main() function",
+        "Create asciibench/analyst/elo.py with placeholder calculate_elo() function",
+        "Create asciibench/analyst/leaderboard.py with placeholder generate_leaderboard() function",
+        "Create asciibench/analyst/stats.py with placeholder calculate_consistency() function",
+        "Add module docstrings describing Elo calculation approach",
+        "Create votes.jsonl placeholder in data/ directory",
+        "Create LEADERBOARD.md placeholder with section headers",
+        "Example: calculate_elo() signature accepts votes and returns model scores dict",
+        "Negative case: calling calculate_elo() -> NotImplementedError or empty dict",
+        "Run `uv run ruff check` with no errors on analyst package"
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Configure quality gates (pytest, ruff, ty)",
+      "status": "open",
+      "dependsOn": [
+        "US-002"
+      ],
+      "description": "As a developer, I want configured quality gates so that code quality and type safety are enforced automatically.",
+      "acceptanceCriteria": [
+        "Create pytest.ini with test discovery settings and coverage target 80%",
+        "Create pyproject.toml [tool.ruff] section with line-length=100, target-version='py312'",
+        "Create pyproject.toml [tool.ruff.lint] section with enabled rules (E, F, I, N, W, UP, B, C4, PT, RUF)",
+        "Create pyproject.toml [tool.ruff.format] section with quote-style='double', indent-style='space'",
+        "Create pyproject.toml [tool.ty] section with config for type checking",
+        "Create tests/test_models.py with sample tests for pydantic models",
+        "Example: pytest runs and discovers all tests in tests/",
+        "Negative case: code with unused variable -> ruff reports warning",
+        "Example: code with type mismatch -> ty check reports error",
+        "Run `uv run pytest --cov` and see coverage report",
+        "Run `uv run ruff check` on entire codebase",
+        "Run `uv run ruff format --check` to verify formatting",
+        "Run `uv run ty check` to verify type safety"
+      ]
+    },
+    {
+      "id": "US-009",
+      "title": "Set up GitHub Actions CI/CD workflow",
+      "status": "open",
+      "dependsOn": [
+        "US-008"
+      ],
+      "description": "As a developer, I want a GitHub Actions workflow so that quality gates run automatically on every push.",
+      "acceptanceCriteria": [
+        "Create .github/workflows/ci.yml workflow file",
+        "Configure workflow to trigger on push to main and pull requests",
+        "Add step to check out code with actions/checkout@v4",
+        "Add step to set up Python 3.12 with actions/setup-python@v5",
+        "Add step to install uv with pip or official action",
+        "Add step to run `uv sync` to install dependencies",
+        "Add step to run `uv run pytest --cov`",
+        "Add step to run `uv run ruff check`",
+        "Add step to run `uv run ruff format --check`",
+        "Add step to run `uv run ty check`",
+        "Example: pushing to main triggers workflow and all steps pass",
+        "Negative case: code with lint errors -> workflow fails on ruff check step",
+        "Add workflow status badge to README.md",
+        "Commit and push workflow, verify it runs in GitHub Actions tab"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "Create README.md and project documentation skeleton",
+      "status": "open",
+      "dependsOn": [
+        "US-001",
+        "US-009"
+      ],
+      "description": "As a developer, I want comprehensive documentation so that others can understand and contribute to the project.",
+      "acceptanceCriteria": [
+        "Create README.md with project title, description, and overview",
+        "Add installation instructions using uv",
+        "Add development setup instructions (uv sync, uv run dev)",
+        "Add project structure section showing package layout",
+        "Add quality gates section with commands to run",
+        "Add section for each module (Generator, Judge UI, Analyst) with purpose description",
+        "Add GitHub Actions CI badge at top of README",
+        "Create CONTRIBUTING.md with contribution guidelines",
+        "Create .gitignore with Python exclusions (__pycache__, .venv, .env, .ruff_cache, .pytest_cache, *.pyc, .coverage, htmlcov/)",
+        "Add references to SPECIFICATION.md for detailed requirements",
+        "Example: README includes 'uv sync' and 'uv run pytest' commands",
+        "Negative case: missing .env in .gitignore -> environment file would be committed",
+        "Verify README renders properly on GitHub"
+      ]
+    }
+  ]
+}
