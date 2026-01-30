@@ -1,6 +1,27 @@
 import yaml
 
+from asciibench.common.config import GenerationConfig
 from asciibench.common.models import Model, Prompt
+
+
+def load_generation_config(path: str = "config.yaml") -> GenerationConfig:
+    """Load generation configuration from a YAML file.
+
+    Args:
+        path: Path to the config YAML file
+
+    Returns:
+        GenerationConfig loaded from the file, or defaults if file doesn't exist
+    """
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        if data is None:
+            return GenerationConfig()
+        generation_data = data.get("generation", {})
+        return GenerationConfig(**generation_data)
+    except FileNotFoundError:
+        return GenerationConfig()
 
 
 def load_models(path: str = "models.yaml") -> list[Model]:

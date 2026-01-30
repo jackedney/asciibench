@@ -11,6 +11,7 @@ Dependencies:
     - asciibench.generator.sanitizer: ASCII art extraction utilities
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 from asciibench.common.config import GenerationConfig, Settings
@@ -18,6 +19,9 @@ from asciibench.common.models import ArtSample, Model, Prompt
 from asciibench.common.persistence import append_jsonl, read_jsonl
 from asciibench.generator.client import OpenRouterClient, OpenRouterClientError
 from asciibench.generator.sanitizer import extract_ascii_from_markdown
+
+# Type alias for progress callback: (model_id, prompt_text, attempt_number, total_remaining) -> None
+ProgressCallback = Callable[[str, str, int, int], None]
 
 
 def _build_existing_sample_keys(samples: list[ArtSample]) -> set[tuple[str, str, int]]:
@@ -59,6 +63,7 @@ def generate_samples(
     database_path: str | Path = "data/database.jsonl",
     client: OpenRouterClient | None = None,
     settings: Settings | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[ArtSample]:
     """Generate ASCII art samples from configured models and prompts.
 
@@ -77,6 +82,8 @@ def generate_samples(
         database_path: Path to the database JSONL file (default: data/database.jsonl)
         client: Optional OpenRouterClient instance (created from settings if not provided)
         settings: Optional Settings instance (required if client not provided)
+        progress_callback: Optional callback called before each sample generation
+            with (model_id, prompt_text, attempt_number, total_remaining)
 
     Returns:
         List of newly generated ArtSample objects (excludes existing samples)
@@ -101,13 +108,24 @@ def generate_samples(
 
     newly_generated: list[ArtSample] = []
 
+    # Calculate total samples to generate for progress tracking
+    total_combinations = len(models) * len(prompts) * config.attempts_per_prompt
+    samples_processed = 0
+
     # Iterate through all combinations: models x prompts x attempts
     for model in models:
         for prompt in prompts:
             for attempt in range(1, config.attempts_per_prompt + 1):
+                samples_processed += 1
+
                 # Check idempotency - skip if sample already exists
                 if _sample_exists(model.id, prompt.text, attempt, existing_keys):
                     continue
+
+                # Call progress callback before generation
+                if progress_callback is not None:
+                    remaining = total_combinations - samples_processed + 1
+                    progress_callback(model.id, prompt.text, attempt, remaining)
 
                 # Generate new sample
                 try:

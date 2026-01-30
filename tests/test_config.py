@@ -4,7 +4,7 @@ from pathlib import Path
 from pydantic_settings import SettingsConfigDict
 
 from asciibench.common.config import GenerationConfig, Settings
-from asciibench.common.yaml_config import load_models, load_prompts
+from asciibench.common.yaml_config import load_generation_config, load_models, load_prompts
 
 
 def test_settings_default_values():
@@ -77,6 +77,79 @@ def test_load_models():
     assert models[0].name == "GPT-4o"
     assert models[1].id == "anthropic/claude-3.5-sonnet"
     assert models[1].name == "Claude 3.5 Sonnet"
+
+
+def test_load_generation_config():
+    """Test that config.yaml is loaded correctly."""
+    config = load_generation_config("config.yaml")
+    assert config.attempts_per_prompt == 5
+    assert config.temperature == 0.0
+    assert config.max_tokens == 1000
+    assert config.provider == "openrouter"
+
+
+def test_load_generation_config_with_custom_values():
+    """Test loading custom values from config.yaml."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp_file:
+        tmp_file.write(
+            """generation:
+  attempts_per_prompt: 10
+  temperature: 0.7
+  max_tokens: 2000
+  provider: custom
+  system_prompt: "You are helpful"
+"""
+        )
+        tmp_file.flush()
+
+        config = load_generation_config(tmp_file.name)
+        assert config.attempts_per_prompt == 10
+        assert config.temperature == 0.7
+        assert config.max_tokens == 2000
+        assert config.provider == "custom"
+        assert config.system_prompt == "You are helpful"
+
+    Path(tmp_file.name).unlink()
+
+
+def test_load_generation_config_missing_file():
+    """Test that missing config file returns defaults."""
+    config = load_generation_config("nonexistent_config.yaml")
+    assert config.attempts_per_prompt == 5
+    assert config.temperature == 0.0
+    assert config.max_tokens == 1000
+
+
+def test_load_generation_config_empty_file():
+    """Test that empty config file returns defaults."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp_file:
+        tmp_file.write("")
+        tmp_file.flush()
+
+        config = load_generation_config(tmp_file.name)
+        assert config.attempts_per_prompt == 5
+        assert config.temperature == 0.0
+        assert config.max_tokens == 1000
+
+    Path(tmp_file.name).unlink()
+
+
+def test_load_generation_config_partial_values():
+    """Test that partial config merges with defaults."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp_file:
+        tmp_file.write(
+            """generation:
+  attempts_per_prompt: 3
+"""
+        )
+        tmp_file.flush()
+
+        config = load_generation_config(tmp_file.name)
+        assert config.attempts_per_prompt == 3  # Custom value
+        assert config.temperature == 0.0  # Default
+        assert config.max_tokens == 1000  # Default
+
+    Path(tmp_file.name).unlink()
 
 
 def test_load_prompts_generates_40_prompts():
