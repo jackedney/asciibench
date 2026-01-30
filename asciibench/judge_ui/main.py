@@ -1,6 +1,7 @@
 import random
 from collections import Counter
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -8,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from asciibench.common.models import ArtSample, Vote
-from asciibench.common.persistence import read_jsonl
+from asciibench.common.persistence import append_jsonl, read_jsonl, read_jsonl_by_id
 
 app = FastAPI(title="ASCIIBench Judge UI")
 templates = Jinja2Templates(directory="templates")
@@ -33,6 +34,24 @@ class MatchupResponse(BaseModel):
     sample_a: SampleResponse
     sample_b: SampleResponse
     prompt: str
+
+
+class VoteRequest(BaseModel):
+    """Request model for submitting a vote."""
+
+    sample_a_id: str
+    sample_b_id: str
+    winner: Literal["A", "B", "tie", "fail"]
+
+
+class VoteResponse(BaseModel):
+    """Response model for a submitted vote."""
+
+    id: str
+    sample_a_id: str
+    sample_b_id: str
+    winner: Literal["A", "B", "tie", "fail"]
+    timestamp: str
 
 
 def _make_sorted_pair(a: str, b: str) -> tuple[str, str]:
@@ -193,6 +212,54 @@ async def get_matchup() -> MatchupResponse:
     )
 
 
-@app.post("/api/votes")
-async def submit_vote(vote: Vote) -> dict:
-    return {"status": "received", "vote": vote.model_dump()}
+@app.post("/api/votes", response_model=VoteResponse)
+async def submit_vote(vote_request: VoteRequest) -> VoteResponse:
+    """Submit a vote for a matchup comparison.
+
+    Validates that both sample IDs exist in the database and persists
+    the vote to data/votes.jsonl.
+
+    Args:
+        vote_request: The vote request containing sample IDs and winner
+
+    Returns:
+        The saved vote with its generated ID and timestamp
+
+    Raises:
+        HTTPException: 404 if either sample ID doesn't exist in database
+        HTTPException: 400 if winner value is invalid (handled by Pydantic)
+    """
+    # Validate that sample_a_id exists in database
+    sample_a = read_jsonl_by_id(DATABASE_PATH, vote_request.sample_a_id, ArtSample)
+    if sample_a is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Sample with ID '{vote_request.sample_a_id}' not found in database",
+        )
+
+    # Validate that sample_b_id exists in database
+    sample_b = read_jsonl_by_id(DATABASE_PATH, vote_request.sample_b_id, ArtSample)
+    if sample_b is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Sample with ID '{vote_request.sample_b_id}' not found in database",
+        )
+
+    # Create the Vote model (UUID and timestamp are generated automatically)
+    vote = Vote(
+        sample_a_id=vote_request.sample_a_id,
+        sample_b_id=vote_request.sample_b_id,
+        winner=vote_request.winner,
+    )
+
+    # Persist to votes.jsonl
+    append_jsonl(VOTES_PATH, vote)
+
+    # Return the saved vote with generated ID and timestamp
+    return VoteResponse(
+        id=str(vote.id),
+        sample_a_id=vote.sample_a_id,
+        sample_b_id=vote.sample_b_id,
+        winner=vote.winner,
+        timestamp=vote.timestamp.isoformat(),
+    )

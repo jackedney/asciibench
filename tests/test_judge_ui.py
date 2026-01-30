@@ -8,10 +8,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from asciibench.common.models import ArtSample, Vote
-from asciibench.common.persistence import append_jsonl
+from asciibench.common.persistence import append_jsonl, read_jsonl
 from asciibench.judge_ui.main import (
     MatchupResponse,
     SampleResponse,
+    VoteRequest,
+    VoteResponse,
     _get_model_pair_comparison_counts,
     _get_pair_comparison_counts,
     _make_sorted_pair,
@@ -567,3 +569,318 @@ class TestResponseModels:
         assert matchup.sample_a.id == "id-a"
         assert matchup.sample_b.id == "id-b"
         assert matchup.prompt == "Draw a cat"
+
+    def test_vote_request_model(self) -> None:
+        """Test VoteRequest model creation."""
+        vote_request = VoteRequest(
+            sample_a_id="sample-1",
+            sample_b_id="sample-2",
+            winner="A",
+        )
+        assert vote_request.sample_a_id == "sample-1"
+        assert vote_request.sample_b_id == "sample-2"
+        assert vote_request.winner == "A"
+
+    def test_vote_response_model(self) -> None:
+        """Test VoteResponse model creation."""
+        vote_response = VoteResponse(
+            id="vote-id",
+            sample_a_id="sample-1",
+            sample_b_id="sample-2",
+            winner="B",
+            timestamp="2026-01-30T12:00:00",
+        )
+        assert vote_response.id == "vote-id"
+        assert vote_response.sample_a_id == "sample-1"
+        assert vote_response.sample_b_id == "sample-2"
+        assert vote_response.winner == "B"
+
+
+class TestVoteSubmission:
+    """Tests for the POST /api/votes endpoint."""
+
+    def test_submit_vote_success(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test successful vote submission with persistence."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Get two sample IDs from the test data
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)  # From different model
+
+        response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "A",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify response contains expected fields
+        assert "id" in data
+        assert data["sample_a_id"] == sample_a_id
+        assert data["sample_b_id"] == sample_b_id
+        assert data["winner"] == "A"
+        assert "timestamp" in data
+
+        # Verify vote was persisted to votes.jsonl
+        votes = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes) == 1
+        assert str(votes[0].id) == data["id"]
+        assert votes[0].sample_a_id == sample_a_id
+        assert votes[0].sample_b_id == sample_b_id
+        assert votes[0].winner == "A"
+
+    def test_submit_vote_all_winner_types(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that all valid winner types (A, B, tie, fail) are accepted."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        for winner in ["A", "B", "tie", "fail"]:
+            response = client.post(
+                "/api/votes",
+                json={
+                    "sample_a_id": sample_a_id,
+                    "sample_b_id": sample_b_id,
+                    "winner": winner,
+                },
+            )
+            assert response.status_code == 200, f"Failed for winner={winner}"
+            assert response.json()["winner"] == winner
+
+    def test_submit_vote_generates_uuid(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that vote submission generates a unique UUID."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit two votes
+        response1 = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "A",
+            },
+        )
+        response2 = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "B",
+            },
+        )
+
+        assert response1.status_code == 200
+        assert response2.status_code == 200
+
+        # Verify different UUIDs
+        id1 = response1.json()["id"]
+        id2 = response2.json()["id"]
+        assert id1 != id2
+
+    def test_submit_vote_generates_timestamp(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that vote submission generates a valid timestamp."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "tie",
+            },
+        )
+
+        assert response.status_code == 200
+        timestamp_str = response.json()["timestamp"]
+
+        # Verify it's a valid ISO format timestamp
+        timestamp = datetime.fromisoformat(timestamp_str)
+        assert timestamp is not None
+
+    def test_submit_vote_invalid_sample_a_id_404(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that invalid sample_a_id returns 404 error."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Use a non-existent UUID for sample_a_id
+        response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": str(uuid4()),  # Non-existent
+                "sample_b_id": str(sample_data[0].id),
+                "winner": "A",
+            },
+        )
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_submit_vote_invalid_sample_b_id_404(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that invalid sample_b_id returns 404 error."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Use a non-existent UUID for sample_b_id
+        response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": str(sample_data[0].id),
+                "sample_b_id": str(uuid4()),  # Non-existent
+                "winner": "B",
+            },
+        )
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_submit_vote_invalid_winner_422(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that invalid winner value returns 422 validation error."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "invalid_winner",  # Invalid value
+            },
+        )
+
+        # Pydantic validation returns 422 Unprocessable Entity
+        assert response.status_code == 422
+
+    def test_submit_vote_missing_fields_422(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that missing required fields returns 422 validation error."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Missing winner field
+        response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": str(sample_data[0].id),
+                "sample_b_id": str(sample_data[2].id),
+            },
+        )
+        assert response.status_code == 422
+
+        # Missing sample_a_id
+        response = client.post(
+            "/api/votes",
+            json={
+                "sample_b_id": str(sample_data[2].id),
+                "winner": "A",
+            },
+        )
+        assert response.status_code == 422
+
+        # Missing sample_b_id
+        response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": str(sample_data[0].id),
+                "winner": "A",
+            },
+        )
+        assert response.status_code == 422
+
+    def test_submit_vote_persists_multiple_votes(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that multiple votes are persisted correctly."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Submit multiple votes
+        for i, winner in enumerate(["A", "B", "tie", "fail"]):
+            sample_a_idx = i % 3
+            sample_b_idx = (i + 2) % 5
+            if sample_b_idx == sample_a_idx:
+                sample_b_idx = (sample_b_idx + 1) % 5
+
+            response = client.post(
+                "/api/votes",
+                json={
+                    "sample_a_id": str(sample_data[sample_a_idx].id),
+                    "sample_b_id": str(sample_data[sample_b_idx].id),
+                    "winner": winner,
+                },
+            )
+            assert response.status_code == 200
+
+        # Verify all votes were persisted
+        votes = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes) == 4
+
+    def test_submit_vote_no_database_file(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that vote submission fails if database.jsonl doesn't exist."""
+        # Don't populate any samples - database.jsonl won't exist
+
+        response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": str(uuid4()),
+                "sample_b_id": str(uuid4()),
+                "winner": "A",
+            },
+        )
+
+        assert response.status_code == 404
