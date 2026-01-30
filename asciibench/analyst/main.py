@@ -30,11 +30,21 @@ Dependencies:
 
 from pathlib import Path
 
-from asciibench.analyst.elo import calculate_elo
+from rich.panel import Panel
+from rich.text import Text
+
+from asciibench.analyst.elo import calculate_elo, calculate_elo_by_category
 from asciibench.analyst.leaderboard import (
     export_rankings_csv,
     export_rankings_json,
     generate_leaderboard,
+)
+from asciibench.analyst.stats import calculate_consistency
+from asciibench.common.display import (
+    create_leaderboard_table,
+    get_console,
+    print_banner,
+    success_badge,
 )
 from asciibench.common.models import ArtSample, Vote
 from asciibench.common.persistence import read_jsonl
@@ -54,62 +64,156 @@ def main() -> None:
     5. Calculate consistency metrics for each model
     6. Generate and write LEADERBOARD.md
     7. Export rankings to JSON and CSV
-    8. Print summary to stdout
+    8. Print summary to stdout with Rich components
     """
-    print("ASCIIBench Analyst")
-    print("=" * 50)
+    console = get_console()
+
+    print_banner()
+    console.print()
 
     votes_path = Path("data/votes.jsonl")
     database_path = Path("data/database.jsonl")
 
-    print(f"\nLoading votes from {votes_path}...")
     votes = read_jsonl(votes_path, Vote)
-    print(f"Loaded {len(votes)} votes")
-
-    print(f"\nLoading samples from {database_path}...")
     samples = read_jsonl(database_path, ArtSample)
-    print(f"Loaded {len(samples)} samples")
+
+    load_panel = Panel(
+        Text.assemble(
+            ("Votes loaded: ", "info"),
+            (f"{len(votes)}", "bold accent"),
+            (" | ", "default"),
+            ("Samples loaded: ", "info"),
+            (f"{len(samples)}", "bold accent"),
+        ),
+        title="Data Load",
+        border_style="accent",
+    )
+    console.print(load_panel)
+    console.print()
 
     if not votes:
-        print("\nNo votes found. Generating empty leaderboard...")
+        no_votes_panel = Panel(
+            Text.assemble(
+                ("No votes to analyze", "error"),
+            ),
+            title="Status",
+            border_style="error",
+        )
+        console.print(no_votes_panel)
+        console.print()
         elo_ratings = {}
     else:
-        print("\nCalculating Elo ratings...")
+        console.print(success_badge(), "[info]Calculating Elo ratings...[/info]")
+        console.print()
         elo_ratings = calculate_elo(votes, samples)
-        print(f"Calculated ratings for {len(elo_ratings)} models")
+        console.print(
+            f"[info]Calculated ratings for [/info][bold accent]{len(elo_ratings)}[/bold "
+            f"accent][info] models[/info]"
+        )
+        console.print()
 
-        for model_id, rating in sorted(elo_ratings.items(), key=lambda x: x[1], reverse=True):
-            print(f"  {model_id}: {int(rating)}")
+    if elo_ratings:
+        rankings_data = []
+        for rank, (model_id, rating) in enumerate(
+            sorted(elo_ratings.items(), key=lambda x: x[1], reverse=True), start=1
+        ):
+            metrics = calculate_consistency(votes, samples, model_id)
+            rankings_data.append(
+                {
+                    "rank": rank,
+                    "model": model_id,
+                    "elo": int(rating),
+                    "comparisons": int(metrics["comparisons"]),
+                    "win_rate": metrics["win_rate"],
+                }
+            )
 
-    print("\nGenerating leaderboard...")
+        leaderboard_table = create_leaderboard_table(rankings_data)
+        console.print(leaderboard_table)
+        console.print()
+
+        category_ratings = calculate_elo_by_category(votes, samples)
+        if category_ratings:
+            for category in sorted(category_ratings.keys()):
+                cat_data = []
+                cat_elo = category_ratings[category]
+                if cat_elo:
+                    for rank, (model_id, rating) in enumerate(
+                        sorted(cat_elo.items(), key=lambda x: x[1], reverse=True), start=1
+                    ):
+                        metrics = calculate_consistency(
+                            [
+                                v
+                                for v in votes
+                                if any(
+                                    s.category == category
+                                    and str(s.id) in [v.sample_a_id, v.sample_b_id]
+                                    for s in samples
+                                )
+                            ],
+                            [s for s in samples if s.category == category],
+                            model_id,
+                        )
+                        cat_data.append(
+                            {
+                                "rank": rank,
+                                "model": model_id,
+                                "elo": int(rating),
+                                "comparisons": int(metrics["comparisons"]),
+                                "win_rate": metrics["win_rate"],
+                            }
+                        )
+
+                    cat_table = create_leaderboard_table(cat_data)
+                    cat_table.title = f"Elo Leaderboard - {category.replace('_', ' ').title()}"
+                    console.print(cat_table)
+                    console.print()
+
+    console.print(success_badge(), "Generating leaderboard markdown...", style="info")
+    console.print()
     leaderboard = generate_leaderboard(votes, samples, elo_ratings)
 
     leaderboard_path = Path("LEADERBOARD.md")
     leaderboard_path.write_text(leaderboard)
-    print(f"Leaderboard written to {leaderboard_path}")
+    console.print(success_badge(), "LEADERBOARD.md written", style="success")
+    console.print()
 
-    print("\nExporting rankings to JSON...")
+    console.print(success_badge(), "Exporting rankings to JSON...", style="info")
+    console.print()
     json_path = Path("data/rankings.json")
     export_rankings_json(votes, samples, elo_ratings, json_path)
-    print(f"Rankings exported to {json_path}")
+    console.print(success_badge(), "rankings.json written", style="success")
+    console.print()
 
-    print("\nExporting rankings to CSV...")
+    console.print(success_badge(), "Exporting rankings to CSV...", style="info")
+    console.print()
     csv_path = Path("data/rankings.csv")
     export_rankings_csv(votes, samples, elo_ratings, csv_path)
-    print(f"Rankings exported to {csv_path}")
+    console.print(success_badge(), "rankings.csv written", style="success")
+    console.print()
 
-    print("\n" + "=" * 50)
-    print("Analysis Complete!")
-    print("=" * 50)
+    summary_text = Text.assemble(
+        ("Votes analyzed: ", "info"),
+        (f"{len(votes)}", "bold accent"),
+        ("\n", "default"),
+        ("Samples used: ", "info"),
+        (f"{len(samples)}", "bold accent"),
+        ("\n", "default"),
+        ("Models rated: ", "info"),
+        (f"{len(elo_ratings)}", "bold accent"),
+        ("\n\n", "default"),
+        ("Output files:\n", "bold"),
+        (f"  - {leaderboard_path}\n", "default"),
+        (f"  - {json_path}\n", "default"),
+        (f"  - {csv_path}", "default"),
+    )
 
-    print("\nSummary:")
-    print(f"  Votes analyzed: {len(votes)}")
-    print(f"  Samples used: {len(samples)}")
-    print(f"  Models rated: {len(elo_ratings)}")
-    print("\nOutput files:")
-    print(f"  - {leaderboard_path}")
-    print(f"  - {json_path}")
-    print(f"  - {csv_path}")
+    summary_panel = Panel(
+        summary_text,
+        title="Analysis Complete!",
+        border_style="accent",
+    )
+    console.print(summary_panel)
 
 
 if __name__ == "__main__":
