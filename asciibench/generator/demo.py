@@ -14,7 +14,20 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
 from asciibench.common.config import Settings
+from asciibench.common.display import (
+    GOLD,
+    create_live_stats,
+    failed_badge,
+    get_console,
+    print_banner,
+    success_badge,
+    update_live_stats,
+)
 from asciibench.common.models import DemoResult
 from asciibench.common.yaml_config import load_generation_config, load_models
 from asciibench.generator.client import (
@@ -443,58 +456,139 @@ def main() -> None:
     """Main entry point for the Demo module.
 
     This function runs the demo generator that:
-    1. Prints header banner
+    1. Displays Rich banner
     2. Sets up error logging to .demo_outputs/errors.log
     3. Loads models from models.yaml
     4. Generates ASCII art for each model using fixed prompt
     5. Saves results to .demo_outputs/results.json
     6. Generates HTML output to .demo_outputs/demo.html
     """
-    print("ASCIIBench Demo")
-    print("=" * 50)
+    console = get_console()
+
+    print_banner()
 
     # Set up error logging
     error_logger = setup_error_logger()
 
-    models = load_models()
+    # Load models
+    try:
+        models = load_models()
+    except FileNotFoundError:
+        console.print(
+            Panel(
+                "[error]models.yaml not found[/error]",
+                title="[error]Error[/error]",
+                border_style="error",
+            )
+        )
+        return
+    except Exception as e:
+        console.print(
+            Panel(
+                f"[error]Error loading models.yaml: {e}[/error]",
+                title="[error]Error[/error]",
+                border_style="error",
+            )
+        )
+        return
 
     if not models:
-        print("\nWarning: No models found in models.yaml")
-        print("Exiting gracefully.")
+        console.print(
+            Panel(
+                "[warning]No models found in models.yaml[/warning]",
+                title="[warning]Warning[/warning]",
+                border_style="warning",
+            )
+        )
         return
 
-    print(f"\nLoaded {len(models)} models from models.yaml")
+    console.print(f"\n[info]Loaded {len(models)} models from models.yaml[/info]")
 
     results = load_demo_results()
-    print(f"Loaded {len(results)} existing results")
+    console.print(f"[info]Loaded {len(results)} existing results[/info]")
 
     completed_ids = get_completed_model_ids()
-    print(f"Completed models: {len(completed_ids)}")
+    console.print(f"[info]Completed models: {len(completed_ids)}[/info]")
 
-    if completed_ids:
-        print("  Models already done:")
-        for model_id in sorted(completed_ids):
-            print(f"    - {model_id}")
+    # Display model status table
+    if completed_ids or models:
+        models_table = Table(title="Model Status", border_style="accent")
+        models_table.add_column("Status", justify="center")
+        models_table.add_column("Model Name", style="bold")
+        models_table.add_column("Model ID")
+
+        for model in models:
+            if model.id in completed_ids:
+                status = success_badge()
+            else:
+                status = Text("[PENDING]", style=f"bold {GOLD}")
+            models_table.add_row(str(status), model.name, model.id)
+
+        console.print()
+        console.print(models_table)
 
     remaining_models = [m for m in models if m.id not in completed_ids]
-    print(f"\nRemaining models to generate: {len(remaining_models)}")
+    console.print(f"\n[info]Remaining models to generate: {len(remaining_models)}[/info]")
 
     if not remaining_models:
-        print("\nAll models already have results. Nothing to do.")
-        print("\n" + "=" * 50)
-        print("Demo Complete!")
-        print(f"Total results: {len(results)}")
+        console.print()
+        console.print(
+            Panel(
+                f"{success_badge()} All models already have results.\n\n"
+                f"Total results: {len(results)}",
+                title="[success]Demo Complete![/success]",
+                border_style="success",
+            )
+        )
         generate_html()
-        print(f"\nHTML output generated: {DEMO_HTML_PATH}")
+        console.print(f"\n[info]HTML output generated: {DEMO_HTML_PATH}[/info]")
         return
 
-    print("\nStarting generation...")
-    print(f"Errors will be logged to: {ERRORS_LOG_PATH}")
-    print("-" * 50)
+    console.print()
+    console.print("[info]Starting generation...[/info]")
+    console.print(f"[info]Errors will be logged to: {ERRORS_LOG_PATH}[/info]")
+    console.print()
 
+    # Initialize live stats
+    completed_count = len(completed_ids)
     failed_count = 0
+    remaining_count = len(remaining_models)
+
+    # Create custom LiveStatsDisplay for demo (completed, remaining, failed)
+    from asciibench.common.display import LiveStatsDisplay
+
+    class DemoLiveStats(LiveStatsDisplay):
+        def render(self) -> Panel:
+            stats_text = Text.assemble(
+                ("Completed: ", "success"),
+                (f"{self.total}", "success bold"),
+                (" | ", "default"),
+                ("Remaining: ", "info"),
+                (f"{remaining_count - (self.total - completed_count)}", "info bold"),
+                (" | ", "default"),
+                ("Failed: ", "error"),
+                (f"{self.invalid}", "error bold"),
+            )
+
+            panel = Panel(
+                stats_text,
+                border_style=GOLD,
+                padding=(0, 2),
+            )
+            return panel
+
+    live_stats = DemoLiveStats(total=completed_count, valid=0, invalid=failed_count)
+    _, live = create_live_stats()
+
+    # Update live stats with initial values
+    update_live_stats(live_stats, live, total=completed_count, valid=0, invalid=failed_count)
+
+    # Generate for remaining models
     for i, model in enumerate(remaining_models, start=1):
-        print(f"[{i}/{len(remaining_models)}] Generating for {model.name} ({model.id})...")
+        console.print(
+            f"[info][{i}/{len(remaining_models)}] Generating for {model.name} "
+            f"({model.id})...[/info]"
+        )
 
         result = generate_demo_sample(model.id, model.name, logger=error_logger)
 
@@ -502,22 +596,45 @@ def main() -> None:
         save_demo_results(results)
 
         if result.is_valid:
-            print(f"  ✓ Generated successfully ({len(result.ascii_output)} characters)")
+            console.print(
+                f"  {success_badge()} Generated successfully "
+                f"({len(result.ascii_output)} characters)"
+            )
+            completed_count += 1
         else:
             failed_count += 1
             error_msg = result.error_reason or "Unknown error"
-            print(f"  ✗ Failed: {error_msg}")
+            console.print(f"  {failed_badge()} {error_msg}")
 
-    print("\n" + "=" * 50)
-    print("Demo Complete!")
-    print(f"Total results: {len(results)}")
+        # Update live stats
+        remaining_count = len(remaining_models) - i
+        update_live_stats(live_stats, live, total=completed_count, valid=0, invalid=failed_count)
+
+    # Final summary panel
+    console.print()
+
+    summary_text = Text.assemble(
+        ("Total results: ", "info"),
+        (f"{len(results)}", "accent bold"),
+        ("\nCompleted: ", "success"),
+        (f"{completed_count}", "success bold"),
+        ("\nFailed: ", "error"),
+        (f"{failed_count}", "error bold"),
+    )
+
+    console.print(
+        Panel(
+            summary_text,
+            title="[success]Demo Complete![/success]",
+            border_style="success",
+        )
+    )
 
     if failed_count > 0:
-        print(f"Failed generations: {failed_count}")
-        print(f"See {ERRORS_LOG_PATH} for detailed error information")
+        console.print(f"[info]See {ERRORS_LOG_PATH} for detailed error information[/info]")
 
     generate_html()
-    print(f"\nHTML output generated: {DEMO_HTML_PATH}")
+    console.print(f"\n[info]HTML output generated: {DEMO_HTML_PATH}[/info]")
 
 
 if __name__ == "__main__":
