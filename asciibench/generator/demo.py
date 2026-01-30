@@ -9,6 +9,8 @@ to .demo_outputs/demo.html with incremental/resumable generation support.
 
 import html
 import json
+import logging
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -26,6 +28,75 @@ from asciibench.generator.sanitizer import extract_ascii_from_markdown
 DEMO_OUTPUTS_DIR = Path(".demo_outputs")
 RESULTS_JSON_PATH = DEMO_OUTPUTS_DIR / "results.json"
 DEMO_HTML_PATH = DEMO_OUTPUTS_DIR / "demo.html"
+ERRORS_LOG_PATH = DEMO_OUTPUTS_DIR / "errors.log"
+
+
+def setup_error_logger() -> logging.Logger:
+    """Set up a dedicated logger for generation errors.
+
+    Creates .demo_outputs directory if needed and configures
+    file handler for errors.log with detailed formatting.
+
+    Returns:
+        Configured Logger instance for error logging
+    """
+    DEMO_OUTPUTS_DIR.mkdir(exist_ok=True)
+
+    logger = logging.getLogger("asciibench.demo.errors")
+    logger.setLevel(logging.ERROR)
+
+    # Avoid adding duplicate handlers on repeated calls
+    if not logger.handlers:
+        file_handler = logging.FileHandler(ERRORS_LOG_PATH, mode="a", encoding="utf-8")
+        file_handler.setLevel(logging.ERROR)
+        formatter = logging.Formatter(
+            "%(asctime)s | %(levelname)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+    return logger
+
+
+def log_generation_error(
+    logger: logging.Logger,
+    model_id: str,
+    model_name: str,
+    error_reason: str,
+    raw_output: str | None = None,
+    exception: Exception | None = None,
+) -> None:
+    """Log a generation error with full context.
+
+    Args:
+        logger: The error logger instance
+        model_id: Model identifier (e.g., 'openai/gpt-4o-mini')
+        model_name: Human-readable model name
+        error_reason: Brief description of why generation failed
+        raw_output: The raw output received from the model (if any)
+        exception: The exception that was raised (if any)
+    """
+    separator = "=" * 80
+    log_lines = [
+        "",
+        separator,
+        f"MODEL: {model_name} ({model_id})",
+        f"REASON: {error_reason}",
+    ]
+
+    if exception:
+        log_lines.append(f"EXCEPTION: {type(exception).__name__}: {exception}")
+        log_lines.append(f"TRACEBACK:\n{traceback.format_exc()}")
+
+    if raw_output:
+        # Truncate very long outputs but keep enough for debugging
+        truncated = raw_output[:2000] + "..." if len(raw_output) > 2000 else raw_output
+        log_lines.append(f"RAW OUTPUT ({len(raw_output)} chars):\n{truncated}")
+
+    log_lines.append(separator)
+
+    logger.error("\n".join(log_lines))
 
 
 def load_demo_results() -> list[DemoResult]:
@@ -104,7 +175,11 @@ def get_completed_model_ids() -> set[str]:
     return {result.model_id for result in results}
 
 
-def generate_demo_sample(model_id: str, model_name: str) -> DemoResult:
+def generate_demo_sample(
+    model_id: str,
+    model_name: str,
+    logger: logging.Logger | None = None,
+) -> DemoResult:
     """Generate a demo ASCII art sample from a single model.
 
     Uses hardcoded prompt 'Draw a skeleton in ASCII art' and loads
@@ -113,9 +188,11 @@ def generate_demo_sample(model_id: str, model_name: str) -> DemoResult:
     Args:
         model_id: Model identifier (e.g., 'openai/gpt-4o-mini')
         model_name: Human-readable model name (e.g., 'GPT-4o Mini')
+        logger: Optional error logger for detailed failure tracking
 
     Returns:
-        DemoResult with model info, ascii_output, is_valid, and timestamp
+        DemoResult with model info, ascii_output, is_valid, timestamp,
+        and error details if failed
 
     Example:
         >>> result = generate_demo_sample('openai/gpt-4o-mini', 'GPT-4o Mini')
@@ -142,16 +219,52 @@ def generate_demo_sample(model_id: str, model_name: str) -> DemoResult:
 
     client = OpenRouterClient(api_key=settings.openrouter_api_key, base_url=settings.base_url)
 
+    raw_output: str | None = None
+    error_reason: str | None = None
+
     try:
         raw_output = client.generate(model_id, demo_prompt, config=config)
         ascii_output = extract_ascii_from_markdown(raw_output)
         is_valid = bool(ascii_output)
+
+        if not is_valid:
+            error_reason = "No valid ASCII art block found in output"
+            if logger:
+                log_generation_error(
+                    logger,
+                    model_id,
+                    model_name,
+                    error_reason,
+                    raw_output=raw_output,
+                )
+
     except (AuthenticationError, ModelError, OpenRouterClientError) as e:
+        error_reason = f"API error: {type(e).__name__}"
         ascii_output = f"Error: {e!s}"
         is_valid = False
+        if logger:
+            log_generation_error(
+                logger,
+                model_id,
+                model_name,
+                error_reason,
+                raw_output=raw_output,
+                exception=e,
+            )
+
     except Exception as e:
+        error_reason = f"Unexpected error: {type(e).__name__}"
         ascii_output = f"Unexpected error: {e!s}"
         is_valid = False
+        if logger:
+            log_generation_error(
+                logger,
+                model_id,
+                model_name,
+                error_reason,
+                raw_output=raw_output,
+                exception=e,
+            )
 
     return DemoResult(
         model_id=model_id,
@@ -159,6 +272,8 @@ def generate_demo_sample(model_id: str, model_name: str) -> DemoResult:
         ascii_output=ascii_output,
         is_valid=is_valid,
         timestamp=datetime.now(),
+        error_reason=error_reason,
+        raw_output=raw_output if not is_valid else None,
     )
 
 
@@ -329,13 +444,17 @@ def main() -> None:
 
     This function runs the demo generator that:
     1. Prints header banner
-    2. Loads models from models.yaml
-    3. Generates ASCII art for each model using fixed prompt
-    4. Saves results to .demo_outputs/results.json
-    5. Generates HTML output to .demo_outputs/demo.html
+    2. Sets up error logging to .demo_outputs/errors.log
+    3. Loads models from models.yaml
+    4. Generates ASCII art for each model using fixed prompt
+    5. Saves results to .demo_outputs/results.json
+    6. Generates HTML output to .demo_outputs/demo.html
     """
     print("ASCIIBench Demo")
     print("=" * 50)
+
+    # Set up error logging
+    error_logger = setup_error_logger()
 
     models = load_models()
 
@@ -370,12 +489,14 @@ def main() -> None:
         return
 
     print("\nStarting generation...")
+    print(f"Errors will be logged to: {ERRORS_LOG_PATH}")
     print("-" * 50)
 
+    failed_count = 0
     for i, model in enumerate(remaining_models, start=1):
         print(f"[{i}/{len(remaining_models)}] Generating for {model.name} ({model.id})...")
 
-        result = generate_demo_sample(model.id, model.name)
+        result = generate_demo_sample(model.id, model.name, logger=error_logger)
 
         results.append(result)
         save_demo_results(results)
@@ -383,11 +504,17 @@ def main() -> None:
         if result.is_valid:
             print(f"  ✓ Generated successfully ({len(result.ascii_output)} characters)")
         else:
-            print(f"  ✗ Failed: {result.ascii_output[:100]}")
+            failed_count += 1
+            error_msg = result.error_reason or "Unknown error"
+            print(f"  ✗ Failed: {error_msg}")
 
     print("\n" + "=" * 50)
     print("Demo Complete!")
     print(f"Total results: {len(results)}")
+
+    if failed_count > 0:
+        print(f"Failed generations: {failed_count}")
+        print(f"See {ERRORS_LOG_PATH} for detailed error information")
 
     generate_html()
     print(f"\nHTML output generated: {DEMO_HTML_PATH}")

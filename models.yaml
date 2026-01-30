@@ -47,6 +47,6 @@ models:
     name: Nemotron 3 Nano 30B A3B
   - id: qwen/qwen3-235b-a22b-2507
     name: Qwen3 235B A22B Instruct 2507
-  - id: microsoft/phi-4-reasoning-plus
-    name: Phi 4 Reasoning Plus
+  - id: microsoft/phi-4
+    name: Phi 4
 

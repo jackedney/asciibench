@@ -42,3 +42,5 @@ class DemoResult(BaseModel):
     ascii_output: str
     is_valid: bool
     timestamp: datetime
+    error_reason: str | None = None
+    raw_output: str | None = None
