@@ -12,20 +12,20 @@ word_lists:
     - sailboat
     - guitar
     - clock
-    - lighthouse
     - windmill
-    - castle
+    - sword
+    - banana
   animals:
     - cat
     - dog
     - elephant
     - owl
-    - fish
     - butterfly
     - snake
     - rabbit
     - horse
     - penguin
+    - otter
   actions:
     - sleeping
     - running
@@ -66,51 +66,51 @@ templates:
       - animal: dog
         action: running
       - animal: elephant
-        action: dancing
+        action: eating
       - animal: owl
         action: flying
-      - animal: fish
+      - animal: otter
         action: swimming
       - animal: butterfly
-        action: flying
+        action: sitting
       - animal: snake
         action: climbing
       - animal: rabbit
         action: jumping
       - animal: horse
-        action: running
+        action: playing
       - animal: penguin
-        action: swimming
+        action: dancing
   - category: spatial_relationship
     template: "Draw a {object_a} {position} a {object_b} in ASCII art"
     word_list_pairs:
       - object_a: cat
         position: on top of
         object_b: house
-      - object_a: bird
-        position: above
-        object_b: tree
-      - object_a: fish
-        position: inside
-        object_b: bowl
       - object_a: car
         position: beside
-        object_b: tree
-      - object_a: moon
+        object_b: bicycle
+      - object_a: rocket
         position: above
-        object_b: mountain
-      - object_a: boat
-        position: on top of
-        object_b: water
-      - object_a: sun
-        position: behind
-        object_b: cloud
-      - object_a: dog
+        object_b: sailboat
+      - object_a: guitar
         position: next to
-        object_b: doghouse
-      - object_a: star
-        position: above
-        object_b: castle
-      - object_a: flower
-        position: beside
-        object_b: fence
+        object_b: clock
+      - object_a: banana
+        position: inside
+        object_b: windmill
+      - object_a: sword
+        position: underneath
+        object_b: banana
+      - object_a: clock
+        position: behind
+        object_b: house
+      - object_a: dog
+        position: near
+        object_b: car
+      - object_a: horse
+        position: in front of
+        object_b: bicycle
+      - object_a: elephant
+        position: below
+        object_b: rocket
