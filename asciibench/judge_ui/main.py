@@ -9,7 +9,12 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from asciibench.common.models import ArtSample, Vote
-from asciibench.common.persistence import append_jsonl, read_jsonl, read_jsonl_by_id
+from asciibench.common.persistence import (
+    append_jsonl,
+    read_jsonl,
+    read_jsonl_by_id,
+    write_jsonl,
+)
 
 app = FastAPI(title="ASCIIBench Judge UI")
 templates = Jinja2Templates(directory="templates")
@@ -18,6 +23,10 @@ templates = Jinja2Templates(directory="templates")
 DATA_DIR = Path("data")
 DATABASE_PATH = DATA_DIR / "database.jsonl"
 VOTES_PATH = DATA_DIR / "votes.jsonl"
+
+# Session state tracking for undo functionality
+# Tracks whether the last action was an undo (prevents calling undo twice in a row)
+_last_action_was_undo: bool = False
 
 
 class SampleResponse(BaseModel):
@@ -255,6 +264,10 @@ async def submit_vote(vote_request: VoteRequest) -> VoteResponse:
     # Persist to votes.jsonl
     append_jsonl(VOTES_PATH, vote)
 
+    # Clear the undo state since a new vote was submitted
+    global _last_action_was_undo
+    _last_action_was_undo = False
+
     # Return the saved vote with generated ID and timestamp
     return VoteResponse(
         id=str(vote.id),
@@ -262,4 +275,61 @@ async def submit_vote(vote_request: VoteRequest) -> VoteResponse:
         sample_b_id=vote.sample_b_id,
         winner=vote.winner,
         timestamp=vote.timestamp.isoformat(),
+    )
+
+
+@app.post("/api/undo", response_model=VoteResponse)
+async def undo_vote() -> VoteResponse:
+    """Undo the most recent vote.
+
+    Removes the last vote from votes.jsonl and returns it for confirmation.
+    The operation is atomic - either the entire undo succeeds or fails.
+
+    Undo can only be called once after each vote. Calling undo twice in a
+    row without submitting a new vote will return an error.
+
+    Returns:
+        The removed vote for confirmation
+
+    Raises:
+        HTTPException: 404 if no votes exist
+        HTTPException: 400 if undo was already called without a new vote in between
+    """
+    global _last_action_was_undo
+
+    # Check if last action was already an undo (prevent double-undo)
+    if _last_action_was_undo:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot undo twice in a row. Please submit a new vote before undoing again.",
+        )
+
+    # Read all current votes
+    votes = read_jsonl(VOTES_PATH, Vote)
+
+    # Check if there are any votes to undo
+    if not votes:
+        raise HTTPException(
+            status_code=404,
+            detail="No votes to undo. The vote history is empty.",
+        )
+
+    # Get the last vote
+    last_vote = votes[-1]
+    last_vote_id = str(last_vote.id)
+
+    # Remove the last vote and rewrite the file atomically
+    votes_without_last = votes[:-1]
+    write_jsonl(VOTES_PATH, votes_without_last)
+
+    # Track that this action was an undo
+    _last_action_was_undo = True
+
+    # Return the removed vote for confirmation
+    return VoteResponse(
+        id=last_vote_id,
+        sample_a_id=last_vote.sample_a_id,
+        sample_b_id=last_vote.sample_b_id,
+        winner=last_vote.winner,
+        timestamp=last_vote.timestamp.isoformat(),
     )

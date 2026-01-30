@@ -86,3 +86,38 @@ def read_jsonl_by_id[T: BaseModel](
                     return obj
 
     return None
+
+
+def write_jsonl[T: BaseModel](path: str | Path, objects: list[T]) -> None:
+    """Write a list of Pydantic models to a JSONL file atomically.
+
+    Uses file locking and atomic write (write to temp, then rename) to
+    prevent corruption from concurrent writes or interrupted operations.
+
+    Args:
+        path: Path to the JSONL file
+        objects: List of Pydantic model instances to write
+    """
+    import os
+    import tempfile
+
+    path = Path(path)
+
+    # Ensure parent directory exists
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    with FileLock(lock_path):
+        # Write to a temporary file in the same directory for atomic rename
+        fd, temp_path = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                for obj in objects:
+                    f.write(obj.model_dump_json() + "\n")
+            # Atomic rename
+            os.replace(temp_path, path)
+        except Exception:
+            # Clean up temp file on error
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise

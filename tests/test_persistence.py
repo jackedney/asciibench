@@ -4,7 +4,12 @@ from pathlib import Path
 from uuid import uuid4
 
 from asciibench.common.models import ArtSample, Vote
-from asciibench.common.persistence import append_jsonl, read_jsonl, read_jsonl_by_id
+from asciibench.common.persistence import (
+    append_jsonl,
+    read_jsonl,
+    read_jsonl_by_id,
+    write_jsonl,
+)
 
 
 class TestAppendJsonl:
@@ -364,3 +369,162 @@ class TestIntegration:
         assert result is not None
         assert result.id == target_id
         assert result.sample_a_id == "target"
+
+
+class TestWriteJsonl:
+    """Tests for write_jsonl function (atomic rewrite)."""
+
+    def test_writes_empty_list(self, tmp_path: Path) -> None:
+        """write_jsonl can write an empty list."""
+        file_path = tmp_path / "test.jsonl"
+        # First add a vote
+        vote = Vote(sample_a_id="a", sample_b_id="b", winner="A")
+        append_jsonl(file_path, vote)
+        assert len(read_jsonl(file_path, Vote)) == 1
+
+        # Now write empty list
+        write_jsonl(file_path, [])
+
+        assert file_path.exists()
+        result = read_jsonl(file_path, Vote)
+        assert result == []
+
+    def test_writes_single_item(self, tmp_path: Path) -> None:
+        """write_jsonl writes a single item correctly."""
+        file_path = tmp_path / "test.jsonl"
+        vote = Vote(sample_a_id="a", sample_b_id="b", winner="A")
+
+        write_jsonl(file_path, [vote])
+
+        result = read_jsonl(file_path, Vote)
+        assert len(result) == 1
+        assert result[0].id == vote.id
+        assert result[0].winner == "A"
+
+    def test_writes_multiple_items(self, tmp_path: Path) -> None:
+        """write_jsonl writes multiple items correctly."""
+        file_path = tmp_path / "test.jsonl"
+        votes = [
+            Vote(sample_a_id="a1", sample_b_id="b1", winner="A"),
+            Vote(sample_a_id="a2", sample_b_id="b2", winner="B"),
+            Vote(sample_a_id="a3", sample_b_id="b3", winner="tie"),
+        ]
+
+        write_jsonl(file_path, votes)
+
+        result = read_jsonl(file_path, Vote)
+        assert len(result) == 3
+        assert result[0].winner == "A"
+        assert result[1].winner == "B"
+        assert result[2].winner == "tie"
+
+    def test_overwrites_existing_content(self, tmp_path: Path) -> None:
+        """write_jsonl completely replaces existing file content."""
+        file_path = tmp_path / "test.jsonl"
+
+        # First write 5 votes
+        initial_votes = [Vote(sample_a_id=f"a{i}", sample_b_id="b", winner="A") for i in range(5)]
+        write_jsonl(file_path, initial_votes)
+        assert len(read_jsonl(file_path, Vote)) == 5
+
+        # Now write only 2 votes
+        new_votes = [
+            Vote(sample_a_id="new1", sample_b_id="b", winner="B"),
+            Vote(sample_a_id="new2", sample_b_id="b", winner="tie"),
+        ]
+        write_jsonl(file_path, new_votes)
+
+        result = read_jsonl(file_path, Vote)
+        assert len(result) == 2
+        assert result[0].sample_a_id == "new1"
+        assert result[1].sample_a_id == "new2"
+
+    def test_creates_file_if_not_exists(self, tmp_path: Path) -> None:
+        """write_jsonl creates the file if it doesn't exist."""
+        file_path = tmp_path / "new_file.jsonl"
+        assert not file_path.exists()
+
+        vote = Vote(sample_a_id="a", sample_b_id="b", winner="A")
+        write_jsonl(file_path, [vote])
+
+        assert file_path.exists()
+        result = read_jsonl(file_path, Vote)
+        assert len(result) == 1
+
+    def test_creates_parent_directories(self, tmp_path: Path) -> None:
+        """write_jsonl creates parent directories if needed."""
+        file_path = tmp_path / "subdir" / "nested" / "file.jsonl"
+
+        vote = Vote(sample_a_id="a", sample_b_id="b", winner="A")
+        write_jsonl(file_path, [vote])
+
+        assert file_path.exists()
+
+    def test_string_path_accepted(self, tmp_path: Path) -> None:
+        """write_jsonl accepts string paths."""
+        file_path = str(tmp_path / "test.jsonl")
+        vote = Vote(sample_a_id="a", sample_b_id="b", winner="A")
+
+        write_jsonl(file_path, [vote])
+
+        result = read_jsonl(file_path, Vote)
+        assert len(result) == 1
+
+    def test_writes_art_samples(self, tmp_path: Path) -> None:
+        """write_jsonl works with ArtSample models."""
+        file_path = tmp_path / "samples.jsonl"
+        samples = [
+            ArtSample(
+                model_id="model1",
+                prompt_text="test1",
+                category="cat1",
+                attempt_number=1,
+                raw_output="raw1",
+                sanitized_output="clean1",
+                is_valid=True,
+            ),
+            ArtSample(
+                model_id="model2",
+                prompt_text="test2",
+                category="cat2",
+                attempt_number=2,
+                raw_output="raw2",
+                sanitized_output="clean2",
+                is_valid=False,
+            ),
+        ]
+
+        write_jsonl(file_path, samples)
+
+        result = read_jsonl(file_path, ArtSample)
+        assert len(result) == 2
+        assert result[0].model_id == "model1"
+        assert result[1].model_id == "model2"
+
+    def test_atomic_write_no_temp_file_left(self, tmp_path: Path) -> None:
+        """write_jsonl doesn't leave temp files after successful write."""
+        file_path = tmp_path / "test.jsonl"
+        vote = Vote(sample_a_id="a", sample_b_id="b", winner="A")
+
+        write_jsonl(file_path, [vote])
+
+        # Check that no .tmp files are left
+        tmp_files = list(tmp_path.glob("*.tmp"))
+        assert len(tmp_files) == 0
+
+    def test_roundtrip_preserves_data(self, tmp_path: Path) -> None:
+        """Data written with write_jsonl can be read back correctly."""
+        file_path = tmp_path / "test.jsonl"
+        original_id = uuid4()
+        original_vote = Vote(
+            id=original_id, sample_a_id="original-a", sample_b_id="original-b", winner="fail"
+        )
+
+        write_jsonl(file_path, [original_vote])
+        result = read_jsonl(file_path, Vote)
+
+        assert len(result) == 1
+        assert result[0].id == original_id
+        assert result[0].sample_a_id == "original-a"
+        assert result[0].sample_b_id == "original-b"
+        assert result[0].winner == "fail"

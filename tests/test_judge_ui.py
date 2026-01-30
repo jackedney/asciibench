@@ -36,6 +36,8 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(main_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(main_module, "DATABASE_PATH", tmp_path / "database.jsonl")
     monkeypatch.setattr(main_module, "VOTES_PATH", tmp_path / "votes.jsonl")
+    # Reset undo state to ensure tests don't interfere with each other
+    monkeypatch.setattr(main_module, "_last_action_was_undo", False)
     return tmp_path
 
 
@@ -884,3 +886,258 @@ class TestVoteSubmission:
         )
 
         assert response.status_code == 404
+
+
+class TestUndoEndpoint:
+    """Tests for the POST /api/undo endpoint."""
+
+    def test_undo_removes_last_vote(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that undo removes the most recent vote."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit a vote
+        vote_response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "A",
+            },
+        )
+        assert vote_response.status_code == 200
+        vote_id = vote_response.json()["id"]
+
+        # Verify vote was persisted
+        votes_before = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes_before) == 1
+
+        # Call undo
+        undo_response = client.post("/api/undo")
+        assert undo_response.status_code == 200
+
+        # Verify the undone vote is returned
+        undo_data = undo_response.json()
+        assert undo_data["id"] == vote_id
+        assert undo_data["sample_a_id"] == sample_a_id
+        assert undo_data["sample_b_id"] == sample_b_id
+        assert undo_data["winner"] == "A"
+
+        # Verify vote was removed from file
+        votes_after = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes_after) == 0
+
+    def test_undo_only_removes_last_vote(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that undo only removes the most recent vote, not earlier ones."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit multiple votes
+        for winner in ["A", "B", "tie"]:
+            client.post(
+                "/api/votes",
+                json={
+                    "sample_a_id": sample_a_id,
+                    "sample_b_id": sample_b_id,
+                    "winner": winner,
+                },
+            )
+
+        # Verify 3 votes were persisted
+        votes_before = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes_before) == 3
+
+        # Call undo
+        undo_response = client.post("/api/undo")
+        assert undo_response.status_code == 200
+
+        # Verify only the last vote (tie) was removed
+        undo_data = undo_response.json()
+        assert undo_data["winner"] == "tie"
+
+        # Verify 2 votes remain
+        votes_after = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes_after) == 2
+        assert votes_after[0].winner == "A"
+        assert votes_after[1].winner == "B"
+
+    def test_undo_with_no_votes_returns_404(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that undo returns 404 when no votes exist."""
+        # Don't submit any votes - votes.jsonl won't exist
+
+        response = client.post("/api/undo")
+        assert response.status_code == 404
+
+        data = response.json()
+        assert "No votes to undo" in data["detail"]
+
+    def test_undo_twice_in_row_returns_error(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that calling undo twice in a row without new vote returns error."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit two votes
+        for winner in ["A", "B"]:
+            client.post(
+                "/api/votes",
+                json={
+                    "sample_a_id": sample_a_id,
+                    "sample_b_id": sample_b_id,
+                    "winner": winner,
+                },
+            )
+
+        # First undo should succeed
+        first_undo = client.post("/api/undo")
+        assert first_undo.status_code == 200
+
+        # Second undo should fail (can't undo the same vote twice)
+        second_undo = client.post("/api/undo")
+        assert second_undo.status_code == 400
+
+        data = second_undo.json()
+        assert "Cannot undo twice in a row" in data["detail"]
+
+        # Verify only one vote was undone (one remains)
+        votes_after = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes_after) == 1
+
+    def test_undo_then_vote_then_undo_works(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that undo works again after submitting a new vote."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit first vote
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "A",
+            },
+        )
+
+        # Undo first vote
+        first_undo = client.post("/api/undo")
+        assert first_undo.status_code == 200
+
+        # Submit second vote
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "B",
+            },
+        )
+
+        # Undo second vote should work
+        second_undo = client.post("/api/undo")
+        assert second_undo.status_code == 200
+        assert second_undo.json()["winner"] == "B"
+
+        # Verify no votes remain
+        votes_after = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes_after) == 0
+
+    def test_undo_returns_correct_vote_details(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that undo returns all the correct vote details."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit a vote
+        vote_response = client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "fail",
+            },
+        )
+        vote_data = vote_response.json()
+
+        # Call undo
+        undo_response = client.post("/api/undo")
+        assert undo_response.status_code == 200
+
+        undo_data = undo_response.json()
+
+        # Verify all fields match
+        assert undo_data["id"] == vote_data["id"]
+        assert undo_data["sample_a_id"] == vote_data["sample_a_id"]
+        assert undo_data["sample_b_id"] == vote_data["sample_b_id"]
+        assert undo_data["winner"] == vote_data["winner"]
+        assert undo_data["timestamp"] == vote_data["timestamp"]
+
+    def test_undo_atomic_operation(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that undo rewrites votes.jsonl atomically."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit several votes
+        for winner in ["A", "B", "tie", "fail"]:
+            client.post(
+                "/api/votes",
+                json={
+                    "sample_a_id": sample_a_id,
+                    "sample_b_id": sample_b_id,
+                    "winner": winner,
+                },
+            )
+
+        # Undo the last vote
+        undo_response = client.post("/api/undo")
+        assert undo_response.status_code == 200
+
+        # Read the file and verify it's valid JSONL with correct content
+        votes = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes) == 3
+        assert votes[0].winner == "A"
+        assert votes[1].winner == "B"
+        assert votes[2].winner == "tie"
