@@ -261,3 +261,85 @@ index c6fb1ca..51d6f61 100644
 ?? tests/test_config.py
 
 [91m[1m| [0m[90m Bash     [0mStage all changes
+[91m[1m| [0m[90m Bash     [0mAdd all files and check status
+
+M  .agents/tasks/prd-asciibench-structure.json
+A  .env.example
+A  .ralph/.tmp/prompt-20260130-123401-97774-4.md
+A  .ralph/.tmp/story-20260130-123401-97774-4.json
+A  .ralph/.tmp/story-20260130-123401-97774-4.md
+M  .ralph/activity.log
+M  .ralph/errors.log
+M  .ralph/runs/run-20260130-123401-97774-iter-3.log
+A  .ralph/runs/run-20260130-123401-97774-iter-3.md
+A  .ralph/runs/run-20260130-123401-97774-iter-4.log
+A  asciibench/common/config.py
+A  asciibench/common/yaml_config.py
+A  config.yaml
+A  models.yaml
+A  prompts.yaml
+A  tests/test_config.py
+
+[91m[1m| [0m[90m Bash     [0mCommit changes
+
+[master e4be798] feat(config): implement pydantic-settings configuration
+ 16 files changed, 643 insertions(+), 5 deletions(-)
+ create mode 100644 .env.example
+ create mode 100644 .ralph/.tmp/prompt-20260130-123401-97774-4.md
+ create mode 100644 .ralph/.tmp/story-20260130-123401-97774-4.json
+ create mode 100644 .ralph/.tmp/story-20260130-123401-97774-4.md
+ create mode 100644 .ralph/runs/run-20260130-123401-97774-iter-3.md
+ create mode 100644 .ralph/runs/run-20260130-123401-97774-iter-4.log
+ create mode 100644 asciibench/common/config.py
+ create mode 100644 asciibench/common/yaml_config.py
+ create mode 100644 config.yaml
+ create mode 100644 models.yaml
+ create mode 100644 prompts.yaml
+ create mode 100644 tests/test_config.py
+
+[91m[1m| [0m[90m Bash     [0mGet commit hash and subject
+
+e4be798 feat(config): implement pydantic-settings configuration
+
+[91m[1m| [0m[90m Bash     [0mCheck working tree status
+
+ M .ralph/runs/run-20260130-123401-97774-iter-4.log
+
+[96m[1m| [0m[90m Read     [0m.ralph/progress.md
+[92m[1m| [0m[90m Edit     [0m.ralph/progress.md
+[91m[1m| [0m[90m Bash     [0mCommit progress log update
+
+[master 23b4c4b] chore(progress): log US-004 completion and learnings
+ 1 file changed, 47 insertions(+), 1 deletion(-)
+
+[91m[1m| [0m[90m Bash     [0mCheck working tree status
+
+ M .ralph/runs/run-20260130-123401-97774-iter-4.log
+
+[91m[1m| [0m[90m Bash     [0mGet latest commit hash and subject
+
+23b4c4b chore(progress): log US-004 completion and learnings
+
+US-004 is complete. All acceptance criteria have been implemented and verified:
+
+**Implemented:**
+- asciibench/common/config.py with Settings(BaseSettings) and GenerationConfig
+- Settings fields: openrouter_api_key, base_url with defaults
+- GenerationConfig with attempts_per_prompt=5, temperature=0.0, max_tokens=1000, provider='openrouter', system_prompt
+- .env.example with OPENROUTER_API_KEY placeholder
+- config.yaml skeleton with generation section
+- asciibench/common/yaml_config.py with load_models() and load_prompts() functions
+- models.yaml and prompts.yaml skeleton files
+- Comprehensive tests covering all functionality
+
+**Verification:**
+- pytest: 12 tests passed
+- ruff check: PASS
+- ruff format --check: PASS
+- ty check: PASS
+
+**Commits:**
+- e4be798 feat(config): implement pydantic-settings configuration
+- 23b4c4b chore(progress): log US-004 completion and learnings
+
+<promise>COMPLETE</promise>

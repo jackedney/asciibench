@@ -189,7 +189,7 @@
     {
       "id": "US-004",
       "title": "Implement pydantic-settings configuration",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [
         "US-002"
       ],
@@ -207,13 +207,13 @@
         "Run `uv run pytest` with no errors"
       ],
       "startedAt": "2026-01-30T12:48:48.639136+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-01-30T12:48:48.639276+00:00"
+      "completedAt": "2026-01-30T12:55:47.294367+00:00",
+      "updatedAt": "2026-01-30T12:55:47.294128+00:00"
     },
     {
       "id": "US-005",
       "title": "Create Generator package structure and skeleton",
-      "status": "open",
+      "status": "in_progress",
       "dependsOn": [
         "US-003",
         "US-004"
@@ -229,7 +229,10 @@
         "Negative case: calling generate_samples() -> NotImplementedError or empty list",
         "Create database.jsonl placeholder in data/ directory",
         "Run `uv run ruff check` with no errors on generator package"
-      ]
+      ],
+      "startedAt": "2026-01-30T12:55:49.377251+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-01-30T12:55:49.377417+00:00"
     },
     {
       "id": "US-006",
