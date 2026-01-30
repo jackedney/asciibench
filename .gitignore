@@ -1,6 +1,7 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+*.pyc
 build/
 dist/
 wheels/
@@ -8,6 +9,17 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Type checking and linting
+.ruff_cache
+
+# Environment variables
+.env
 
 # Dev browser profiles
 .opencode/skills/dev-browser/profiles/
