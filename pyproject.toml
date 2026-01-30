@@ -38,3 +38,8 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.ty]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+]
