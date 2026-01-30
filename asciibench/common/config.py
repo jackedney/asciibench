@@ -15,6 +15,4 @@ class Settings(BaseSettings):
     base_url: str = "https://openrouter.ai/api/v1"
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
 
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

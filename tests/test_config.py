@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from pydantic_settings import SettingsConfigDict
+
 from asciibench.common.config import GenerationConfig, Settings
 from asciibench.common.yaml_config import load_models, load_prompts
 

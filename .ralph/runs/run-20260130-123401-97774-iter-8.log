@@ -198,3 +198,15 @@ A  data/votes.jsonl
 
  M .ralph/runs/run-20260130-123401-97774-iter-8.log
 
+[91m[1m| [0m[90m Bash     [0mShow recent commits
+
+10a89fc chore: final iteration 8 log update
+0f6a5b4 chore: finalize iteration 8 progress and logs
+302ce0e chore: add progress entry for US-007
+
+[91m[1m| [0m[90m Bash     [0mFinal commit of iteration 8
+
+[master 1eecda7] chore: iteration 8 completion
+ 1 file changed, 15 insertions(+)
+
+<promise>COMPLETE</promise>

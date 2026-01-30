@@ -12,9 +12,7 @@ Dependencies:
 class OpenRouterClient:
     """Client for interacting with OpenRouter API using smolagents LiteLLMModel."""
 
-    def __init__(
-        self, api_key: str, base_url: str = "https://openrouter.ai/api/v1"
-    ) -> None:
+    def __init__(self, api_key: str, base_url: str = "https://openrouter.ai/api/v1") -> None:
         """Initialize the OpenRouter client.
 
         Args:
