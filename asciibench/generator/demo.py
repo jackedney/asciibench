@@ -13,7 +13,7 @@ from pathlib import Path
 
 from asciibench.common.config import Settings
 from asciibench.common.models import DemoResult
-from asciibench.common.yaml_config import load_generation_config
+from asciibench.common.yaml_config import load_generation_config, load_models
 from asciibench.generator.client import (
     AuthenticationError,
     ModelError,
@@ -173,8 +173,17 @@ def main() -> None:
     print("ASCIIBench Demo")
     print("=" * 50)
 
+    models = load_models()
+
+    if not models:
+        print("\nWarning: No models found in models.yaml")
+        print("Exiting gracefully.")
+        return
+
+    print(f"\nLoaded {len(models)} models from models.yaml")
+
     results = load_demo_results()
-    print(f"\nLoaded {len(results)} existing results")
+    print(f"Loaded {len(results)} existing results")
 
     completed_ids = get_completed_model_ids()
     print(f"Completed models: {len(completed_ids)}")
@@ -184,12 +193,34 @@ def main() -> None:
         for model_id in sorted(completed_ids):
             print(f"    - {model_id}")
 
-    print("\nDemo mode coming soon!")
-    print("This will generate skeleton ASCII art from all configured models.")
-    print("Outputs will be saved to .demo_outputs/demo.html")
+    remaining_models = [m for m in models if m.id not in completed_ids]
+    print(f"\nRemaining models to generate: {len(remaining_models)}")
+
+    if not remaining_models:
+        print("\nAll models already have results. Nothing to do.")
+        print("\n" + "=" * 50)
+        print("Demo Complete!")
+        return
+
+    print("\nStarting generation...")
+    print("-" * 50)
+
+    for i, model in enumerate(remaining_models, start=1):
+        print(f"[{i}/{len(remaining_models)}] Generating for {model.name} ({model.id})...")
+
+        result = generate_demo_sample(model.id, model.name)
+
+        results.append(result)
+        save_demo_results(results)
+
+        if result.is_valid:
+            print(f"  ✓ Generated successfully ({len(result.ascii_output)} characters)")
+        else:
+            print(f"  ✗ Failed: {result.ascii_output[:100]}")
 
     print("\n" + "=" * 50)
     print("Demo Complete!")
+    print(f"Total results: {len(results)}")
 
 
 if __name__ == "__main__":
