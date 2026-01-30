@@ -1,13 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASCIIBench Judge UI</title>
-</head>
-<body>
-    <h1>ASCIIBench Judge UI</h1>
-    <p>Welcome to the ASCIIBench judge interface for comparing AI-generated ASCII art.</p>
-    <p><a href="/judge">Go to Judge Interface</a></p>
-</body>
-</html>
+{% extends "base.html" %}
+
+{% block content %}
+<h1>ASCIIBench Judge UI</h1>
+<p>Welcome to the ASCIIBench judge interface for comparing AI-generated ASCII art.</p>
+<p><a href="/judge">Go to Judge Interface</a>
+{% endblock %}

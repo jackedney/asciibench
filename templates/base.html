@@ -19,10 +19,55 @@
             margin: 0;
             padding: 20px;
             font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f5f5f5;
         }
         .container {
             max-width: 1200px;
             margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .comparison-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .sample {
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .sample h2 {
+            margin-top: 0;
+        }
+        .art-display {
+            background-color: #fafafa;
+            padding: 15px;
+            border-radius: 4px;
+            min-height: 200px;
+            white-space: pre;
+            overflow-x: auto;
+        }
+        .controls {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .keyboard-hint {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+        .keyboard-key {
+            display: inline-block;
+            background-color: #eee;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            padding: 2px 8px;
+            font-family: monospace;
+            margin: 0 2px;
         }
     </style>
 </head>

@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Dev browser profiles
+.opencode/skills/dev-browser/profiles/
