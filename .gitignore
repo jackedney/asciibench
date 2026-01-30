@@ -23,3 +23,9 @@ htmlcov/
 
 # Dev browser profiles
 .opencode/skills/dev-browser/profiles/
+
+# Agent/IDE config directories
+.agents/
+.claude/
+.opencode/
+.ralph/
