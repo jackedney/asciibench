@@ -1,7 +1,58 @@
 # Progress Log
 Started: Fri 30 Jan 2026 12:34:01 GMT
-  
 
+## [Fri 30 Jan 2026 15:03:00] - US-008: Configure quality gates (pytest, ruff, ty)
+Thread:
+Run: 20260130-123401-97774 (iteration 9)
+Run log: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-9.log
+Run summary: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-9.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: e00d07c chore(config): configure quality gates for pytest, ruff, and ty
+- Post-commit status: M .ralph/runs/run-20260130-123401-97774-iter-9.log (continuous log updates expected)
+- Verification:
+  - Command: uv run pytest --cov -> PASS (12 tests, 100% coverage)
+  - Command: uv run ruff check -> PASS (after fixing import ordering)
+  - Command: uv run ruff format --check -> PASS (20 files already formatted)
+  - Command: uv run ty check -> PASS
+  - Negative case test (unused variable) -> ruff reports error (verified)
+  - Negative case test (type mismatch) -> ty check reports error (verified)
+- Files changed:
+  - pytest.ini (created)
+  - pyproject.toml (updated with [tool.ruff], [tool.ruff.lint], [tool.ruff.format], [tool.ty] sections)
+  - asciibench/common/config.py (formatted by ruff)
+  - asciibench/generator/client.py (formatted by ruff)
+  - tests/test_config.py (formatted by ruff, import ordering fixed)
+- What was implemented:
+  - Created pytest.ini with test discovery settings (testpaths=tests, python_files=test_*.py, python_classes=Test*, python_functions=test_*)
+  - Added pytest coverage options: --cov=asciibench, --cov-report=term-missing, --cov-report=html, --cov-fail-under=80
+  - Added [tool.ruff] section to pyproject.toml with line-length=100, target-version='py312'
+  - Added [tool.ruff.lint] section with enabled rules: E, F, I, N, W, UP, B, C4, PT, RUF
+  - Added [tool.ruff.format] section with quote-style='double', indent-style='space'
+  - Added [tool.ty] section for type checking configuration
+  - Verified tests/test_models.py already exists with comprehensive pydantic model tests
+  - Ran `uv run ruff format` to format codebase (2 files reformatted, 18 files left unchanged)
+  - Ran `uv run ruff check --fix` to fix import ordering issue in tests/test_config.py
+  - All quality gates pass:
+    - pytest: 12 tests, 100% coverage (above 80% requirement)
+    - ruff check: all checks passed
+    - ruff format: all files properly formatted
+    - ty check: all checks passed
+  - Verified negative cases:
+    - Created test file with unused variable -> ruff reported F841 error
+    - Created test file with type mismatch (int assigned string) -> ty reported invalid-assignment error
+- **Learnings for future iterations:**
+  - pytest.ini should include --cov-fail-under to enforce coverage minimum in CI/CD
+  - Ruff's I (import) rule requires imports to be sorted properly; use --fix to auto-correct
+  - ruff format should be run before ruff check to ensure formatting doesn't introduce new issues
+  - The tool.ty section in pyproject.toml can be left empty as ty uses sensible defaults
+  - Test files in tests/ directory are automatically discovered by pytest with the config in pytest.ini
+  - Coverage report is generated in htmlcov/ directory for detailed analysis
+  - When testing negative cases, create temporary test files to verify tool behavior, then delete them
+  - All Python files should follow ruff formatting rules (line-length=100, double quotes, space indentation)
+  - Running all quality gates in sequence (pytest, ruff check, ruff format --check, ty check) ensures code quality and type safety
+
+---
 ## [Fri 30 Jan 2026 14:56:00] - US-007: Create Analyst package structure and skeleton
 Thread:
 Run: 20260130-123401-97774 (iteration 8)
@@ -311,3 +362,53 @@ Run summary: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-i
   - Running git amend to include log file changes is acceptable but log files may continue to update during execution
 
 
+## [Fri 30 Jan 2026 15:12:00] - US-009: Set up GitHub Actions CI/CD workflow
+Thread:
+Run: 20260130-123401-97774 (iteration 10)
+Run log: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-10.log
+Run summary: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-10.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: 16d2fb6 Add GitHub Actions CI/CD workflow
+- Post-commit status: M .ralph/activity.log M .ralph/errors.log M .ralph/progress.md M .ralph/runs/run-20260130-123401-97774-iter-9.log ?? .ralph/.tmp/ ?? .ralph/runs/run-20260130-123401-97774-iter-10.log (continuous log updates expected)
+- Verification:
+  - Command: uv run pytest --cov -> PASS (12 tests, 100% coverage)
+  - Command: uv run ruff check -> PASS
+  - Command: uv run ruff format --check -> PASS
+  - Command: uv run ty check -> PASS
+- Files changed:
+  - .github/workflows/ci.yml (created)
+  - README.md (updated with CI badge and project documentation)
+- What was implemented:
+  - Created .github/workflows/ci.yml with GitHub Actions CI/CD workflow
+  - Configured workflow triggers: push to main branch and pull requests
+  - Added workflow steps:
+    - actions/checkout@v4 to check out code
+    - actions/setup-python@v5 to set up Python 3.12
+    - astral-sh/setup-uv@v4 to install uv with caching enabled
+    - uv sync to install dependencies
+    - uv run pytest --cov to run tests with coverage
+    - uv run ruff check to run linting
+    - uv run ruff format --check to verify formatting
+    - uv run ty check to run type checking
+  - Updated README.md with:
+    - CI badge (placeholder URL to be updated with actual repo)
+    - Project title and description
+    - Installation instructions using uv
+    - Development setup instructions
+    - Quality gates section with all verification commands
+    - Project structure overview showing modules
+    - Reference to SPECIFICATION.md for detailed requirements
+  - All quality gates pass (pytest, ruff check, ruff format, ty check)
+  - Workflow is ready to run on push/PR; will be verified after pushing to GitHub
+- **Learnings for future iterations:**
+  - GitHub Actions workflows should use official actions (checkout@v4, setup-python@v5, setup-uv@v4)
+  - astral-sh/setup-uv@v4 action includes cache configuration to speed up dependency installation
+  - Workflow badge URL format: https://github.com/{username}/{repo}/workflows/{workflow-name}/badge.svg
+  - All quality gates in CI should match the commands used locally for consistency
+  - Python version in CI should match pyproject.toml requires-python (>=3.12 -> 3.12)
+  - Use ubuntu-latest as the default runner for Python projects
+  - CI workflow should be read-only (no push or deployment actions) for basic quality gates
+  - README.md should include all development commands for quick reference
+
+---

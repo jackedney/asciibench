@@ -427,3 +427,119 @@ index 47a07e7..ccb096a 100644
  
 
 Let me stage all changes and commit:
+[91m[1m| [0m[90m Bash     [0mStage all changes and verify
+
+M  .agents/tasks/prd-asciibench-structure.json
+A  .coverage
+A  .ralph/.tmp/prompt-20260130-123401-97774-9.md
+A  .ralph/.tmp/story-20260130-123401-97774-9.json
+A  .ralph/.tmp/story-20260130-123401-97774-9.md
+M  .ralph/activity.log
+M  .ralph/errors.log
+M  .ralph/runs/run-20260130-123401-97774-iter-8.log
+A  .ralph/runs/run-20260130-123401-97774-iter-8.md
+A  .ralph/runs/run-20260130-123401-97774-iter-9.log
+M  asciibench/common/config.py
+M  asciibench/generator/client.py
+M  pyproject.toml
+A  pytest.ini
+M  tests/test_config.py
+
+[94m[1m| [0m[90m skill    [0mLoaded skill: commit
+[91m[1m| [0m[90m Bash     [0mCommit quality gates configuration
+
+[master e00d07c] chore(config): configure quality gates for pytest, ruff, and ty
+ 15 files changed, 710 insertions(+), 11 deletions(-)
+ create mode 100644 .coverage
+ create mode 100644 .ralph/.tmp/prompt-20260130-123401-97774-9.md
+ create mode 100644 .ralph/.tmp/story-20260130-123401-97774-9.json
+ create mode 100644 .ralph/.tmp/story-20260130-123401-97774-9.md
+ create mode 100644 .ralph/runs/run-20260130-123401-97774-iter-8.md
+ create mode 100644 .ralph/runs/run-20260130-123401-97774-iter-9.log
+ create mode 100644 pytest.ini
+
+[91m[1m| [0m[90m Bash     [0mCapture commit hash and subject
+
+e00d07c chore(config): configure quality gates for pytest, ruff, and ty
+
+[91m[1m| [0m[90m Bash     [0mVerify clean working tree
+
+ M .ralph/runs/run-20260130-123401-97774-iter-9.log
+
+[91m[1m| [0m[90m Bash     [0mCheck log file changes
+
+diff --git a/.ralph/runs/run-20260130-123401-97774-iter-9.log b/.ralph/runs/run-20260130-123401-97774-iter-9.log
+index 6d543a4..15067e8 100644
+--- a/.ralph/runs/run-20260130-123401-97774-iter-9.log
++++ b/.ralph/runs/run-20260130-123401-97774-iter-9.log
+@@ -427,3 +427,42 @@ index 47a07e7..ccb096a 100644
+  
+ 
+ Let me stage all changes and commit:
++[91m[1m| [0m[90m Bash     [0mStage all changes and verify
++
++M  .agents/tasks/prd-asciibench-structure.json
++A  .coverage
++A  .ralph/.tmp/prompt-20260130-123401-97774-9.md
++A  .ralph/.tmp/story-20260130-123401-97774-9.json
++A  .ralph/.tmp/story-20260130-123401-97774-9.md
++M  .ralph/activity.log
++M  .ralph/errors.log
++M  .ralph/runs/run-20260130-123401-97774-iter-8.log
++A  .ralph/runs/run-20260130-123401-97774-iter-8.md
++A  .ralph/runs/run-20260130-123401-97774-iter-9.log
+
+[96m[1m| [0m[90m Read     [0m.ralph/progress.md
+[92m[1m| [0m[90m Edit     [0m.ralph/progress.md
+Let me run a final verification to ensure all quality gates pass:
+[91m[1m| [0m[90m Bash     [0mFinal ruff format verification
+
+20 files already formatted
+
+[91m[1m| [0m[90m Bash     [0mFinal ruff check verification
+
+All checks passed!
+
+[91m[1m| [0m[90m Bash     [0mFinal ty check verification
+
+All checks passed!
+
+[91m[1m| [0m[90m Bash     [0mFinal pytest verification
+
+============================= test session starts ==============================
+platform darwin -- Python 3.13.4, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/jackedney/asciibench
+configfile: pytest.ini
+testpaths: tests
+plugins: anyio-4.12.1, cov-7.0.0
+collected 12 items
+
+tests/test_config.py ......                                              [ 50%]
+tests/test_models.py ......                                              [100%]
+
+================================ tests coverage ================================
+_______________ coverage: platform darwin, python 3.13.4-final-0 _______________
+
+Name                               Stmts   Miss  Cover   Missing
+----------------------------------------------------------------
+asciibench/__init__.py                 0      0   100%
+asciibench/common/__init__.py          0      0   100%
+asciibench/common/config.py           13      0   100%
+asciibench/common/models.py           23      0   100%
+asciibench/common/yaml_config.py      12      0   100%
+tests/__init__.py                      0      0   100%
+tests/test_config.py                  59      0   100%
+tests/test_models.py                  37      0   100%
+----------------------------------------------------------------
+TOTAL                                144      0   100%
+Coverage HTML written to dir htmlcov
+Required test coverage of 80% reached. Total coverage: 100.00%
+============================== 12 passed in 0.19s ==============================
+
+Perfect! All quality gates pass. Let me verify the git status one more time:
+[91m[1m| [0m[90m Bash     [0mCheck final git status
+
+ M .ralph/progress.md
+ M .ralph/runs/run-20260130-123401-97774-iter-9.log
+
+<promise>COMPLETE</promise>

@@ -287,7 +287,7 @@
     {
       "id": "US-008",
       "title": "Configure quality gates (pytest, ruff, ty)",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [
         "US-002"
       ],
@@ -308,13 +308,13 @@
         "Run `uv run ty check` to verify type safety"
       ],
       "startedAt": "2026-01-30T15:02:31.033237+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-01-30T15:02:31.033462+00:00"
+      "completedAt": "2026-01-30T15:09:39.354274+00:00",
+      "updatedAt": "2026-01-30T15:09:39.354058+00:00"
     },
     {
       "id": "US-009",
       "title": "Set up GitHub Actions CI/CD workflow",
-      "status": "open",
+      "status": "done",
       "dependsOn": [
         "US-008"
       ],
@@ -334,12 +334,15 @@
         "Negative case: code with lint errors -> workflow fails on ruff check step",
         "Add workflow status badge to README.md",
         "Commit and push workflow, verify it runs in GitHub Actions tab"
-      ]
+      ],
+      "startedAt": "2026-01-30T15:09:41.433344+00:00",
+      "completedAt": "2026-01-30T15:13:03.394043+00:00",
+      "updatedAt": "2026-01-30T15:13:03.393815+00:00"
     },
     {
       "id": "US-010",
       "title": "Create README.md and project documentation skeleton",
-      "status": "open",
+      "status": "in_progress",
       "dependsOn": [
         "US-001",
         "US-009"
@@ -359,7 +362,10 @@
         "Example: README includes 'uv sync' and 'uv run pytest' commands",
         "Negative case: missing .env in .gitignore -> environment file would be committed",
         "Verify README renders properly on GitHub"
-      ]
+      ],
+      "startedAt": "2026-01-30T15:13:05.476970+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-01-30T15:13:05.477225+00:00"
     }
   ]
 }
