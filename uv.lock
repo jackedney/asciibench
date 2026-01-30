@@ -40,6 +40,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
+    { name = "rich" },
     { name = "smolagents", extra = ["openai"] },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -64,6 +65,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "python-multipart" },
+    { name = "rich", specifier = ">=14.3.1" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "smolagents", extras = ["openai"] },
     { name = "ty", marker = "extra == 'dev'" },
