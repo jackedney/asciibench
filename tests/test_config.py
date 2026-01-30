@@ -86,6 +86,10 @@ def test_load_generation_config():
     assert config.temperature == 0.0
     assert config.max_tokens == 1000
     assert config.provider == "openrouter"
+    assert "Draw the requested ASCII art" in config.system_prompt
+    assert "Markdown code block" in config.system_prompt
+    assert "No conversational text" in config.system_prompt
+    assert "ANSI escape codes" in config.system_prompt
 
 
 def test_load_generation_config_with_custom_values():
@@ -118,6 +122,7 @@ def test_load_generation_config_missing_file():
     assert config.attempts_per_prompt == 5
     assert config.temperature == 0.0
     assert config.max_tokens == 1000
+    assert config.system_prompt == ""
 
 
 def test_load_generation_config_empty_file():
@@ -130,6 +135,7 @@ def test_load_generation_config_empty_file():
         assert config.attempts_per_prompt == 5
         assert config.temperature == 0.0
         assert config.max_tokens == 1000
+        assert config.system_prompt == ""
 
     Path(tmp_file.name).unlink()
 
@@ -148,6 +154,7 @@ def test_load_generation_config_partial_values():
         assert config.attempts_per_prompt == 3  # Custom value
         assert config.temperature == 0.0  # Default
         assert config.max_tokens == 1000  # Default
+        assert config.system_prompt == ""  # Default
 
     Path(tmp_file.name).unlink()
 
