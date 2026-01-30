@@ -1,4 +1,9 @@
-from asciibench.common.display import get_console, get_theme, print_banner
+from asciibench.common.display import (
+    get_console,
+    get_theme,
+    print_banner,
+    create_generation_progress,
+)
 
 
 def test_get_theme_returns_theme():
@@ -35,3 +40,45 @@ def test_print_banner_on_narrow_terminal():
     get_console(force_terminal=True)
     print_banner()
     assert True
+
+
+def test_create_generation_progress_returns_progress():
+    progress = create_generation_progress()
+    assert progress is not None
+    assert hasattr(progress, "add_task")
+
+
+def test_create_generation_progress_as_context_manager():
+    with create_generation_progress() as progress:
+        assert progress is not None
+
+
+def test_create_generation_progress_adds_task_with_all_fields():
+    with create_generation_progress() as p:
+        task = p.add_task(
+            "Generating...",
+            total=100,
+            eta="--:--",
+            model="gpt-4o",
+            prompt="Draw a cat",
+            attempt=1,
+            success_count=0,
+            fail_count=0,
+        )
+        assert task is not None
+
+
+def test_create_generation_progress_updates_task():
+    with create_generation_progress() as p:
+        task = p.add_task(
+            "Generating...",
+            total=100,
+            eta="--:--",
+            model="gpt-4o",
+            prompt="Draw a cat",
+            attempt=1,
+            success_count=0,
+            fail_count=0,
+        )
+        p.update(task, advance=10, success_count=5, fail_count=2)
+        assert True

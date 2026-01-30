@@ -1,5 +1,6 @@
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
 from rich.text import Text
 from rich.theme import Theme
 
@@ -67,3 +68,26 @@ def print_banner() -> None:
     )
 
     console.print(panel)
+
+
+def create_generation_progress(total: int = 100):
+    console = get_console()
+
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=None, complete_style="primary", finished_style="success"),
+        TaskProgressColumn(),
+        TextColumn("[info]ETA: {task.fields[eta]}", justify="right"),
+        TextColumn("|"),
+        TextColumn("[accent]{task.fields[model]}", justify="right"),
+        TextColumn("|"),
+        TextColumn("[info]{task.fields[prompt]}", justify="right"),
+        TextColumn("|"),
+        TextColumn("[accent]Attempt {task.fields[attempt]}", justify="right"),
+        TextColumn("|"),
+        TextColumn("[success]✓{task.fields[success_count]}", justify="right"),
+        TextColumn("[error]✗{task.fields[fail_count]}", justify="right"),
+        console=console,
+    )
+
+    return progress
