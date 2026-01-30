@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal, cast
+from uuid import UUID
 
 import pytest
 from pydantic import ValidationError
@@ -65,3 +66,69 @@ def test_prompt_valid():
     assert prompt.text == "Draw a cat"
     assert prompt.category == "animal"
     assert prompt.template_type == "simple"
+
+
+def test_art_sample_uuid_generation():
+    """ArtSample generates a unique UUID automatically."""
+    sample = ArtSample(
+        model_id="openai/gpt-4o",
+        prompt_text="Draw a cat",
+        category="animal",
+        attempt_number=1,
+        raw_output="```\n/_/\n```",
+        sanitized_output="/_/",
+        is_valid=True,
+    )
+    assert isinstance(sample.id, UUID)
+
+
+def test_art_sample_timestamp_default():
+    """ArtSample generates a timestamp automatically."""
+    before = datetime.now()
+    sample = ArtSample(
+        model_id="openai/gpt-4o",
+        prompt_text="Draw a cat",
+        category="animal",
+        attempt_number=1,
+        raw_output="```\n/_/\n```",
+        sanitized_output="/_/",
+        is_valid=True,
+    )
+    after = datetime.now()
+    assert before <= sample.timestamp <= after
+
+
+def test_two_samples_have_different_uuids():
+    """Two samples created sequentially have different UUIDs."""
+    sample1 = ArtSample(
+        model_id="openai/gpt-4o",
+        prompt_text="Draw a cat",
+        category="animal",
+        attempt_number=1,
+        raw_output="```\n/_/\n```",
+        sanitized_output="/_/",
+        is_valid=True,
+    )
+    sample2 = ArtSample(
+        model_id="openai/gpt-4o",
+        prompt_text="Draw a cat",
+        category="animal",
+        attempt_number=2,
+        raw_output="```\n/_/\n```",
+        sanitized_output="/_/",
+        is_valid=True,
+    )
+    assert sample1.id != sample2.id
+
+
+def test_vote_uuid_generation():
+    """Vote generates a unique UUID automatically."""
+    vote = Vote(sample_a_id="sample1", sample_b_id="sample2", winner="A")
+    assert isinstance(vote.id, UUID)
+
+
+def test_two_votes_have_different_uuids():
+    """Two votes created sequentially have different UUIDs."""
+    vote1 = Vote(sample_a_id="sample1", sample_b_id="sample2", winner="A")
+    vote2 = Vote(sample_a_id="sample3", sample_b_id="sample4", winner="B")
+    assert vote1.id != vote2.id
