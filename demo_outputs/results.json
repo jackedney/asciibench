@@ -1,0 +1,177 @@
+[
+  {
+    "model_id": "moonshotai/kimi-k2.5",
+    "model_name": "Kimi K2.5",
+    "ascii_output": "_______\n          /       \\\n         |  o   o  |\n         |    >    |\n         |  \\___/  |\n          \\_______/\n              |\n          /---+---\\\n         /    |    \\\n        |     |     |\n        |  |  |  |  |\n         \\ |  |  | /\n          |  |  |  |\n          |  |  |  |\n         /   |   \\\n        /    |    \\\n       (     |     )\n        \\    |    /\n         `-. | .-'\n            |||\n           / | \\\n          /  |  \\\n         '   |   '\n        /    |    \\\n       (     |     )\n        \\    |    /\n         `-. | .-'\n           |||\n          /   \\\n         /     \\\n        (       )\n         \\     /\n          `-.-'",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:48:26.924129"
+  },
+  {
+    "model_id": "anthropic/claude-sonnet-4.5",
+    "model_name": "Claude 4.5 Sonnet",
+    "ascii_output": ".--.\n                                     (    )\n                                      `--'\n                                       ||\n                                       ||\n                                      .''.\n                                     /    \\\n                                    |  __  |\n                                    | |  | |\n                                    | |__| |\n                                    |      |\n                                    |      |\n                                   /|      |\\\n                                  / |      | \\\n                                 /  |      |  \\\n                                /   |      |   \\\n                               /    |      |    \\\n                              /     |      |     \\\n                             /      |      |      \\\n                            /       |      |       \\\n                           /        |      |        \\\n                          /         |      |         \\\n                         /          |      |          \\\n                        /           |      |           \\\n                       /            |      |            \\\n                      /             |      |             \\\n                     /              |      |              \\\n                    /               |      |               \\\n                   /                |      |                \\\n                  /                 |      |                 \\\n                 /                  |      |                  \\\n                /                   |      |                   \\\n               /                    |      |                    \\\n              /                     |      |                     \\\n             /                      |      |                      \\\n            /                       |      |                       \\\n           /                        |      |                        \\\n          /                         |      |                         \\\n         /                          |      |                          \\\n        /                           |      |                           \\\n       /                            |      |                            \\\n      /                             |      |                             \\\n     /                              |      |                              \\\n    /                               |      |                               \\\n   /                                |      |                                \\\n  /                                 |      |                                 \\\n /                                  |      |                                  \\\n/                                   |      |                                   \\\n                                    |      |\n                                    |      |\n                                   /|      |\\\n                                  / |      | \\\n                                 /  |      |  \\\n                                /   |      |   \\\n                               /    |      |    \\\n                              /     |      |     \\\n                             /      |      |      \\\n                            /       |      |       \\\n                           /        |      |        \\\n                          /         |      |         \\\n                         /          |      |          \\\n                        /           |      |           \\\n                       /            |      |            \\\n                      /             |      |             \\\n                     /              |      |              \\\n                    /               |      |               \\\n                   /                |      |                \\\n                  /                 |      |                 \\\n                 /                  |      |                  \\\n                /                   |      |                   \\\n               /                    |      |                    \\\n              /                     |      |                     \\\n             /                      |      |                      \\\n            /                       |      |                       \\\n           /                        |      |                        \\\n          /                         |      |                         \\\n         /                          |      |                          \\\n        /                           |      |                           \\\n       /                            |      |                            \\\n      /                             |      |                             \\\n     /                              |      |                              \\\n    /                               |      |                               \\\n   /                                |      |                                \\\n  /                                 |      |                                 \\\n /                                  |      |                                  \\\n/                                   |      |                                   \\",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:48:35.854908"
+  },
+  {
+    "model_id": "google/gemini-3-flash-preview",
+    "model_name": "Gemini 3 Flash Preview",
+    "ascii_output": ".-.\n     (o.o)\n      |=|\n     __|__\n   //  |  \\\\\n  //|  |  |\\\\\n  \\\\|__|__|//\n     |  |\n     |  |\n     |__|\n    /    \\\n   /      \\\n   |      |\n   |      |\n   |______|\n   |  ||  |\n   |  ||  |\n   |  ||  |\n   |__||__|\n  /____||____\\",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:48:38.008716"
+  },
+  {
+    "model_id": "deepseek/deepseek-v3.2",
+    "model_name": "DeepSeek V3.2",
+    "ascii_output": "______\n    /      \\\n   /        \\\n  |  o   o  |\n  |    ^    |\n   \\  \\_/  /\n    \\_____/\n       |\n       |\n      / \\\n     /   \\\n    /     \\\n   /       \\\n  /         \\\n /           \\\n/_____________\\",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:49:13.727716"
+  },
+  {
+    "model_id": "anthropic/claude-opus-4.5",
+    "model_name": "Claude 4.5 Opus",
+    "ascii_output": "_.--\"\"-._\n           .-'         '-.\n          /               \\\n         |    _       _    |\n         |   (o)     (o)   |\n         |       ___       |\n          \\     /   \\     /\n           '-.._\\___/_..-'\n               |     |\n          .----'     '----.\n         /    |       |    \\\n        |     |       |     |\n         \\    |       |    /\n          '---|       |---'\n              |       |\n              |       |\n           .--'       '--.\n          /   \\       /   \\\n         /     \\     /     \\\n        |       |   |       |\n        |       |   |       |\n         \\     /     \\     /\n          '---'       '---'",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:49:19.548554"
+  },
+  {
+    "model_id": "x-ai/grok-4.1-fast",
+    "model_name": "Grok 4.1 Fast",
+    "ascii_output": ".-.\n             (   )\n              |-|\n             / | \\\n            /  |  \\\n           |   |   |\n            \\  |  /\n             \\ | /\n              |||\n             /||\\\n            //||\\\\\n           ///||\\\\\\\n              |||\n             / | \\\n            /  |  \\\n               |\n              / \\\n             /   \\",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:49:54.477297"
+  },
+  {
+    "model_id": "openai/gpt-oss-120b",
+    "model_name": "gpt-oss-120b",
+    "ascii_output": ".-.\n  (o o)\n   | |\n   | |\n  /| |\\ \n / | | \\\n   / \\\n  /   \\\n /_____\\\n   |||\n   |||\n   |||",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:49:55.289211"
+  },
+  {
+    "model_id": "minimax/minimax-m2.1",
+    "model_name": "MiniMax M2.1",
+    "ascii_output": ".---.\n     /     \\\n    |  o   o  |\n    |    ^    |\n     \\  ___  /\n      \\_____/\n      /o oo\\\n     / o o o\\\n    /   o   \\\n   /    o    \\\n  /     o     \\\n /       o      \\\n/         o       \\\n|         |        |\n|         |        |\n|         |        |\n \\       / \\       /\n  \\     /   \\     /\n   \\   /     \\   /\n    \\ /       \\ /\n     |         |\n    / \\       / \\\n   /   \\     /   \\\n  /     \\   /     \\\n /       \\ /       \\\n/         |         \\",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:49:59.439096"
+  },
+  {
+    "model_id": "google/gemini-3-pro-preview",
+    "model_name": "Gemini 3 Pro Preview",
+    "ascii_output": "",
+    "is_valid": false,
+    "timestamp": "2026-01-30T22:50:44.805709"
+  },
+  {
+    "model_id": "z-ai/glm-4.7",
+    "model_name": "GLM 4.7",
+    "ascii_output": ".---.\n     /     \\\n    |  o o  |\n    |   ^   |\n     \\ ~~~ /\n      '---'\n        |\n       /|\\\n      / | \\\n     |  |  |\n      \\ | /\n       \\|/\n        |\n       / \\\n      /   \\\n     |     |\n     |     |\n    /       \\\n   /         \\\n  |           |\n  |           |\n /             \\\n |             |\n |             |",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:50:48.865634"
+  },
+  {
+    "model_id": "openai/gpt-4o-mini",
+    "model_name": "GPT-4o-mini",
+    "ascii_output": ".-.\n      (o o) \n      | O |\n      |   |\n      '~~~'\n     .-.-.-.\n    /       \\\n   |         |\n   |         |\n    \\       /\n     `-._.-'",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:50:50.236052"
+  },
+  {
+    "model_id": "openai/gpt-5.2",
+    "model_name": "GPT-5.2",
+    "ascii_output": ".-.\n         (o o)\n         | O |\n         |   |\n         '~~~'\n        /|   |\\\n       / |   | \\\n      /  |   |  \\\n         |   |\n         |   |\n        /     \\\n       / /| |\\ \\\n      /_/ | | \\_\\\n          | |\n          | |\n         /   \\\n        /_____\\",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:50:52.696465"
+  },
+  {
+    "model_id": "openai/gpt-5-mini",
+    "model_name": "GPT-5 Mini",
+    "ascii_output": ".-''''-.\n               /  .--.  \\\n              /  /    \\  \\\n             |  |  ()  |  |\n             |  |  --  |  |\n             |  |_____|  |\n              \\  \\____/  /\n               '.______.'\n                   ||\n                .-''-.\n           _    | || |    _\n          / \\   | || |   / \\\n         | O |--' || '--| O |\n          \\_/      ||     \\_/\n                   ||\n               ____||____\n             /  _     _  \\\n            /  (_)   (_)  \\\n           |   _________   |\n           |  /  ___  \\ |  |\n           | |  /   \\  ||  |\n           | | |     | ||  |\n            \\ \\ \\___/ / / /\n             '._\\___/_.' /\n                  ||     /\n                  ||    /\n             _____||___/\n            /     ||   \\\n           /      ||    \\\n          /       ||     \\\n         /        ||      \\\n        /         ||       \\\n       /          ||        \\\n      /           ||         \\\n     /            ||          \\\n    /             ||           \\\n   /              ||            \\\n  /               ||             \\\n /                ||              \\\n/                 ||               \\\n                  ||\n                  ||\n                  ||\n                 /  \\\n                /____\\",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:51:11.360532"
+  },
+  {
+    "model_id": "mistralai/mistral-nemo",
+    "model_name": "Mistral Nemo",
+    "ascii_output": "",
+    "is_valid": false,
+    "timestamp": "2026-01-30T22:51:11.909516"
+  },
+  {
+    "model_id": "openai/gpt-4.1-mini",
+    "model_name": "GPT-4.1 Mini",
+    "ascii_output": ".-.\n     (o o)\n     | O \\\n      \\   \\\n       `~~~'\n       / | \\\n      /  |  \\\n     *   |   *\n         |\n        / \\\n       /   \\\n      *     *",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:51:13.666053"
+  },
+  {
+    "model_id": "z-ai/glm-4.5-air:free",
+    "model_name": "GLM 4.5 Air",
+    "ascii_output": "",
+    "is_valid": false,
+    "timestamp": "2026-01-30T22:53:15.705173"
+  },
+  {
+    "model_id": "moonshotai/kimi-k2-thinking",
+    "model_name": "Kimi K2 Thinking",
+    "ascii_output": "",
+    "is_valid": false,
+    "timestamp": "2026-01-30T22:53:54.373571"
+  },
+  {
+    "model_id": "meta-llama/llama-3.1-8b-instruct",
+    "model_name": "Llama 3.1 8B Instruct",
+    "ascii_output": "_______\n  /       \\\n /         \\\n|   O   O  |\n _______/\n  |       |\n  |  __  |\n  | /  \\ |\n  | |  | |\n  | |__| |\n  |_____/",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:53:54.841355"
+  },
+  {
+    "model_id": "mistralai/mistral-small-3.2-24b-instruct",
+    "model_name": "Mistral Small 3.2 24B",
+    "ascii_output": "O\n      /|\\\n      / \\",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:53:55.416989"
+  },
+  {
+    "model_id": "google/gemini-2.5-flash-lite",
+    "model_name": "Gemini 2.5 Flash Lite",
+    "ascii_output": "_.--\"\"--._\n    .'          `.\n   /   O      O   \\\n  |    \\  ^^  /    |\n  \\     `----'     /\n   `. _______ .'\n     //_____\\\\\n    (( ____ ))\n     `--\"\"--'\n       /  \\\n      /    \\\n     /______\\\n    /________\\\n   /__________\\\n  /____________\\\n /______________\\\n/________________\\\n|________________|\n|________________|\n \\______________/\n  \\____________/\n   \\__________/\n    \\________/\n     \\______/\n      \\____/\n       \\__/\n        \\/",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:53:58.307144"
+  },
+  {
+    "model_id": "arcee-ai/trinity-large-preview:free",
+    "model_name": "Trinity Large Preview",
+    "ascii_output": ".-.\n             (o o) boo!\n              |-|\n             /   \\\n            /     \\\n           /       \\\n          /         \\\n         /           \\\n        /             \\\n       /               \\\n      /                 \\\n     /                   \\\n    /                     \\\n   /                       \\\n  /                         \\\n /                           \\\n/                             \\\n                              /\n                             /\n                            /\n                           /\n                          /\n                         /\n                        /\n                       /\n                      /\n                     /\n                    /\n                   /\n                  /\n                 /\n                /\n               /\n              /\n             /\n            /\n           /\n          /\n         /\n        /\n       /\n      /\n     /\n    /\n   /\n  /\n /\n/",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:54:00.756256"
+  },
+  {
+    "model_id": "meta-llama/llama-3.3-70b-instruct",
+    "model_name": "Llama 3.3 70B Instruct",
+    "ascii_output": "/_/\\\n( o.o )\n > ^ <\n______\n  | | |\n  | | |\n  | | |",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:54:01.218069"
+  },
+  {
+    "model_id": "nvidia/nemotron-3-nano-30b-a3b:free",
+    "model_name": "Nemotron 3 Nano 30B A3B",
+    "ascii_output": "_   _\n       / \\_/ \\\n      (  o o  )\n       \\  ^  /\n        \\___/\n        /   \\\n       /_____\\\n      /       \\\n     /         \\\n    /___________\\",
+    "is_valid": true,
+    "timestamp": "2026-01-30T22:54:11.072216"
+  },
+  {
+    "model_id": "qwen/qwen3-235b-a22b-2507",
+    "model_name": "Qwen3 235B A22B Instruct 2507",
+    "ascii_output": "",
+    "is_valid": false,
+    "timestamp": "2026-01-30T22:54:12.742844"
+  },
+  {
+    "model_id": "microsoft/phi-4",
+    "model_name": "Phi 4",
+    "ascii_output": "",
+    "is_valid": false,
+    "timestamp": "2026-01-30T22:55:12.543577"
+  }
+]
