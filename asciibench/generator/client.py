@@ -8,6 +8,8 @@ Dependencies:
     - asciibench.common.config: Settings for API configuration
 """
 
+import asyncio
+
 from smolagents import OpenAIModel
 
 from asciibench.common.config import GenerationConfig
@@ -126,3 +128,26 @@ class OpenRouterClient:
 
             # Re-raise as generic client error
             raise OpenRouterClientError(f"API error: {e}") from e
+
+    async def generate_async(
+        self,
+        model_id: str,
+        prompt: str,
+        config: GenerationConfig | None = None,
+    ) -> str:
+        """Async version of generate that runs the sync call in a thread pool.
+
+        Args:
+            model_id: Model identifier (e.g., 'openai/gpt-4o')
+            prompt: Text prompt to send to the model
+            config: Optional generation configuration with temperature, max_tokens, system_prompt
+
+        Returns:
+            Generated text response from the model
+
+        Raises:
+            AuthenticationError: When API authentication fails (invalid API key)
+            ModelError: When the specified model is invalid or unavailable
+            OpenRouterClientError: For other API errors
+        """
+        return await asyncio.to_thread(self.generate, model_id, prompt, config)

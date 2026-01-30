@@ -15,6 +15,9 @@ wheels/
 .coverage
 htmlcov/
 
+# Demo outputs
+.demo_outputs/
+
 # Type checking and linting
 .ruff_cache
 

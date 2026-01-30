@@ -5,7 +5,7 @@ Tests the complete workflow from sample generation through judging to analysis.
 
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -29,23 +29,25 @@ from asciibench.generator.sampler import generate_samples
 from asciibench.judge_ui.main import app
 
 
+def _mock_generate_response(model_id: str, prompt: str, config: object = None) -> str:
+    """Generate ASCII art based on prompt content."""
+    if "cat" in prompt.lower():
+        return "```\n/\\_/\\\n( o.o )\n > ^ <\n```"
+    elif "dog" in prompt.lower():
+        return "```\n/ \\__\n(    @\\___\n```\n"
+    elif "tree" in prompt.lower():
+        return "```\n  /\\  \n /  \\ \n/____\\\n```"
+    else:
+        return "```\n? ? ?\n```\n"
+
+
 @pytest.fixture
 def mock_client() -> MagicMock:
     """Create a mock OpenRouterClient with predefined responses."""
     client = MagicMock(spec=OpenRouterClient)
 
-    def mock_generate(model_id: str, prompt: str, config: object = None) -> str:
-        """Generate ASCII art based on prompt content."""
-        if "cat" in prompt.lower():
-            return "```\n/\\_/\\\n( o.o )\n > ^ <\n```"
-        elif "dog" in prompt.lower():
-            return "```\n/ \\__\n(    @\\___\n```\n"
-        elif "tree" in prompt.lower():
-            return "```\n  /\\  \n /  \\ \n/____\\\n```"
-        else:
-            return "```\n? ? ?\n```\n"
-
-    client.generate.side_effect = mock_generate
+    client.generate.side_effect = _mock_generate_response
+    client.generate_async = AsyncMock(side_effect=_mock_generate_response)
     return client
 
 
@@ -171,7 +173,7 @@ class TestGeneratorIntegration:
 
         # No new samples should be generated
         assert len(result2) == 0
-        assert mock_client.generate.call_count == 0
+        assert mock_client.generate_async.call_count == 0
 
         # Database should still have exactly 8 samples
         samples_after_second = read_jsonl(db_path, ArtSample)

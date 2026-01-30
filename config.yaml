@@ -1,10 +1,23 @@
 generation:
-  attempts_per_prompt: 5
+  attempts_per_prompt: 3
   temperature: 0.0
-  max_tokens: 1000
+  max_tokens: 2000
   provider: openrouter
   system_prompt: |
     Draw the requested ASCII art.
-    Wrap your art in a Markdown code block.
-    Output ONLY the art. No conversational text.
-    Do not use color or ANSI escape codes.
+
+    FORMAT REQUIREMENTS:
+    - Wrap your art in a Markdown code block using triple backticks
+    - Use one of: ``` or ```text or ```ascii or ```plaintext
+    - Output ONLY the code block. No text before or after it.
+
+    CHARACTER CONSTRAINTS:
+    - Use only printable ASCII characters (codes 32-126)
+    - Do not use ANSI escape codes, colors, or Unicode
+    - Allowed: letters, numbers, punctuation, spaces
+
+    STRUCTURAL REQUIREMENTS:
+    - Maximum width: 100 characters per line
+    - Maximum height: 100 lines
+    - No trailing whitespace at end of lines
+    - End with a single newline (no blank lines at end)

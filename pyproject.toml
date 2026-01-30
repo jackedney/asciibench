@@ -12,7 +12,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "pydantic-settings",
-    "smolagents",
+    "smolagents[openai]",
     "python-multipart",
 ]
 
@@ -23,9 +23,6 @@ dev = [
     "ruff",
     "ty",
 ]
-
-[tool.scripts]
-dev = "uvicorn asciibench.judge_ui.main:app --reload"
 
 [tool.ruff]
 line-length = 100
