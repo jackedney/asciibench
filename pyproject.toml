@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn[standard]",
     "pydantic-settings",
     "smolagents",
+    "python-multipart",
 ]
 
 [project.optional-dependencies]

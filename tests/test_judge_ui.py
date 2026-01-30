@@ -1800,3 +1800,262 @@ class TestProgressHelperFunctions:
         assert result["single_animal"].votes_completed == 1
         assert result["single_animal"].unique_pairs_judged == 1
         assert result["single_animal"].total_possible_pairs == 1
+
+
+class TestHTMXEndpoints:
+    """Tests for the HTMX HTML fragment endpoints."""
+
+    def test_htmx_matchup_returns_html(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX matchup endpoint returns HTML."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.get("/htmx/matchup")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        # Should contain sample display content
+        assert "comparison-container" in response.text or "error" in response.text
+
+    def test_htmx_matchup_contains_hidden_ids(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX matchup includes hidden sample ID inputs."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.get("/htmx/matchup")
+        assert response.status_code == 200
+        # Should contain hidden inputs with sample IDs
+        assert 'id="sample-a-id"' in response.text
+        assert 'id="sample-b-id"' in response.text
+
+    def test_htmx_matchup_error_with_insufficient_samples(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that HTMX matchup returns error HTML with insufficient samples."""
+        # Don't populate any samples
+
+        response = client.get("/htmx/matchup")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "Not enough valid samples" in response.text
+
+    def test_htmx_progress_returns_html(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX progress endpoint returns HTML."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.get("/htmx/progress")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "Votes:" in response.text
+
+    def test_htmx_progress_updates_after_vote(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX progress shows updated counts."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Get initial progress
+        initial_response = client.get("/htmx/progress")
+        assert "Votes: 0" in initial_response.text
+
+        # Submit a vote via JSON API
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "A",
+            },
+        )
+
+        # Get updated progress
+        updated_response = client.get("/htmx/progress")
+        assert "Votes: 1" in updated_response.text
+
+    def test_htmx_vote_submits_and_returns_new_matchup(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX vote endpoint submits vote and returns new matchup."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        response = client.post(
+            "/htmx/vote",
+            data={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "A",
+            },
+        )
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+
+        # Verify vote was persisted
+        votes = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes) == 1
+        assert votes[0].winner == "A"
+
+    def test_htmx_vote_error_with_missing_fields(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX vote returns error HTML with missing fields."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.post(
+            "/htmx/vote",
+            data={
+                "sample_a_id": str(sample_data[0].id),
+                # Missing sample_b_id and winner
+            },
+        )
+        assert response.status_code == 200
+        assert "Missing required fields" in response.text
+
+    def test_htmx_vote_error_with_invalid_winner(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX vote returns error HTML with invalid winner."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.post(
+            "/htmx/vote",
+            data={
+                "sample_a_id": str(sample_data[0].id),
+                "sample_b_id": str(sample_data[2].id),
+                "winner": "invalid",
+            },
+        )
+        assert response.status_code == 200
+        assert "Invalid winner value" in response.text
+
+    def test_htmx_undo_removes_last_vote(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX undo endpoint removes last vote and returns matchup."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit a vote
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": sample_a_id,
+                "sample_b_id": sample_b_id,
+                "winner": "A",
+            },
+        )
+
+        # Verify vote exists
+        votes_before = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes_before) == 1
+
+        # Call HTMX undo
+        response = client.post("/htmx/undo")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+
+        # Verify vote was removed
+        votes_after = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
+        assert len(votes_after) == 0
+
+    def test_htmx_undo_error_with_no_votes(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that HTMX undo returns error HTML with no votes."""
+        response = client.post("/htmx/undo")
+        assert response.status_code == 200
+        assert "No votes to undo" in response.text
+
+    def test_htmx_undo_error_twice_in_row(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX undo returns error when called twice in a row."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit two votes
+        for _ in range(2):
+            client.post(
+                "/api/votes",
+                json={
+                    "sample_a_id": sample_a_id,
+                    "sample_b_id": sample_b_id,
+                    "winner": "A",
+                },
+            )
+
+        # First undo should succeed
+        first_undo = client.post("/htmx/undo")
+        assert first_undo.status_code == 200
+        assert "error" not in first_undo.text.lower() or "Cannot undo" not in first_undo.text
+
+        # Second undo should return error
+        second_undo = client.post("/htmx/undo")
+        assert second_undo.status_code == 200
+        assert "Cannot undo twice in a row" in second_undo.text
+
+    def test_htmx_prompt_returns_html(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX prompt endpoint returns HTML."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.get("/htmx/prompt")
+        assert response.status_code == 200
+        assert "text/html" in response.headers["content-type"]
+        assert "Prompt:" in response.text
+
+    def test_htmx_prompt_error_with_no_samples(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that HTMX prompt returns message with no samples."""
+        response = client.get("/htmx/prompt")
+        assert response.status_code == 200
+        assert "No samples available" in response.text

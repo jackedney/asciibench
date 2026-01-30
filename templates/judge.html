@@ -2,44 +2,40 @@
 
 {% block content %}
 <h1>ASCIIBench Judge Interface</h1>
-<p id="prompt-display">Compare two ASCII art samples and choose the winner.</p>
+<p id="prompt-display"
+   hx-get="/htmx/prompt"
+   hx-trigger="load, matchup-loaded from:body"
+   hx-swap="innerHTML">
+    Loading prompt...
+</p>
 
-<div id="loading-indicator" class="loading-indicator" style="display: none;">
+<div id="loading-indicator" class="loading-indicator htmx-indicator">
     Loading matchup...
 </div>
 
-<div id="matchup-container" class="comparison-container">
-    <div class="sample">
-        <h2>Sample A</h2>
-        <div class="font-variants">
-            <div class="font-variant">
-                <span class="font-label">Classic</span>
-                <div id="sample-a-classic" class="art-display font-classic"></div>
-            </div>
-            <div class="font-variant">
-                <span class="font-label">Modern</span>
-                <div id="sample-a-modern" class="art-display font-modern"></div>
-            </div>
-            <div class="font-variant">
-                <span class="font-label">Condensed</span>
-                <div id="sample-a-condensed" class="art-display font-condensed"></div>
+<div id="matchup-container"
+     hx-get="/htmx/matchup"
+     hx-trigger="load"
+     hx-swap="innerHTML"
+     hx-indicator="#loading-indicator">
+    {# Initial content will be replaced by HTMX #}
+    <div class="comparison-container">
+        <div class="sample">
+            <h2>Sample A</h2>
+            <div class="font-variants">
+                <div class="font-variant">
+                    <span class="font-label">Classic</span>
+                    <div class="art-display font-classic">Loading...</div>
+                </div>
             </div>
         </div>
-    </div>
-    <div class="sample">
-        <h2>Sample B</h2>
-        <div class="font-variants">
-            <div class="font-variant">
-                <span class="font-label">Classic</span>
-                <div id="sample-b-classic" class="art-display font-classic"></div>
-            </div>
-            <div class="font-variant">
-                <span class="font-label">Modern</span>
-                <div id="sample-b-modern" class="art-display font-modern"></div>
-            </div>
-            <div class="font-variant">
-                <span class="font-label">Condensed</span>
-                <div id="sample-b-condensed" class="art-display font-condensed"></div>
+        <div class="sample">
+            <h2>Sample B</h2>
+            <div class="font-variants">
+                <div class="font-variant">
+                    <span class="font-label">Classic</span>
+                    <div class="art-display font-classic">Loading...</div>
+                </div>
             </div>
         </div>
     </div>
@@ -49,6 +45,19 @@
 
 <div class="controls">
     <h3>Which sample do you prefer?</h3>
+
+    {# Vote form with HTMX - hidden form that gets submitted via JavaScript #}
+    <form id="vote-form"
+          hx-post="/htmx/vote"
+          hx-target="#matchup-container"
+          hx-swap="innerHTML"
+          hx-indicator="#loading-indicator"
+          hx-on::after-request="htmx.trigger(document.body, 'vote-submitted')">
+        <input type="hidden" name="sample_a_id" id="form-sample-a-id" value="" />
+        <input type="hidden" name="sample_b_id" id="form-sample-b-id" value="" />
+        <input type="hidden" name="winner" id="form-winner" value="" />
+    </form>
+
     <div class="vote-buttons">
         <button id="btn-a" class="vote-btn" data-winner="A">A wins</button>
         <button id="btn-b" class="vote-btn" data-winner="B">B wins</button>
@@ -56,7 +65,15 @@
         <button id="btn-fail" class="vote-btn" data-winner="fail">Both fail</button>
     </div>
     <div class="undo-container">
-        <button id="btn-undo" class="undo-btn">Undo (Z)</button>
+        <button id="btn-undo"
+                class="undo-btn"
+                hx-post="/htmx/undo"
+                hx-target="#matchup-container"
+                hx-swap="innerHTML"
+                hx-indicator="#loading-indicator"
+                hx-on::after-request="htmx.trigger(document.body, 'undo-completed')">
+            Undo (Z)
+        </button>
     </div>
     <p class="keyboard-hint">
         Keyboard shortcuts:
@@ -68,8 +85,12 @@
     </p>
 </div>
 
-<div id="progress-display" class="progress-display">
-    <span id="progress-text">Votes: 0</span>
+<div id="progress-display"
+     class="progress-display"
+     hx-get="/htmx/progress"
+     hx-trigger="load, vote-submitted from:body, undo-completed from:body"
+     hx-swap="innerHTML">
+    <span id="progress-text">Loading progress...</span>
 </div>
 
 <p><a href="/">Back to Home</a></p>
@@ -79,28 +100,18 @@
     'use strict';
 
     // State
-    let currentMatchup = null;
     let isProcessing = false;
 
     // DOM Elements
-    const promptDisplay = document.getElementById('prompt-display');
-    const loadingIndicator = document.getElementById('loading-indicator');
-    const matchupContainer = document.getElementById('matchup-container');
-    const errorMessage = document.getElementById('error-message');
-    const progressText = document.getElementById('progress-text');
+    const voteForm = document.getElementById('vote-form');
+    const formSampleAId = document.getElementById('form-sample-a-id');
+    const formSampleBId = document.getElementById('form-sample-b-id');
+    const formWinner = document.getElementById('form-winner');
     const btnA = document.getElementById('btn-a');
     const btnB = document.getElementById('btn-b');
     const btnTie = document.getElementById('btn-tie');
     const btnFail = document.getElementById('btn-fail');
     const btnUndo = document.getElementById('btn-undo');
-
-    // Sample display elements
-    const sampleAClassic = document.getElementById('sample-a-classic');
-    const sampleAModern = document.getElementById('sample-a-modern');
-    const sampleACondensed = document.getElementById('sample-a-condensed');
-    const sampleBClassic = document.getElementById('sample-b-classic');
-    const sampleBModern = document.getElementById('sample-b-modern');
-    const sampleBCondensed = document.getElementById('sample-b-condensed');
 
     // Key to winner mapping
     const keyToWinner = {
@@ -129,50 +140,6 @@
     };
 
     /**
-     * Show loading state
-     */
-    function showLoading() {
-        loadingIndicator.style.display = 'block';
-        matchupContainer.style.opacity = '0.5';
-        setButtonsDisabled(true);
-    }
-
-    /**
-     * Hide loading state
-     */
-    function hideLoading() {
-        loadingIndicator.style.display = 'none';
-        matchupContainer.style.opacity = '1';
-        setButtonsDisabled(false);
-    }
-
-    /**
-     * Show error message
-     */
-    function showError(message) {
-        errorMessage.textContent = message;
-        errorMessage.style.display = 'block';
-    }
-
-    /**
-     * Hide error message
-     */
-    function hideError() {
-        errorMessage.style.display = 'none';
-    }
-
-    /**
-     * Enable or disable all vote buttons
-     */
-    function setButtonsDisabled(disabled) {
-        btnA.disabled = disabled;
-        btnB.disabled = disabled;
-        btnTie.disabled = disabled;
-        btnFail.disabled = disabled;
-        btnUndo.disabled = disabled;
-    }
-
-    /**
      * Highlight a button briefly
      */
     function highlightButton(button) {
@@ -184,133 +151,39 @@
     }
 
     /**
-     * Update the sample displays with new matchup data
+     * Update hidden form fields from current matchup
      */
-    function updateSampleDisplays(matchup) {
-        const sampleA = matchup.sample_a;
-        const sampleB = matchup.sample_b;
+    function updateFormFields() {
+        const sampleAIdInput = document.getElementById('sample-a-id');
+        const sampleBIdInput = document.getElementById('sample-b-id');
 
-        // Update Sample A displays
-        sampleAClassic.textContent = sampleA.sanitized_output;
-        sampleAModern.textContent = sampleA.sanitized_output;
-        sampleACondensed.textContent = sampleA.sanitized_output;
-
-        // Update Sample B displays
-        sampleBClassic.textContent = sampleB.sanitized_output;
-        sampleBModern.textContent = sampleB.sanitized_output;
-        sampleBCondensed.textContent = sampleB.sanitized_output;
-
-        // Update prompt display
-        promptDisplay.textContent = 'Prompt: ' + matchup.prompt;
-    }
-
-    /**
-     * Load a new matchup from the API
-     */
-    async function loadMatchup() {
-        showLoading();
-        hideError();
-
-        try {
-            const response = await fetch('/api/matchup');
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.detail || 'Failed to load matchup');
-            }
-
-            currentMatchup = await response.json();
-            updateSampleDisplays(currentMatchup);
-        } catch (error) {
-            showError(error.message);
-            currentMatchup = null;
-        } finally {
-            hideLoading();
+        if (sampleAIdInput && sampleBIdInput) {
+            formSampleAId.value = sampleAIdInput.value;
+            formSampleBId.value = sampleBIdInput.value;
+            return true;
         }
+        return false;
     }
 
     /**
-     * Update progress display
+     * Submit a vote via HTMX form
      */
-    async function updateProgress() {
-        try {
-            const response = await fetch('/api/progress');
-            if (response.ok) {
-                const data = await response.json();
-                progressText.textContent = `Votes: ${data.votes_completed} | Pairs judged: ${data.unique_pairs_judged}/${data.total_possible_pairs}`;
-            }
-        } catch (error) {
-            // Silently fail - progress display is not critical
-            console.error('Failed to update progress:', error);
-        }
-    }
-
-    /**
-     * Submit a vote
-     */
-    async function submitVote(winner) {
-        if (isProcessing || !currentMatchup) return;
-
-        isProcessing = true;
-        showLoading();
-        hideError();
-
-        try {
-            const response = await fetch('/api/votes', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    sample_a_id: currentMatchup.sample_a.id,
-                    sample_b_id: currentMatchup.sample_b.id,
-                    winner: winner
-                })
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.detail || 'Failed to submit vote');
-            }
-
-            // Load next matchup and update progress
-            await Promise.all([loadMatchup(), updateProgress()]);
-        } catch (error) {
-            showError(error.message);
-            hideLoading();
-        } finally {
-            isProcessing = false;
-        }
-    }
-
-    /**
-     * Undo the last vote
-     */
-    async function undoVote() {
+    function submitVote(winner) {
         if (isProcessing) return;
 
-        isProcessing = true;
-        showLoading();
-        hideError();
-
-        try {
-            const response = await fetch('/api/undo', {
-                method: 'POST'
-            });
-
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.detail || 'Failed to undo vote');
-            }
-
-            // Update progress after undo
-            await updateProgress();
-            hideLoading();
-        } catch (error) {
-            showError(error.message);
-            hideLoading();
-        } finally {
-            isProcessing = false;
+        // Update form fields from current matchup
+        if (!updateFormFields()) {
+            // No sample IDs found - likely in error state
+            // Request a new matchup instead of voting
+            htmx.ajax('GET', '/htmx/matchup', {target: '#matchup-container', swap: 'innerHTML'});
+            return;
         }
+
+        // Set the winner
+        formWinner.value = winner;
+
+        // Trigger HTMX form submission
+        htmx.trigger(voteForm, 'submit');
     }
 
     /**
@@ -331,14 +204,14 @@
         if ((event.ctrlKey || event.metaKey) && (key === 'z' || key === 'Z')) {
             event.preventDefault();
             highlightButton(btnUndo);
-            undoVote();
+            htmx.trigger(btnUndo, 'click');
             return;
         }
 
         // Handle undo with just 'z' or 'Z'
         if (key === 'z' || key === 'Z') {
             highlightButton(btnUndo);
-            undoVote();
+            htmx.trigger(btnUndo, 'click');
             return;
         }
 
@@ -363,6 +236,34 @@
         }
     }
 
+    // Set processing state during HTMX requests
+    document.body.addEventListener('htmx:beforeRequest', function(event) {
+        isProcessing = true;
+        // Disable buttons
+        btnA.disabled = true;
+        btnB.disabled = true;
+        btnTie.disabled = true;
+        btnFail.disabled = true;
+        btnUndo.disabled = true;
+    });
+
+    document.body.addEventListener('htmx:afterRequest', function(event) {
+        isProcessing = false;
+        // Re-enable buttons
+        btnA.disabled = false;
+        btnB.disabled = false;
+        btnTie.disabled = false;
+        btnFail.disabled = false;
+        btnUndo.disabled = false;
+    });
+
+    // Trigger prompt update when matchup loads
+    document.body.addEventListener('htmx:afterSwap', function(event) {
+        if (event.target.id === 'matchup-container') {
+            htmx.trigger(document.body, 'matchup-loaded');
+        }
+    });
+
     // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         // Add keyboard event listener
@@ -373,11 +274,7 @@
         btnB.addEventListener('click', handleButtonClick);
         btnTie.addEventListener('click', handleButtonClick);
         btnFail.addEventListener('click', handleButtonClick);
-        btnUndo.addEventListener('click', undoVote);
-
-        // Load initial matchup and progress
-        loadMatchup();
-        updateProgress();
+        // Note: btnUndo uses HTMX directly via hx-post attribute
     });
 })();
 </script>
