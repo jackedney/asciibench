@@ -1,10 +1,15 @@
+from rich.text import Text
+
 from asciibench.common.display import (
     LiveStatsDisplay,
     create_generation_progress,
     create_live_stats,
+    failed_badge,
     get_console,
     get_theme,
+    pending_badge,
     print_banner,
+    success_badge,
     update_live_stats,
 )
 
@@ -153,3 +158,44 @@ def test_live_stats_with_progress():
     assert display.total == 5
     assert display.valid == 5
     assert display.invalid == 0
+
+
+def test_success_badge_returns_text():
+    badge = success_badge()
+    assert badge is not None
+    assert isinstance(badge, Text)
+
+
+def test_success_badge_content():
+    badge = success_badge()
+    assert "[SUCCESS]" in str(badge)
+
+
+def test_failed_badge_returns_text():
+    badge = failed_badge()
+    assert badge is not None
+    assert isinstance(badge, Text)
+
+
+def test_failed_badge_content():
+    badge = failed_badge()
+    assert "[FAILED]" in str(badge)
+
+
+def test_pending_badge_returns_text():
+    badge = pending_badge()
+    assert badge is not None
+    assert isinstance(badge, Text)
+
+
+def test_pending_badge_content():
+    badge = pending_badge()
+    assert "[PENDING]" in str(badge)
+
+
+def test_badges_can_be_printed():
+    console = get_console(force_terminal=True)
+    console.print(success_badge(), "Test message")
+    console.print(failed_badge(), "Test message")
+    console.print(pending_badge(), "Test message")
+    assert True

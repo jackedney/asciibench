@@ -162,3 +162,15 @@ def update_live_stats(
         console.print(
             f"Generated: {display.total} | Valid: {display.valid} | Invalid: {display.invalid}"
         )
+
+
+def success_badge() -> Text:
+    return Text("[SUCCESS]", style="success")
+
+
+def failed_badge() -> Text:
+    return Text("[FAILED]", style="error")
+
+
+def pending_badge() -> Text:
+    return Text("[PENDING]", style=f"bold {GOLD}")
