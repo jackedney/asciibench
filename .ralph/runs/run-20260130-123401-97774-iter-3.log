@@ -343,3 +343,32 @@ index 58665be..4dac410 100644
 +no changes added to commit (use "git add" and/or "git commit -a")
 +
 
+[91m[1m| [0m[90m Bash     [0mVerify clean working tree
+
+ M .ralph/runs/run-20260130-123401-97774-iter-3.log
+
+[91m[1m| [0m[90m Bash     [0mCommit final run log state
+
+[master 2f3665c] chore(logs): capture final run log state
+ 1 file changed, 61 insertions(+)
+
+[91m[1m| [0m[90m Bash     [0mCheck diff of remaining changes
+
+diff --git a/.ralph/runs/run-20260130-123401-97774-iter-3.log b/.ralph/runs/run-20260130-123401-97774-iter-3.log
+index 8d915e0..5653aa1 100644
+--- a/.ralph/runs/run-20260130-123401-97774-iter-3.log
++++ b/.ralph/runs/run-20260130-123401-97774-iter-3.log
+@@ -343,3 +343,12 @@ index 58665be..4dac410 100644
+ +no changes added to commit (use "git add" and/or "git commit -a")
+ +
+ 
++[91m[1m| [0m[90m Bash     [0mVerify clean working tree
++
++ M .ralph/runs/run-20260130-123401-97774-iter-3.log
++
++[91m[1m| [0m[90m Bash     [0mCommit final run log state
++
++[master 2f3665c] chore(logs): capture final run log state
++ 1 file changed, 61 insertions(+)
++
+
