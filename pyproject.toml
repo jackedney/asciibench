@@ -1,7 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "asciibench"
 version = "0.1.0"
-description = "Add your description here"
+description = "Elo-based LLM benchmark system with Generator, Judge UI, and Analyst modules"
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic-settings",
+    "smolagents",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "ty",
+]
+
+[tool.scripts]
+dev = "uvicorn asciibench.judge_ui.main:app --reload"

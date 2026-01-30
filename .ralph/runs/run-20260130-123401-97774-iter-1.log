@@ -563,3 +563,10 @@ ea6a6d6 docs(progress): add US-001 completion entry to progress log
 
  M .ralph/runs/run-20260130-123401-97774-iter-1.log
 
+[91m[1m| [0m[90m Bash     [0mFinal log sync
+
+[master 381bd17] docs(ralph): final log sync before completion
+ 1 file changed, 9 insertions(+)
+381bd17 docs(ralph): final log sync before completion
+
+<promise>COMPLETE</promise>

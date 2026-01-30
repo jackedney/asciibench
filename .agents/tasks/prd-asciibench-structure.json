@@ -125,7 +125,7 @@
     {
       "id": "US-001",
       "title": "Initialize project with uv and basic structure",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [],
       "description": "As a developer, I want to initialize a new Python project with uv so that I have a proper package structure and dependency management.",
       "acceptanceCriteria": [
@@ -138,13 +138,13 @@
         "Create data/ directory placeholder for JSONL files"
       ],
       "startedAt": "2026-01-30T12:34:01.392877+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-01-30T12:34:01.393057+00:00"
+      "completedAt": "2026-01-30T12:39:03.382301+00:00",
+      "updatedAt": "2026-01-30T12:39:03.381959+00:00"
     },
     {
       "id": "US-002",
       "title": "Configure pyproject.toml with all dependencies",
-      "status": "open",
+      "status": "in_progress",
       "dependsOn": [
         "US-001"
       ],
@@ -158,7 +158,10 @@
         "Negative case: adding incompatible python version -> uv error",
         "Create scripts section with 'dev = \"uvicorn asciibench.judge_ui.main:app --reload\"'",
         "Run `uv sync` successfully to install all dependencies"
-      ]
+      ],
+      "startedAt": "2026-01-30T12:39:05.472410+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-01-30T12:39:05.472625+00:00"
     },
     {
       "id": "US-003",

@@ -1,7 +1,12 @@
 # Activity Log
 
 ## Run Summary
+- 2026-01-30 12:39:03 | run=20260130-123401-97774 | iter=1 | mode=build | story=US-001 | duration=302s | status=success
 
 ## Events
 
 [2026-01-30 12:34:01] ITERATION 1 start (mode=build story=US-001)
+[2026-01-30 12:39:03] ITERATION 1 end (duration=302s)
+[2026-01-30 12:39:05] ITERATION 2 start (mode=build story=US-002)
+[2026-01-30 12:39:54] US-002: Updated pyproject.toml with dependencies and scripts section
+[2026-01-30 12:41:42] US-002: Successfully installed all dependencies with uv sync
