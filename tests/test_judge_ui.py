@@ -10,12 +10,17 @@ from fastapi.testclient import TestClient
 from asciibench.common.models import ArtSample, Vote
 from asciibench.common.persistence import append_jsonl, read_jsonl
 from asciibench.judge_ui.main import (
+    CategoryProgress,
     MatchupResponse,
+    ProgressResponse,
     SampleResponse,
     VoteRequest,
     VoteResponse,
+    _calculate_progress_by_category,
+    _calculate_total_possible_pairs,
     _get_model_pair_comparison_counts,
     _get_pair_comparison_counts,
+    _get_unique_model_pairs_judged,
     _make_sorted_pair,
     _select_matchup,
     app,
@@ -1141,3 +1146,657 @@ class TestUndoEndpoint:
         assert votes[0].winner == "A"
         assert votes[1].winner == "B"
         assert votes[2].winner == "tie"
+
+
+class TestProgressEndpoint:
+    """Tests for the GET /api/progress endpoint."""
+
+    def test_progress_returns_zeros_with_no_votes(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that progress returns zeros when no votes exist."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.get("/api/progress")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["votes_completed"] == 0
+        assert data["unique_pairs_judged"] == 0
+        assert data["total_possible_pairs"] > 0
+        assert "by_category" in data
+
+    def test_progress_returns_zeros_with_no_samples(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that progress returns zeros when no samples exist."""
+        # Don't populate any samples
+
+        response = client.get("/api/progress")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["votes_completed"] == 0
+        assert data["unique_pairs_judged"] == 0
+        assert data["total_possible_pairs"] == 0
+        assert data["by_category"] == {}
+
+    def test_progress_counts_votes(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that progress correctly counts total votes."""
+        populate_database(temp_data_dir, sample_data)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        # Submit multiple votes
+        for winner in ["A", "B", "tie"]:
+            client.post(
+                "/api/votes",
+                json={
+                    "sample_a_id": sample_a_id,
+                    "sample_b_id": sample_b_id,
+                    "winner": winner,
+                },
+            )
+
+        response = client.get("/api/progress")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["votes_completed"] == 3
+
+    def test_progress_counts_unique_pairs(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that progress correctly counts unique model pairs judged."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Submit votes between model-a and model-b
+        sample_a_id = str(sample_data[0].id)  # model-a
+        sample_b_id = str(sample_data[2].id)  # model-b
+
+        # Multiple votes between same model pair count as 1 unique pair
+        for _ in range(3):
+            client.post(
+                "/api/votes",
+                json={
+                    "sample_a_id": sample_a_id,
+                    "sample_b_id": sample_b_id,
+                    "winner": "A",
+                },
+            )
+
+        response = client.get("/api/progress")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["votes_completed"] == 3
+        assert data["unique_pairs_judged"] == 1
+
+    def test_progress_counts_multiple_unique_pairs(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that progress correctly counts multiple unique model pairs."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Get samples from different models
+        model_a_sample = str(sample_data[0].id)  # model-a
+        model_b_sample = str(sample_data[2].id)  # model-b
+        model_c_sample = str(sample_data[4].id)  # model-c
+
+        # Vote between model-a and model-b
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": model_a_sample,
+                "sample_b_id": model_b_sample,
+                "winner": "A",
+            },
+        )
+
+        # Vote between model-a and model-c
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": model_a_sample,
+                "sample_b_id": model_c_sample,
+                "winner": "B",
+            },
+        )
+
+        # Vote between model-b and model-c
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": model_b_sample,
+                "sample_b_id": model_c_sample,
+                "winner": "tie",
+            },
+        )
+
+        response = client.get("/api/progress")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["votes_completed"] == 3
+        assert data["unique_pairs_judged"] == 3
+
+    def test_progress_calculates_total_possible_pairs(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that total_possible_pairs is calculated correctly."""
+        # Create samples from 2 models with 2 valid samples each
+        samples = [
+            ArtSample(
+                id=uuid4(),
+                model_id="model-a",
+                prompt_text="test1",
+                category="test",
+                attempt_number=1,
+                raw_output="```\ntest\n```",
+                sanitized_output="test",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-a",
+                prompt_text="test2",
+                category="test",
+                attempt_number=1,
+                raw_output="```\ntest\n```",
+                sanitized_output="test",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-b",
+                prompt_text="test1",
+                category="test",
+                attempt_number=1,
+                raw_output="```\ntest\n```",
+                sanitized_output="test",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-b",
+                prompt_text="test2",
+                category="test",
+                attempt_number=1,
+                raw_output="```\ntest\n```",
+                sanitized_output="test",
+                is_valid=True,
+            ),
+        ]
+        populate_database(temp_data_dir, samples)
+
+        response = client.get("/api/progress")
+        assert response.status_code == 200
+
+        data = response.json()
+        # 4 samples total, but only pairs from different models count
+        # model-a samples can pair with model-b samples: 2 * 2 = 4 pairs
+        assert data["total_possible_pairs"] == 4
+
+    def test_progress_excludes_invalid_samples_from_total(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that invalid samples are excluded from total_possible_pairs."""
+        populate_database(temp_data_dir, sample_data)
+
+        # sample_data has 5 valid samples and 1 invalid
+        # The invalid sample (model-c, single_object category) should be excluded
+        response = client.get("/api/progress")
+        assert response.status_code == 200
+
+        # Verify that total_possible_pairs doesn't count pairs with invalid samples
+        # Valid samples: 2 from model-a, 2 from model-b, 1 from model-c
+        # Cross-model pairs: (2*2) + (2*1) + (2*1) = 4 + 2 + 2 = 8
+        data = response.json()
+        assert data["total_possible_pairs"] == 8
+
+    def test_progress_includes_category_breakdown(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that progress includes breakdown by category."""
+        # Create samples in multiple categories
+        samples = [
+            ArtSample(
+                id=uuid4(),
+                model_id="model-a",
+                prompt_text="Draw a cat",
+                category="single_animal",
+                attempt_number=1,
+                raw_output="```\ncat\n```",
+                sanitized_output="cat",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-b",
+                prompt_text="Draw a cat",
+                category="single_animal",
+                attempt_number=1,
+                raw_output="```\ncat\n```",
+                sanitized_output="cat",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-a",
+                prompt_text="Draw a tree",
+                category="single_object",
+                attempt_number=1,
+                raw_output="```\ntree\n```",
+                sanitized_output="tree",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-b",
+                prompt_text="Draw a tree",
+                category="single_object",
+                attempt_number=1,
+                raw_output="```\ntree\n```",
+                sanitized_output="tree",
+                is_valid=True,
+            ),
+        ]
+        populate_database(temp_data_dir, samples)
+
+        response = client.get("/api/progress")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "by_category" in data
+        assert "single_animal" in data["by_category"]
+        assert "single_object" in data["by_category"]
+
+        # Each category has 1 sample per model, so 1 cross-model pair each
+        assert data["by_category"]["single_animal"]["total_possible_pairs"] == 1
+        assert data["by_category"]["single_object"]["total_possible_pairs"] == 1
+
+    def test_progress_category_breakdown_counts_votes(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that category breakdown correctly counts votes per category."""
+        # Create samples in multiple categories
+        sample_animal_a = ArtSample(
+            id=uuid4(),
+            model_id="model-a",
+            prompt_text="Draw a cat",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="```\ncat\n```",
+            sanitized_output="cat",
+            is_valid=True,
+        )
+        sample_animal_b = ArtSample(
+            id=uuid4(),
+            model_id="model-b",
+            prompt_text="Draw a cat",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="```\ncat\n```",
+            sanitized_output="cat",
+            is_valid=True,
+        )
+        sample_object_a = ArtSample(
+            id=uuid4(),
+            model_id="model-a",
+            prompt_text="Draw a tree",
+            category="single_object",
+            attempt_number=1,
+            raw_output="```\ntree\n```",
+            sanitized_output="tree",
+            is_valid=True,
+        )
+        sample_object_b = ArtSample(
+            id=uuid4(),
+            model_id="model-b",
+            prompt_text="Draw a tree",
+            category="single_object",
+            attempt_number=1,
+            raw_output="```\ntree\n```",
+            sanitized_output="tree",
+            is_valid=True,
+        )
+        samples = [sample_animal_a, sample_animal_b, sample_object_a, sample_object_b]
+        populate_database(temp_data_dir, samples)
+
+        # Submit votes in single_animal category
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": str(sample_animal_a.id),
+                "sample_b_id": str(sample_animal_b.id),
+                "winner": "A",
+            },
+        )
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": str(sample_animal_a.id),
+                "sample_b_id": str(sample_animal_b.id),
+                "winner": "B",
+            },
+        )
+
+        # Submit one vote in single_object category
+        client.post(
+            "/api/votes",
+            json={
+                "sample_a_id": str(sample_object_a.id),
+                "sample_b_id": str(sample_object_b.id),
+                "winner": "tie",
+            },
+        )
+
+        response = client.get("/api/progress")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["votes_completed"] == 3
+        assert data["by_category"]["single_animal"]["votes_completed"] == 2
+        assert data["by_category"]["single_animal"]["unique_pairs_judged"] == 1
+        assert data["by_category"]["single_object"]["votes_completed"] == 1
+        assert data["by_category"]["single_object"]["unique_pairs_judged"] == 1
+
+    def test_progress_response_model(self) -> None:
+        """Test ProgressResponse model creation."""
+        progress = ProgressResponse(
+            votes_completed=50,
+            unique_pairs_judged=45,
+            total_possible_pairs=1000,
+            by_category={
+                "single_animal": CategoryProgress(
+                    votes_completed=25,
+                    unique_pairs_judged=20,
+                    total_possible_pairs=500,
+                )
+            },
+        )
+        assert progress.votes_completed == 50
+        assert progress.unique_pairs_judged == 45
+        assert progress.total_possible_pairs == 1000
+        assert "single_animal" in progress.by_category
+        assert progress.by_category["single_animal"].votes_completed == 25
+
+    def test_category_progress_model(self) -> None:
+        """Test CategoryProgress model creation."""
+        cat_progress = CategoryProgress(
+            votes_completed=10,
+            unique_pairs_judged=8,
+            total_possible_pairs=100,
+        )
+        assert cat_progress.votes_completed == 10
+        assert cat_progress.unique_pairs_judged == 8
+        assert cat_progress.total_possible_pairs == 100
+
+
+class TestProgressHelperFunctions:
+    """Tests for progress calculation helper functions."""
+
+    def test_calculate_total_possible_pairs_empty(self) -> None:
+        """Test total pairs calculation with no samples."""
+        assert _calculate_total_possible_pairs([]) == 0
+
+    def test_calculate_total_possible_pairs_single_model(self) -> None:
+        """Test total pairs calculation with single model (no cross-model pairs)."""
+        samples = [
+            ArtSample(
+                id=uuid4(),
+                model_id="model-a",
+                prompt_text="test",
+                category="test",
+                attempt_number=i,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            )
+            for i in range(5)
+        ]
+        # All samples from same model, so no valid cross-model pairs
+        assert _calculate_total_possible_pairs(samples) == 0
+
+    def test_calculate_total_possible_pairs_two_models(self) -> None:
+        """Test total pairs calculation with two models."""
+        samples = []
+        # 3 samples from model-a, 2 samples from model-b
+        for i in range(3):
+            samples.append(
+                ArtSample(
+                    id=uuid4(),
+                    model_id="model-a",
+                    prompt_text="test",
+                    category="test",
+                    attempt_number=i,
+                    raw_output="",
+                    sanitized_output="",
+                    is_valid=True,
+                )
+            )
+        for i in range(2):
+            samples.append(
+                ArtSample(
+                    id=uuid4(),
+                    model_id="model-b",
+                    prompt_text="test",
+                    category="test",
+                    attempt_number=i,
+                    raw_output="",
+                    sanitized_output="",
+                    is_valid=True,
+                )
+            )
+        # Cross-model pairs: 3 * 2 = 6
+        assert _calculate_total_possible_pairs(samples) == 6
+
+    def test_calculate_total_possible_pairs_three_models(self) -> None:
+        """Test total pairs calculation with three models."""
+        samples = []
+        # 2 samples each from 3 models
+        for model in ["model-a", "model-b", "model-c"]:
+            for i in range(2):
+                samples.append(
+                    ArtSample(
+                        id=uuid4(),
+                        model_id=model,
+                        prompt_text="test",
+                        category="test",
+                        attempt_number=i,
+                        raw_output="",
+                        sanitized_output="",
+                        is_valid=True,
+                    )
+                )
+        # Cross-model pairs: (2*2) + (2*2) + (2*2) = 4 + 4 + 4 = 12
+        assert _calculate_total_possible_pairs(samples) == 12
+
+    def test_get_unique_model_pairs_judged_empty(self) -> None:
+        """Test unique pairs judged with no votes."""
+        assert _get_unique_model_pairs_judged([], []) == 0
+
+    def test_get_unique_model_pairs_judged_single_pair(self) -> None:
+        """Test unique pairs judged with one model pair compared."""
+        samples = [
+            ArtSample(
+                id=uuid4(),
+                model_id="model-a",
+                prompt_text="test",
+                category="test",
+                attempt_number=1,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-b",
+                prompt_text="test",
+                category="test",
+                attempt_number=1,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            ),
+        ]
+        votes = [
+            Vote(
+                sample_a_id=str(samples[0].id),
+                sample_b_id=str(samples[1].id),
+                winner="A",
+            ),
+            Vote(
+                sample_a_id=str(samples[0].id),
+                sample_b_id=str(samples[1].id),
+                winner="B",
+            ),
+        ]
+        # Two votes but only one unique model pair
+        assert _get_unique_model_pairs_judged(votes, samples) == 1
+
+    def test_get_unique_model_pairs_judged_multiple_pairs(self) -> None:
+        """Test unique pairs judged with multiple model pairs compared."""
+        samples = [
+            ArtSample(
+                id=uuid4(),
+                model_id="model-a",
+                prompt_text="test",
+                category="test",
+                attempt_number=1,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-b",
+                prompt_text="test",
+                category="test",
+                attempt_number=1,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-c",
+                prompt_text="test",
+                category="test",
+                attempt_number=1,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            ),
+        ]
+        votes = [
+            Vote(
+                sample_a_id=str(samples[0].id),
+                sample_b_id=str(samples[1].id),
+                winner="A",
+            ),
+            Vote(
+                sample_a_id=str(samples[0].id),
+                sample_b_id=str(samples[2].id),
+                winner="B",
+            ),
+        ]
+        # Two votes comparing two different model pairs
+        assert _get_unique_model_pairs_judged(votes, samples) == 2
+
+    def test_calculate_progress_by_category_empty(self) -> None:
+        """Test category progress with no samples."""
+        result = _calculate_progress_by_category([], [])
+        assert result == {}
+
+    def test_calculate_progress_by_category_no_votes(self) -> None:
+        """Test category progress with samples but no votes."""
+        samples = [
+            ArtSample(
+                id=uuid4(),
+                model_id="model-a",
+                prompt_text="test",
+                category="single_animal",
+                attempt_number=1,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-b",
+                prompt_text="test",
+                category="single_animal",
+                attempt_number=1,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            ),
+        ]
+        result = _calculate_progress_by_category([], samples)
+        assert "single_animal" in result
+        assert result["single_animal"].votes_completed == 0
+        assert result["single_animal"].unique_pairs_judged == 0
+        assert result["single_animal"].total_possible_pairs == 1
+
+    def test_calculate_progress_by_category_with_votes(self) -> None:
+        """Test category progress with samples and votes."""
+        samples = [
+            ArtSample(
+                id=uuid4(),
+                model_id="model-a",
+                prompt_text="test",
+                category="single_animal",
+                attempt_number=1,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            ),
+            ArtSample(
+                id=uuid4(),
+                model_id="model-b",
+                prompt_text="test",
+                category="single_animal",
+                attempt_number=1,
+                raw_output="",
+                sanitized_output="",
+                is_valid=True,
+            ),
+        ]
+        votes = [
+            Vote(
+                sample_a_id=str(samples[0].id),
+                sample_b_id=str(samples[1].id),
+                winner="A",
+            ),
+        ]
+        result = _calculate_progress_by_category(votes, samples)
+        assert result["single_animal"].votes_completed == 1
+        assert result["single_animal"].unique_pairs_judged == 1
+        assert result["single_animal"].total_possible_pairs == 1

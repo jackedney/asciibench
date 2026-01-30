@@ -63,6 +63,23 @@ class VoteResponse(BaseModel):
     timestamp: str
 
 
+class CategoryProgress(BaseModel):
+    """Progress statistics for a single category."""
+
+    votes_completed: int
+    unique_pairs_judged: int
+    total_possible_pairs: int
+
+
+class ProgressResponse(BaseModel):
+    """Response model for progress tracking."""
+
+    votes_completed: int
+    unique_pairs_judged: int
+    total_possible_pairs: int
+    by_category: dict[str, CategoryProgress]
+
+
 def _make_sorted_pair(a: str, b: str) -> tuple[str, str]:
     """Create a sorted pair of strings for consistent ordering."""
     return (a, b) if a <= b else (b, a)
@@ -161,6 +178,91 @@ def _select_matchup(
     sample_b = random.choice(samples_by_model[model_b_id])
 
     return sample_a, sample_b
+
+
+def _calculate_total_possible_pairs(valid_samples: list[ArtSample]) -> int:
+    """Calculate total possible unique matchups between samples from different models.
+
+    A valid matchup requires two samples from different models. This counts
+    all unique sample pairs where the samples have different model_ids.
+    """
+    total = 0
+    n = len(valid_samples)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if valid_samples[i].model_id != valid_samples[j].model_id:
+                total += 1
+    return total
+
+
+def _calculate_total_possible_pairs_for_samples(
+    samples: list[ArtSample],
+) -> int:
+    """Calculate total possible unique matchups for a list of samples.
+
+    Helper that filters to valid samples and calculates pairs.
+    """
+    valid_samples = [s for s in samples if s.is_valid]
+    return _calculate_total_possible_pairs(valid_samples)
+
+
+def _get_unique_model_pairs_judged(votes: list[Vote], samples: list[ArtSample]) -> int:
+    """Count unique model pairs that have been compared at least once.
+
+    Returns the number of distinct (model_a, model_b) pairs found in votes
+    where the two models are different.
+    """
+    model_pair_counts = _get_model_pair_comparison_counts(votes, samples)
+    return len(model_pair_counts)
+
+
+def _calculate_progress_by_category(
+    votes: list[Vote], samples: list[ArtSample]
+) -> dict[str, CategoryProgress]:
+    """Calculate progress statistics broken down by category.
+
+    Returns a dict mapping category name to CategoryProgress with
+    votes_completed, unique_pairs_judged, and total_possible_pairs.
+    """
+    # Build lookup from sample_id to sample
+    sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
+
+    # Group samples by category
+    samples_by_category: dict[str, list[ArtSample]] = {}
+    for sample in samples:
+        if sample.is_valid:
+            if sample.category not in samples_by_category:
+                samples_by_category[sample.category] = []
+            samples_by_category[sample.category].append(sample)
+
+    # Group votes by category (based on sample_a's category)
+    votes_by_category: dict[str, list[Vote]] = {}
+    for vote in votes:
+        sample_a = sample_lookup.get(vote.sample_a_id)
+        if sample_a and sample_a.is_valid:
+            category = sample_a.category
+            if category not in votes_by_category:
+                votes_by_category[category] = []
+            votes_by_category[category].append(vote)
+
+    # Calculate progress for each category
+    result: dict[str, CategoryProgress] = {}
+    for category, category_samples in samples_by_category.items():
+        category_votes = votes_by_category.get(category, [])
+
+        # Count unique model pairs judged in this category
+        unique_pairs = _get_unique_model_pairs_judged(category_votes, category_samples)
+
+        # Calculate total possible pairs in this category
+        total_pairs = _calculate_total_possible_pairs(category_samples)
+
+        result[category] = CategoryProgress(
+            votes_completed=len(category_votes),
+            unique_pairs_judged=unique_pairs,
+            total_possible_pairs=total_pairs,
+        )
+
+    return result
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -332,4 +434,38 @@ async def undo_vote() -> VoteResponse:
         sample_b_id=last_vote.sample_b_id,
         winner=last_vote.winner,
         timestamp=last_vote.timestamp.isoformat(),
+    )
+
+
+@app.get("/api/progress", response_model=ProgressResponse)
+async def get_progress() -> ProgressResponse:
+    """Get progress statistics for judging.
+
+    Returns the number of votes completed, unique model pairs judged,
+    total possible pairs, and a breakdown by category.
+
+    Returns:
+        ProgressResponse with votes_completed, unique_pairs_judged,
+        total_possible_pairs, and by_category breakdown.
+    """
+    # Load all samples from database
+    all_samples = read_jsonl(DATABASE_PATH, ArtSample)
+    valid_samples = [s for s in all_samples if s.is_valid]
+
+    # Load all votes
+    votes = read_jsonl(VOTES_PATH, Vote)
+
+    # Calculate overall statistics
+    votes_completed = len(votes)
+    unique_pairs_judged = _get_unique_model_pairs_judged(votes, valid_samples)
+    total_possible_pairs = _calculate_total_possible_pairs(valid_samples)
+
+    # Calculate per-category breakdown
+    by_category = _calculate_progress_by_category(votes, all_samples)
+
+    return ProgressResponse(
+        votes_completed=votes_completed,
+        unique_pairs_judged=unique_pairs_judged,
+        total_possible_pairs=total_possible_pairs,
+        by_category=by_category,
     )
