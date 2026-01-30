@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from uuid import uuid4
 
-from asciibench.analyst.elo import BASE_RATING, K_FACTOR, calculate_elo
+from asciibench.analyst.elo import BASE_RATING, K_FACTOR, calculate_elo, calculate_elo_by_category
 from asciibench.common.models import ArtSample, Vote
 
 
@@ -434,3 +434,368 @@ class TestCalculateElo:
         assert "model1" in ratings
         assert "model2" in ratings
         assert ratings["model1"] != ratings["model2"]
+
+
+class TestCalculateEloByCategory:
+    """Tests for calculate_elo_by_category function."""
+
+    def test_empty_votes_returns_empty_dict(self):
+        """Empty votes list returns empty dict."""
+        ratings = calculate_elo_by_category([], [])
+        assert ratings == {}
+
+    def test_single_category_with_votes(self):
+        """Calculates ratings for a single category."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A")
+            for _ in range(5)
+        ]
+
+        ratings = calculate_elo_by_category(votes, [sample_a, sample_b])
+
+        assert "single_object" in ratings
+        assert "model1" in ratings["single_object"]
+        assert "model2" in ratings["single_object"]
+        assert ratings["single_object"]["model1"] > BASE_RATING
+        assert ratings["single_object"]["model2"] < BASE_RATING
+
+    def test_multiple_categories_with_votes(self):
+        """Calculates separate ratings for each category."""
+        cat1_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat1_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat2_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat2_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(cat1_a.id), sample_b_id=str(cat1_b.id), winner="A"),
+            Vote(sample_a_id=str(cat2_a.id), sample_b_id=str(cat2_b.id), winner="B"),
+        ]
+
+        ratings = calculate_elo_by_category(votes, [cat1_a, cat1_b, cat2_a, cat2_b])
+
+        assert "single_object" in ratings
+        assert "single_animal" in ratings
+        assert ratings["single_object"]["model1"] > BASE_RATING
+        assert ratings["single_object"]["model2"] < BASE_RATING
+        assert ratings["single_animal"]["model1"] < BASE_RATING
+        assert ratings["single_animal"]["model2"] > BASE_RATING
+
+    def test_category_with_no_votes_returns_empty_dict(self):
+        """Category with no votes returns empty model dict."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_c = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A")]
+
+        ratings = calculate_elo_by_category(votes, [sample_a, sample_b, sample_c])
+
+        assert "single_object" in ratings
+        assert "single_animal" in ratings
+        assert len(ratings["single_object"]) > 0
+        assert len(ratings["single_animal"]) == 0
+
+    def test_cross_category_votes_ignored(self):
+        """Votes comparing different categories are ignored for both categories."""
+        cat1_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat1_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat2_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=2,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat2_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=2,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(cat1_a.id), sample_b_id=str(cat1_b.id), winner="A"),
+            Vote(sample_a_id=str(cat2_a.id), sample_b_id=str(cat2_b.id), winner="B"),
+        ]
+
+        ratings = calculate_elo_by_category(votes, [cat1_a, cat1_b, cat2_a, cat2_b])
+
+        assert ratings["single_object"]["model1"] < BASE_RATING
+        assert ratings["single_object"]["model2"] > BASE_RATING
+        assert len(ratings["single_animal"]) == 0
+
+    def test_four_categories_separate(self):
+        """All four categories are rated separately."""
+        cat1_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat1_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat2_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat2_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat3_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="animal_action",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat3_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="animal_action",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat4_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="spatial_relationship",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        cat4_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="spatial_relationship",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(cat1_a.id), sample_b_id=str(cat1_b.id), winner="A"),
+            Vote(sample_a_id=str(cat2_a.id), sample_b_id=str(cat2_b.id), winner="B"),
+            Vote(sample_a_id=str(cat3_a.id), sample_b_id=str(cat3_b.id), winner="A"),
+            Vote(sample_a_id=str(cat4_a.id), sample_b_id=str(cat4_b.id), winner="B"),
+        ]
+
+        ratings = calculate_elo_by_category(
+            votes, [cat1_a, cat1_b, cat2_a, cat2_b, cat3_a, cat3_b, cat4_a, cat4_b]
+        )
+
+        assert len(ratings) == 4
+        assert all(
+            cat in ratings
+            for cat in ["single_object", "single_animal", "animal_action", "spatial_relationship"]
+        )
+        assert ratings["single_object"]["model1"] > BASE_RATING
+        assert ratings["single_animal"]["model1"] < BASE_RATING
+        assert ratings["animal_action"]["model1"] > BASE_RATING
+        assert ratings["spatial_relationship"]["model1"] < BASE_RATING
+
+    def test_tie_votes_per_category(self):
+        """Tie votes are handled correctly per category."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="tie")]
+
+        ratings = calculate_elo_by_category(votes, [sample_a, sample_b])
+
+        assert ratings["single_object"]["model1"] == BASE_RATING
+        assert ratings["single_object"]["model2"] == BASE_RATING
+
+    def test_fail_votes_per_category(self):
+        """Fail votes cause no rating change per category."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A"),
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="fail"),
+        ]
+
+        ratings = calculate_elo_by_category(votes, [sample_a, sample_b])
+
+        assert ratings["single_object"]["model1"] > BASE_RATING
+        assert ratings["single_object"]["model2"] < BASE_RATING

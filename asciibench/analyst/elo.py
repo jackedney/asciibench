@@ -116,3 +116,51 @@ def calculate_elo(votes: list["Vote"], samples: list["ArtSample"]) -> dict[str, 
         ratings[model_b] = rating_b + K_FACTOR * (score_b - expected_b)
 
     return ratings
+
+
+def calculate_elo_by_category(
+    votes: list["Vote"], samples: list["ArtSample"]
+) -> dict[str, dict[str, float]]:
+    """Calculate Elo ratings for each category separately.
+
+    This function computes Elo ratings grouped by sample category, allowing
+    analysts to identify which models excel at specific tasks (e.g., single
+    objects vs. animals vs. spatial relationships).
+
+    Args:
+        votes: A list of Vote objects representing pairwise comparisons.
+        samples: A list of ArtSample objects for looking up model IDs and
+                 categories.
+
+    Returns:
+        A dictionary mapping category names to nested dictionaries of model
+        ratings. Categories with no votes will have empty model dicts.
+
+        Example:
+            >>> ratings = calculate_elo_by_category(votes, samples)
+            >>> ratings["single_object"]["gpt4o"]
+            1520.0
+
+    Negative case:
+        >>> calculate_elo_by_category([], [])
+        {}
+    """
+    if not votes:
+        return {}
+
+    sample_to_category: dict[str, str] = {str(s.id): s.category for s in samples}
+
+    categories = sorted(set(sample_to_category.values()))
+    result: dict[str, dict[str, float]] = {}
+
+    for category in categories:
+        category_votes = [
+            vote
+            for vote in votes
+            if sample_to_category.get(vote.sample_a_id) == category
+            and sample_to_category.get(vote.sample_b_id) == category
+        ]
+
+        result[category] = calculate_elo(category_votes, samples)
+
+    return result
