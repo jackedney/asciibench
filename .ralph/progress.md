@@ -218,5 +218,58 @@ Run summary: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-i
   - Placeholder implementations should raise NotImplementedError to clearly indicate unimplemented functionality
   - Ruff detects unused imports; remove them even if they're documented in module docstrings for future use
   - Using git amend to include log file changes helps keep commits atomic, but log files may continue to update during execution
-  - The data/database.jsonl file should be created as empty placeholder for future batch processing logic
+   - The data/database.jsonl file should be created as empty placeholder for future batch processing logic
+---
+
+## [Fri 30 Jan 2026 14:52:00] - US-006: Create Judge UI FastAPI app skeleton with HTMX
+Thread:
+Run: 20260130-123401-97774 (iteration 7)
+Run log: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-7.log
+Run summary: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-7.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: 9661526 feat: complete US-006 judge UI FastAPI app skeleton with HTMX
+- Post-commit status: M .ralph/runs/run-20260130-123401-97774-iter-7.log (continuous log updates expected)
+- Verification:
+  - Command: uv run pytest -> PASS (12 tests)
+  - Command: uv run ruff check -> PASS
+  - Command: uv run ruff format --check -> PASS (16 files already formatted)
+  - Command: uv run ty check -> PASS
+  - Command: curl -s http://localhost:8000/ | grep "ASCIIBench Judge UI" -> PASS (title present)
+  - Command: curl -s http://localhost:8000/ | grep "htmx.org" -> PASS (HTMX CDN script loaded)
+  - Command: curl -s -X POST http://localhost:8000/api/votes -w "\n%{http_code}\n" | grep 422 -> PASS (validation error returned)
+  - Command: Browser verification -> PASS (home and judge pages render correctly, HTMX loaded)
+- Files changed:
+  - templates/base.html (added shared CSS styles for comparison layout)
+  - templates/index.html (refactored to extend base.html)
+  - templates/judge.html (refactored to extend base.html)
+  - .gitignore (added dev-browser profile directory)
+  - asciibench/judge_ui/main.py (no changes - already met requirements)
+- What was implemented:
+  - Refactored templates/index.html to extend base.html for DRY compliance (includes HTMX CDN via base template)
+  - Refactored templates/judge.html to extend base.html for DRY compliance (includes HTMX CDN via base template)
+  - Added shared CSS styles to base.html: .comparison-container, .sample, .art-display, .controls, .keyboard-hint, .keyboard-key
+  - Updated .gitignore to exclude dev-browser profile files from version control
+  - All acceptance criteria verified:
+    - FastAPI app instance with root '/' route exists in asciibench/judge_ui/main.py
+    - '/judge' route returning comparison HTML skeleton exists
+    - POST '/api/votes' route accepting Vote model exists (placeholder logic returns vote data)
+    - templates/base.html includes HTMX CDN script
+    - templates/judge.html has placeholder comparison layout with Sample A and Sample B
+    - Triple-font CSS styles defined: .font-classic (Courier New), .font-modern (Consolas), .font-condensed (Fira Code)
+    - GET '/' returns HTML with title 'ASCIIBench Judge UI'
+    - POST to '/api/votes' without body returns 422 validation error
+    - uvicorn server runs successfully on localhost:8000
+    - Browser testing confirmed HTMX CDN loaded and pages render correctly
+  - All quality gates pass (pytest, ruff check, ruff format, ty check)
+- **Learnings for future iterations:**
+  - Jinja2 template inheritance ({% extends "base.html" %} and {% block content %}) eliminates code duplication
+  - HTMX is included as a frontend CDN script, not a Python package (htmx Python package is incompatible with pydantic v2)
+  - FastAPI's automatic validation returns 422 errors for missing request body without custom code needed
+  - Dev-browser skill uses Playwright and maintains page state across script executions for browser testing
+  - Browser profile files should be gitignored to prevent committing temporary cache data
+  - When running dev-browser from different directories, ensure the @/ import alias path is correct
+  - Template refactoring should be done carefully to maintain existing functionality while improving code organization
+  - Running git amend to include log file changes is acceptable but log files may continue to update during execution
+
 

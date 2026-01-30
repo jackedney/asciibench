@@ -237,7 +237,7 @@
     {
       "id": "US-006",
       "title": "Create Judge UI FastAPI app skeleton with HTMX",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [
         "US-002",
         "US-003"
@@ -257,13 +257,13 @@
         "Run `uv run ty check` with no errors"
       ],
       "startedAt": "2026-01-30T13:00:05.841744+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-01-30T13:00:05.841955+00:00"
+      "completedAt": "2026-01-30T14:54:20.610194+00:00",
+      "updatedAt": "2026-01-30T14:54:20.609717+00:00"
     },
     {
       "id": "US-007",
       "title": "Create Analyst package structure and skeleton",
-      "status": "open",
+      "status": "in_progress",
       "dependsOn": [
         "US-003"
       ],
@@ -279,7 +279,10 @@
         "Example: calculate_elo() signature accepts votes and returns model scores dict",
         "Negative case: calling calculate_elo() -> NotImplementedError or empty dict",
         "Run `uv run ruff check` with no errors on analyst package"
-      ]
+      ],
+      "startedAt": "2026-01-30T14:54:22.695649+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-01-30T14:54:22.695883+00:00"
     },
     {
       "id": "US-008",
