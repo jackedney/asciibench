@@ -465,3 +465,13 @@ e8b4e06 chore(logs): final iteration 2 run log state
 
  M .ralph/runs/run-20260130-123401-97774-iter-2.log
 
+[91m[1m| [0m[90m Bash     [0mCommit final log and check status
+
+[master 721365c] chore(logs): capture final run log state
+ 1 file changed, 9 insertions(+)
+
+[91m[1m| [0m[90m Bash     [0mGet final commit hash
+
+721365c chore(logs): capture final run log state
+
+<promise>COMPLETE</promise>

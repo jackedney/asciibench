@@ -144,7 +144,7 @@
     {
       "id": "US-002",
       "title": "Configure pyproject.toml with all dependencies",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [
         "US-001"
       ],
@@ -160,13 +160,13 @@
         "Run `uv sync` successfully to install all dependencies"
       ],
       "startedAt": "2026-01-30T12:39:05.472410+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-01-30T12:39:05.472625+00:00"
+      "completedAt": "2026-01-30T12:44:56.806142+00:00",
+      "updatedAt": "2026-01-30T12:44:56.805797+00:00"
     },
     {
       "id": "US-003",
       "title": "Set up pydantic v2 data models for core entities",
-      "status": "open",
+      "status": "in_progress",
       "dependsOn": [
         "US-002"
       ],
@@ -181,7 +181,10 @@
         "Negative case: Vote with winner='X' (invalid literal) -> ValidationError",
         "Add type hints to all model fields",
         "Run `uv run ty check` with no errors"
-      ]
+      ],
+      "startedAt": "2026-01-30T12:44:58.888578+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-01-30T12:44:58.888782+00:00"
     },
     {
       "id": "US-004",
