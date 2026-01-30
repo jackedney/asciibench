@@ -20,11 +20,12 @@ Dependencies:
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from asciibench.common.models import Vote
+    from asciibench.common.models import ArtSample, Vote
 
 
 def calculate_consistency(
     votes: list["Vote"],
+    samples: list["ArtSample"],
     model_id: str,
 ) -> dict[str, float]:
     """Calculate consistency metrics for a specific model.
@@ -35,6 +36,7 @@ def calculate_consistency(
 
     Args:
         votes: A list of Vote objects to analyze.
+        samples: A list of ArtSample objects for looking up model IDs.
         model_id: The ID of the model to analyze.
 
     Returns:
@@ -44,19 +46,74 @@ def calculate_consistency(
         - comparisons: Total number of comparisons
 
     Example:
+        >>> from uuid import uuid4
+        >>> sample_a = ArtSample(id=uuid4(), model_id="model1", prompt_text="test",
+        ...     category="test", attempt_number=1, raw_output="test", sanitized_output="test",
+        ...     is_valid=True)
+        >>> sample_b = ArtSample(id=uuid4(), model_id="model2", prompt_text="test",
+        ...     category="test", attempt_number=1, raw_output="test", sanitized_output="test",
+        ...     is_valid=True)
         >>> votes = [
-        ...     Vote(sample_a_id="model1-0", sample_b_id="model2-0", winner="A"),
-        ...     Vote(sample_a_id="model1-1", sample_b_id="model2-1", winner="A"),
-        ...     Vote(sample_a_id="model1-2", sample_b_id="model2-2", winner="B"),
+        ...     Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A"),
+        ...     Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A"),
+        ...     Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="B"),
         ... ]
-        >>> metrics = calculate_consistency(votes, "model1")
+        >>> metrics = calculate_consistency(votes, [sample_a, sample_b], "model1")
         >>> metrics["win_rate"]
         0.6666666666666666
         >>> metrics["comparisons"]
-        3
+        3.0
 
     Negative case:
-        >>> calculate_consistency([], "model1")
-        {"win_rate": 0.0, "std_dev": 0.0, "comparisons": 0}
+        >>> calculate_consistency([], [], "model1")
+        {'win_rate': 0.0, 'std_dev': 0.0, 'comparisons': 0.0}
     """
-    raise NotImplementedError("calculate_consistency() not yet implemented")
+    if not votes:
+        return {"win_rate": 0.0, "std_dev": 0.0, "comparisons": 0.0}
+
+    sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
+
+    outcomes: list[float] = []
+
+    for vote in votes:
+        if vote.winner == "fail":
+            continue
+
+        model_a = sample_to_model.get(vote.sample_a_id)
+        model_b = sample_to_model.get(vote.sample_b_id)
+
+        if not model_a or not model_b:
+            continue
+
+        if model_a != model_id and model_b != model_id:
+            continue
+
+        if model_a == model_id:
+            if vote.winner == "A":
+                outcomes.append(1.0)
+            elif vote.winner == "B":
+                outcomes.append(0.0)
+            else:
+                outcomes.append(0.5)
+        else:
+            if vote.winner == "A":
+                outcomes.append(0.0)
+            elif vote.winner == "B":
+                outcomes.append(1.0)
+            else:
+                outcomes.append(0.5)
+
+    if not outcomes:
+        return {"win_rate": 0.0, "std_dev": 0.0, "comparisons": 0.0}
+
+    comparisons = float(len(outcomes))
+    win_rate = sum(outcomes) / comparisons
+
+    if comparisons > 1:
+        mean = win_rate
+        variance = sum((x - mean) ** 2 for x in outcomes) / comparisons
+        std_dev = variance**0.5
+    else:
+        std_dev = 0.0
+
+    return {"win_rate": win_rate, "std_dev": std_dev, "comparisons": comparisons}
