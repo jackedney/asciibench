@@ -8,9 +8,19 @@ to .demo_outputs/demo.html with incremental/resumable generation support.
 """
 
 import json
+from datetime import datetime
 from pathlib import Path
 
+from asciibench.common.config import Settings
 from asciibench.common.models import DemoResult
+from asciibench.common.yaml_config import load_generation_config
+from asciibench.generator.client import (
+    AuthenticationError,
+    ModelError,
+    OpenRouterClient,
+    OpenRouterClientError,
+)
+from asciibench.generator.sanitizer import extract_ascii_from_markdown
 
 DEMO_OUTPUTS_DIR = Path(".demo_outputs")
 RESULTS_JSON_PATH = DEMO_OUTPUTS_DIR / "results.json"
@@ -90,6 +100,64 @@ def get_completed_model_ids() -> set[str]:
     """
     results = load_demo_results()
     return {result.model_id for result in results}
+
+
+def generate_demo_sample(model_id: str, model_name: str) -> DemoResult:
+    """Generate a demo ASCII art sample from a single model.
+
+    Uses hardcoded prompt 'Draw a skeleton in ASCII art' and loads
+    generation configuration from config.yaml.
+
+    Args:
+        model_id: Model identifier (e.g., 'openai/gpt-4o-mini')
+        model_name: Human-readable model name (e.g., 'GPT-4o Mini')
+
+    Returns:
+        DemoResult with model info, ascii_output, is_valid, and timestamp
+
+    Example:
+        >>> result = generate_demo_sample('openai/gpt-4o-mini', 'GPT-4o Mini')
+        >>> result.model_id
+        'openai/gpt-4o-mini'
+        >>> result.model_name
+        'GPT-4o Mini'
+        >>> result.is_valid
+        True
+        >>> len(result.ascii_output) > 0
+        True
+
+    Negative case:
+        >>> # With missing API key, returns invalid result with error message
+        >>> result = generate_demo_sample('openai/gpt-4o-mini', 'GPT-4o Mini')
+        >>> result.is_valid
+        False
+        >>> 'Error' in result.ascii_output
+        True
+    """
+    settings = Settings()
+    config = load_generation_config()
+    demo_prompt = "Draw a skeleton in ASCII art"
+
+    client = OpenRouterClient(api_key=settings.openrouter_api_key, base_url=settings.base_url)
+
+    try:
+        raw_output = client.generate(model_id, demo_prompt, config=config)
+        ascii_output = extract_ascii_from_markdown(raw_output)
+        is_valid = bool(ascii_output)
+    except (AuthenticationError, ModelError, OpenRouterClientError) as e:
+        ascii_output = f"Error: {e!s}"
+        is_valid = False
+    except Exception as e:
+        ascii_output = f"Unexpected error: {e!s}"
+        is_valid = False
+
+    return DemoResult(
+        model_id=model_id,
+        model_name=model_name,
+        ascii_output=ascii_output,
+        is_valid=is_valid,
+        timestamp=datetime.now(),
+    )
 
 
 def main() -> None:

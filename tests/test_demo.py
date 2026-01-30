@@ -3,11 +3,13 @@
 import json
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from asciibench.common.models import DemoResult
 from asciibench.generator.demo import (
+    generate_demo_sample,
     get_completed_model_ids,
     load_demo_results,
     save_demo_results,
@@ -330,3 +332,204 @@ class TestRoundtrip:
 
         loaded = load_demo_results()
         assert len(loaded) == 1
+
+
+class TestGenerateDemoSample:
+    """Tests for generate_demo_sample function."""
+
+    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.Settings")
+    @patch("asciibench.generator.demo.OpenRouterClient")
+    def test_generate_demo_sample_valid_output(
+        self, mock_client_class, mock_settings_class, mock_load_config
+    ):
+        """Test generate_demo_sample returns valid DemoResult with ASCII art."""
+        mock_config = MagicMock()
+        mock_config.temperature = 0.0
+        mock_config.max_tokens = 2000
+        mock_config.system_prompt = "Draw the requested ASCII art."
+        mock_load_config.return_value = mock_config
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = "test-api-key"
+        mock_settings.base_url = "https://openrouter.ai/api/v1"
+        mock_settings_class.return_value = mock_settings
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.generate.return_value = "```\n/_/\\\n( o.o )\n > ^ <\n```"
+        mock_client_class.return_value = mock_client_instance
+
+        result = generate_demo_sample("openai/gpt-4o-mini", "GPT-4o Mini")
+
+        assert result.model_id == "openai/gpt-4o-mini"
+        assert result.model_name == "GPT-4o Mini"
+        assert result.is_valid is True
+        assert result.ascii_output == "/_/\\\n( o.o )\n > ^ <"
+        assert isinstance(result.timestamp, datetime)
+
+        mock_client_class.assert_called_once_with(
+            api_key="test-api-key", base_url="https://openrouter.ai/api/v1"
+        )
+        mock_client_instance.generate.assert_called_once()
+
+    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.Settings")
+    @patch("asciibench.generator.demo.OpenRouterClient")
+    def test_generate_demo_sample_uses_config(
+        self, mock_client_class, mock_settings_class, mock_load_config
+    ):
+        """Test generate_demo_sample loads config from config.yaml."""
+        mock_config = MagicMock()
+        mock_config.temperature = 0.5
+        mock_config.max_tokens = 3000
+        mock_config.system_prompt = "You are an ASCII art expert."
+        mock_load_config.return_value = mock_config
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.base_url = "https://openrouter.ai/api/v1"
+        mock_settings_class.return_value = mock_settings
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.generate.return_value = "```\ntest\n```"
+        mock_client_class.return_value = mock_client_instance
+
+        result = generate_demo_sample("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet")
+
+        assert result.is_valid is True
+
+        call_args = mock_client_instance.generate.call_args
+        assert call_args[0][0] == "anthropic/claude-3.5-sonnet"
+        assert call_args[0][1] == "Draw a skeleton in ASCII art"
+        assert call_args[1]["config"] == mock_config
+
+    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.Settings")
+    @patch("asciibench.generator.demo.OpenRouterClient")
+    def test_generate_demo_sample_handles_auth_error(
+        self, mock_client_class, mock_settings_class, mock_load_config
+    ):
+        """Test generate_demo_sample handles authentication error gracefully."""
+        mock_config = MagicMock()
+        mock_load_config.return_value = mock_config
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = "invalid-key"
+        mock_settings.base_url = "https://openrouter.ai/api/v1"
+        mock_settings_class.return_value = mock_settings
+
+        from asciibench.generator.client import AuthenticationError
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.generate.side_effect = AuthenticationError("Authentication failed")
+        mock_client_class.return_value = mock_client_instance
+
+        result = generate_demo_sample("openai/gpt-4o-mini", "GPT-4o Mini")
+
+        assert result.model_id == "openai/gpt-4o-mini"
+        assert result.model_name == "GPT-4o Mini"
+        assert result.is_valid is False
+        assert "Error" in result.ascii_output
+        assert "Authentication failed" in result.ascii_output
+
+    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.Settings")
+    @patch("asciibench.generator.demo.OpenRouterClient")
+    def test_generate_demo_sample_handles_model_error(
+        self, mock_client_class, mock_settings_class, mock_load_config
+    ):
+        """Test generate_demo_sample handles model error gracefully."""
+        mock_config = MagicMock()
+        mock_load_config.return_value = mock_config
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.base_url = "https://openrouter.ai/api/v1"
+        mock_settings_class.return_value = mock_settings
+
+        from asciibench.generator.client import ModelError
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.generate.side_effect = ModelError("Model not found")
+        mock_client_class.return_value = mock_client_instance
+
+        result = generate_demo_sample("invalid/model", "Invalid Model")
+
+        assert result.is_valid is False
+        assert "Error" in result.ascii_output
+        assert "Model not found" in result.ascii_output
+
+    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.Settings")
+    @patch("asciibench.generator.demo.OpenRouterClient")
+    def test_generate_demo_sample_handles_client_error(
+        self, mock_client_class, mock_settings_class, mock_load_config
+    ):
+        """Test generate_demo_sample handles generic client error gracefully."""
+        mock_config = MagicMock()
+        mock_load_config.return_value = mock_config
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.base_url = "https://openrouter.ai/api/v1"
+        mock_settings_class.return_value = mock_settings
+
+        from asciibench.generator.client import OpenRouterClientError
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.generate.side_effect = OpenRouterClientError("API error")
+        mock_client_class.return_value = mock_client_instance
+
+        result = generate_demo_sample("openai/gpt-4o-mini", "GPT-4o Mini")
+
+        assert result.is_valid is False
+        assert "Error" in result.ascii_output
+        assert "API error" in result.ascii_output
+
+    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.Settings")
+    @patch("asciibench.generator.demo.OpenRouterClient")
+    def test_generate_demo_sample_handles_unexpected_error(
+        self, mock_client_class, mock_settings_class, mock_load_config
+    ):
+        """Test generate_demo_sample handles unexpected errors gracefully."""
+        mock_config = MagicMock()
+        mock_load_config.return_value = mock_config
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.base_url = "https://openrouter.ai/api/v1"
+        mock_settings_class.return_value = mock_settings
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.generate.side_effect = RuntimeError("Unexpected error")
+        mock_client_class.return_value = mock_client_instance
+
+        result = generate_demo_sample("openai/gpt-4o-mini", "GPT-4o Mini")
+
+        assert result.is_valid is False
+        assert "Unexpected error" in result.ascii_output
+
+    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.Settings")
+    @patch("asciibench.generator.demo.OpenRouterClient")
+    def test_generate_demo_sample_empty_output_invalid(
+        self, mock_client_class, mock_settings_class, mock_load_config
+    ):
+        """Test generate_demo_sample returns is_valid=False for empty output."""
+        mock_config = MagicMock()
+        mock_load_config.return_value = mock_config
+
+        mock_settings = MagicMock()
+        mock_settings.openrouter_api_key = "test-key"
+        mock_settings.base_url = "https://openrouter.ai/api/v1"
+        mock_settings_class.return_value = mock_settings
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.generate.return_value = "No code block here"
+        mock_client_class.return_value = mock_client_instance
+
+        result = generate_demo_sample("openai/gpt-4o-mini", "GPT-4o Mini")
+
+        assert result.is_valid is False
+        assert result.ascii_output == ""
