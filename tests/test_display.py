@@ -3,6 +3,7 @@ from rich.text import Text
 from asciibench.common.display import (
     LiveStatsDisplay,
     create_generation_progress,
+    create_leaderboard_table,
     create_live_stats,
     failed_badge,
     get_console,
@@ -199,3 +200,57 @@ def test_badges_can_be_printed():
     console.print(failed_badge(), "Test message")
     console.print(pending_badge(), "Test message")
     assert True
+
+
+def test_create_leaderboard_table_returns_table():
+    table = create_leaderboard_table([])
+    assert table is not None
+    assert table.row_count == 1
+
+
+def test_create_leaderboard_table_with_data():
+    rankings = [
+        {"rank": 1, "model": "gpt-4o", "elo": 1500.0, "comparisons": 100, "win_rate": 0.65},
+        {"rank": 2, "model": "claude-3-opus", "elo": 1480.0, "comparisons": 95, "win_rate": 0.60},
+    ]
+    table = create_leaderboard_table(rankings)
+    assert table.row_count == 2
+    assert table.columns[0].header == "Rank"
+    assert table.columns[1].header == "Model"
+    assert table.columns[2].header == "Elo Rating"
+    assert table.columns[3].header == "Comparisons"
+    assert table.columns[4].header == "Win Rate"
+
+
+def test_create_leaderboard_table_empty_data():
+    table = create_leaderboard_table([])
+    console = get_console(force_terminal=True)
+    with console.capture() as capture:
+        console.print(table)
+    result = capture.get()
+    assert table.row_count == 1
+    assert "-" in result
+
+
+def test_create_leaderboard_table_with_five_models():
+    rankings = [
+        {"rank": 1, "model": "gpt-4o", "elo": 1520.0, "comparisons": 100, "win_rate": 0.70},
+        {"rank": 2, "model": "claude-3-opus", "elo": 1500.0, "comparisons": 95, "win_rate": 0.65},
+        {"rank": 3, "model": "gemini-pro", "elo": 1480.0, "comparisons": 90, "win_rate": 0.60},
+        {"rank": 4, "model": "llama-3", "elo": 1460.0, "comparisons": 85, "win_rate": 0.55},
+        {"rank": 5, "model": "mistral", "elo": 1440.0, "comparisons": 80, "win_rate": 0.50},
+    ]
+    table = create_leaderboard_table(rankings)
+    assert table.row_count == 5
+
+
+def test_create_leaderboard_table_win_rate_formatting():
+    rankings = [
+        {"rank": 1, "model": "gpt-4o", "elo": 1500.0, "comparisons": 100, "win_rate": 0.6543},
+    ]
+    table = create_leaderboard_table(rankings)
+    console = get_console(force_terminal=True)
+    with console.capture() as capture:
+        console.print(table)
+    result = capture.get()
+    assert "65.4%" in result

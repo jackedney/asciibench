@@ -2,6 +2,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
+from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
@@ -174,3 +175,37 @@ def failed_badge() -> Text:
 
 def pending_badge() -> Text:
     return Text("[PENDING]", style=f"bold {GOLD}")
+
+
+def create_leaderboard_table(rankings: list[dict[str, int | float | str]]) -> Table:
+    table = Table(
+        title="Elo Leaderboard",
+        title_style=f"bold {LILAC}",
+        border_style=GOLD,
+        header_style=f"bold {LILAC}",
+        row_styles=["", "dim"],
+        padding=(0, 1),
+    )
+
+    table.add_column("Rank", style="bold", justify="right")
+    table.add_column("Model", style="bold")
+    table.add_column("Elo Rating", justify="right")
+    table.add_column("Comparisons", justify="right")
+    table.add_column("Win Rate", justify="right")
+
+    if not rankings:
+        table.add_row("-", "-", "-", "-", "-")
+        return table
+
+    for entry in rankings:
+        rank = entry.get("rank", "-")
+        model = entry.get("model", "-")
+        elo = int(entry.get("elo", 0))
+        comparisons = int(entry.get("comparisons", 0))
+        win_rate = entry.get("win_rate", 0.0)
+
+        win_rate_pct = f"{win_rate * 100:.1f}%" if isinstance(win_rate, (int, float)) else "-"
+
+        table.add_row(str(rank), str(model), str(elo), str(comparisons), win_rate_pct)
+
+    return table
