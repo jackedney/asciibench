@@ -34,3 +34,11 @@ class Prompt(BaseModel):
     text: str
     category: str
     template_type: str
+
+
+class DemoResult(BaseModel):
+    model_id: str
+    model_name: str
+    ascii_output: str
+    is_valid: bool
+    timestamp: datetime
