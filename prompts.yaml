@@ -1,7 +1,116 @@
-prompts:
-  - text: Draw a cat
-    category: animal
-    template_type: simple
-  - text: Draw a tree
-    category: nature
-    template_type: simple
+# Prompt templates for ASCIIBench
+# Templates are expanded using word lists to generate unique prompts
+# Total: 40 prompts (10 per category)
+
+# Word lists for template expansion
+word_lists:
+  objects:
+    - house
+    - car
+    - bicycle
+    - rocket
+    - sailboat
+    - guitar
+    - clock
+    - lighthouse
+    - windmill
+    - castle
+  animals:
+    - cat
+    - dog
+    - elephant
+    - owl
+    - fish
+    - butterfly
+    - snake
+    - rabbit
+    - horse
+    - penguin
+  actions:
+    - sleeping
+    - running
+    - jumping
+    - flying
+    - swimming
+    - dancing
+    - climbing
+    - sitting
+    - eating
+    - playing
+  positions:
+    - above
+    - below
+    - beside
+    - inside
+    - behind
+    - in front of
+    - next to
+    - on top of
+    - underneath
+    - near
+
+# Template definitions
+# Each template expands to 10 prompts using its word list
+templates:
+  - category: single_object
+    template: "Draw a {object} in ASCII art"
+    word_list: objects
+  - category: single_animal
+    template: "Draw a {animal} in ASCII art"
+    word_list: animals
+  - category: animal_action
+    template: "Draw a {animal} {action} in ASCII art"
+    word_list_pairs:
+      - animal: cat
+        action: sleeping
+      - animal: dog
+        action: running
+      - animal: elephant
+        action: dancing
+      - animal: owl
+        action: flying
+      - animal: fish
+        action: swimming
+      - animal: butterfly
+        action: flying
+      - animal: snake
+        action: climbing
+      - animal: rabbit
+        action: jumping
+      - animal: horse
+        action: running
+      - animal: penguin
+        action: swimming
+  - category: spatial_relationship
+    template: "Draw a {object_a} {position} a {object_b} in ASCII art"
+    word_list_pairs:
+      - object_a: cat
+        position: on top of
+        object_b: house
+      - object_a: bird
+        position: above
+        object_b: tree
+      - object_a: fish
+        position: inside
+        object_b: bowl
+      - object_a: car
+        position: beside
+        object_b: tree
+      - object_a: moon
+        position: above
+        object_b: mountain
+      - object_a: boat
+        position: on top of
+        object_b: water
+      - object_a: sun
+        position: behind
+        object_b: cloud
+      - object_a: dog
+        position: next to
+        object_b: doghouse
+      - object_a: star
+        position: above
+        object_b: castle
+      - object_a: flower
+        position: beside
+        object_b: fence
