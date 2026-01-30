@@ -7,6 +7,7 @@ Demo generates ASCII art using a fixed prompt and saves outputs
 to .demo_outputs/demo.html with incremental/resumable generation support.
 """
 
+import html
 import json
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from asciibench.generator.sanitizer import extract_ascii_from_markdown
 
 DEMO_OUTPUTS_DIR = Path(".demo_outputs")
 RESULTS_JSON_PATH = DEMO_OUTPUTS_DIR / "results.json"
+DEMO_HTML_PATH = DEMO_OUTPUTS_DIR / "demo.html"
 
 
 def load_demo_results() -> list[DemoResult]:
@@ -160,6 +162,168 @@ def generate_demo_sample(model_id: str, model_name: str) -> DemoResult:
     )
 
 
+def generate_html() -> None:
+    """Generate HTML output from results.json.
+
+    Creates .demo_outputs/demo.html with all model outputs displayed
+    in a scrollable page with clean inline CSS styling.
+
+    Each model section includes:
+    - h2 header with model name
+    - pre block with ASCII art (monospace font)
+    - timestamp showing generation time
+    - red border styling for invalid outputs
+
+    Empty results show 'No results yet' message.
+    """
+    results = load_demo_results()
+
+    DEMO_OUTPUTS_DIR.mkdir(exist_ok=True)
+
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCIIBench Demo - Skeleton ASCII Art</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #f9fafb;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px 0;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        h1 {
+            color: #111827;
+            margin: 0;
+        }
+        .no-results {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6b7280;
+            font-size: 1.2em;
+            background-color: #fff;
+            border-radius: 8px;
+            margin: 40px 0;
+        }
+        .model-section {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .model-section.invalid {
+            border: 2px solid #ef4444;
+        }
+        h2 {
+            color: #1f2937;
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 10px;
+        }
+        .model-id {
+            color: #6b7280;
+            font-size: 0.9em;
+            margin-left: 10px;
+            font-family: 'Courier New', monospace;
+        }
+        pre {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #f3f4f6;
+            padding: 20px;
+            border-radius: 6px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.5;
+            border: 1px solid #e5e7eb;
+        }
+        .invalid pre {
+            background-color: #fef2f2;
+            border-color: #fca5a5;
+        }
+        .timestamp {
+            color: #9ca3af;
+            font-size: 0.85em;
+            margin-top: 15px;
+            text-align: right;
+        }
+        .valid-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .valid-badge.valid {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        .valid-badge.invalid {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        .error-message {
+            color: #dc2626;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>ASCIIBench Demo - Skeleton ASCII Art</h1>
+    </header>
+"""
+
+    if not results:
+        html_content += """
+    <div class="no-results">
+        No results yet. Run 'task demo' to generate ASCII art samples.
+    </div>
+"""
+    else:
+        for result in results:
+            timestamp_str = result.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            section_class = "invalid" if not result.is_valid else ""
+            badge_class = "valid" if result.is_valid else "invalid"
+            badge_text = "Valid" if result.is_valid else "Invalid"
+            escaped_output = html.escape(result.ascii_output)
+
+            html_content += f"""
+    <div class="model-section {section_class}">
+        <h2>
+            {result.model_name}
+            <span class="model-id">({result.model_id})</span>
+            <span class="valid-badge {badge_class}">{badge_text}</span>
+        </h2>
+        <pre>{escaped_output}</pre>
+        <div class="timestamp">Generated: {timestamp_str}</div>
+    </div>
+"""
+
+    html_content += """
+</body>
+</html>
+"""
+
+    with DEMO_HTML_PATH.open("w", encoding="utf-8") as f:
+        f.write(html_content)
+
+
 def main() -> None:
     """Main entry point for the Demo module.
 
@@ -200,6 +364,9 @@ def main() -> None:
         print("\nAll models already have results. Nothing to do.")
         print("\n" + "=" * 50)
         print("Demo Complete!")
+        print(f"Total results: {len(results)}")
+        generate_html()
+        print(f"\nHTML output generated: {DEMO_HTML_PATH}")
         return
 
     print("\nStarting generation...")
@@ -221,6 +388,9 @@ def main() -> None:
     print("\n" + "=" * 50)
     print("Demo Complete!")
     print(f"Total results: {len(results)}")
+
+    generate_html()
+    print(f"\nHTML output generated: {DEMO_HTML_PATH}")
 
 
 if __name__ == "__main__":

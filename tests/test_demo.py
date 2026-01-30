@@ -10,6 +10,7 @@ import pytest
 from asciibench.common.models import DemoResult
 from asciibench.generator.demo import (
     generate_demo_sample,
+    generate_html,
     get_completed_model_ids,
     load_demo_results,
     save_demo_results,
@@ -533,3 +534,230 @@ class TestGenerateDemoSample:
 
         assert result.is_valid is False
         assert result.ascii_output == ""
+
+
+class TestGenerateHtml:
+    """Tests for generate_html function."""
+
+    def test_generate_html_creates_directory(self, tmp_path: Path) -> None:
+        """Test that HTML generation creates .demo_outputs directory."""
+        import asciibench.generator.demo as demo_module
+
+        demo_dir = tmp_path / ".demo_outputs"
+        demo_module.DEMO_OUTPUTS_DIR = demo_dir
+        demo_module.DEMO_HTML_PATH = demo_dir / "demo.html"
+        demo_module.RESULTS_JSON_PATH = demo_dir / "results.json"
+
+        assert not demo_dir.exists()
+        generate_html()
+        assert demo_dir.exists()
+
+    def test_generate_html_empty_results(self, tmp_path: Path) -> None:
+        """Test HTML generation with empty results shows 'No results yet' message."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        generate_html()
+
+        assert demo_module.DEMO_HTML_PATH.exists()
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert "ASCIIBench Demo - Skeleton ASCII Art" in html_content
+        assert "No results yet" in html_content
+        assert "Run 'task demo' to generate ASCII art samples" in html_content
+
+    def test_generate_html_with_single_result(self, tmp_path: Path) -> None:
+        """Test HTML generation with a single valid result."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        result = DemoResult(
+            model_id="openai/gpt-4o-mini",
+            model_name="GPT-4o-mini",
+            ascii_output="skeleton\nart",
+            is_valid=True,
+            timestamp=datetime(2026, 1, 30, 20, 0, 0),
+        )
+        save_demo_results([result])
+
+        generate_html()
+
+        assert demo_module.DEMO_HTML_PATH.exists()
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert "ASCIIBench Demo - Skeleton ASCII Art" in html_content
+        assert "GPT-4o-mini" in html_content
+        assert "openai/gpt-4o-mini" in html_content
+        assert "skeleton\nart" in html_content
+        assert "Generated: 2026-01-30 20:00:00" in html_content
+        assert "Valid" in html_content
+
+    def test_generate_html_with_multiple_results(self, tmp_path: Path) -> None:
+        """Test HTML generation with multiple results."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        results = [
+            DemoResult(
+                model_id="openai/gpt-4o-mini",
+                model_name="GPT-4o-mini",
+                ascii_output="skeleton1",
+                is_valid=True,
+                timestamp=datetime(2026, 1, 30, 20, 0, 0),
+            ),
+            DemoResult(
+                model_id="anthropic/claude-sonnet-4.5",
+                model_name="Claude 4.5 Sonnet",
+                ascii_output="skeleton2",
+                is_valid=True,
+                timestamp=datetime(2026, 1, 30, 20, 0, 1),
+            ),
+        ]
+        save_demo_results(results)
+
+        generate_html()
+
+        assert demo_module.DEMO_HTML_PATH.exists()
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert "GPT-4o-mini" in html_content
+        assert "Claude 4.5 Sonnet" in html_content
+        assert "skeleton1" in html_content
+        assert "skeleton2" in html_content
+
+    def test_generate_html_invalid_result_styling(self, tmp_path: Path) -> None:
+        """Test HTML generation shows red border for invalid results."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        result = DemoResult(
+            model_id="openai/gpt-4o-mini",
+            model_name="GPT-4o-mini",
+            ascii_output="Error: API error",
+            is_valid=False,
+            timestamp=datetime(2026, 1, 30, 20, 0, 0),
+        )
+        save_demo_results([result])
+
+        generate_html()
+
+        assert demo_module.DEMO_HTML_PATH.exists()
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert 'class="model-section invalid"' in html_content
+        assert "Invalid" in html_content
+        assert 'class="valid-badge invalid"' in html_content
+
+    def test_generate_html_includes_inline_css(self, tmp_path: Path) -> None:
+        """Test HTML generation includes inline CSS styling."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        result = DemoResult(
+            model_id="openai/gpt-4o-mini",
+            model_name="GPT-4o-mini",
+            ascii_output="skeleton",
+            is_valid=True,
+            timestamp=datetime(2026, 1, 30, 20, 0, 0),
+        )
+        save_demo_results([result])
+
+        generate_html()
+
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert "<style>" in html_content
+        assert "Courier New" in html_content
+        assert "monospace" in html_content
+        assert "<!DOCTYPE html>" in html_content
+        assert "<title>ASCIIBench Demo - Skeleton ASCII Art</title>" in html_content
+
+    def test_generate_html_monospace_font(self, tmp_path: Path) -> None:
+        """Test HTML generation uses monospace font for ASCII art."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        result = DemoResult(
+            model_id="openai/gpt-4o-mini",
+            model_name="GPT-4o-mini",
+            ascii_output="skeleton",
+            is_valid=True,
+            timestamp=datetime(2026, 1, 30, 20, 0, 0),
+        )
+        save_demo_results([result])
+
+        generate_html()
+
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert "font-family: 'Courier New', Courier, monospace" in html_content
+
+    def test_generate_html_uses_utf8_encoding(self, tmp_path: Path) -> None:
+        """Test HTML generation uses UTF-8 encoding."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        result = DemoResult(
+            model_id="openai/gpt-4o-mini",
+            model_name="GPT-4o-mini",
+            ascii_output="skeleton with émojis",
+            is_valid=True,
+            timestamp=datetime(2026, 1, 30, 20, 0, 0),
+        )
+        save_demo_results([result])
+
+        generate_html()
+
+        assert demo_module.DEMO_HTML_PATH.exists()
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert "skeleton with émojis" in html_content
+
+    def test_generate_html_escapes_special_characters(self, tmp_path: Path) -> None:
+        """Test HTML generation escapes special characters properly."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        result = DemoResult(
+            model_id="openai/gpt-4o-mini",
+            model_name="GPT-4o-mini",
+            ascii_output='<div>test</div> & "quotes"',
+            is_valid=True,
+            timestamp=datetime(2026, 1, 30, 20, 0, 0),
+        )
+        save_demo_results([result])
+
+        generate_html()
+
+        assert demo_module.DEMO_HTML_PATH.exists()
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert "&lt;div&gt;test&lt;/div&gt;" in html_content
+        assert "&amp;" in html_content
+        assert "&quot;" in html_content
+        assert "<div>" not in html_content
+        assert "&quot;quotes&quot;" in html_content
