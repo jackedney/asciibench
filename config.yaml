@@ -1,0 +1,6 @@
+generation:
+  attempts_per_prompt: 5
+  temperature: 0.0
+  max_tokens: 1000
+  provider: openrouter
+  system_prompt: ""

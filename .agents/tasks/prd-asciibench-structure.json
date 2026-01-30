@@ -166,7 +166,7 @@
     {
       "id": "US-003",
       "title": "Set up pydantic v2 data models for core entities",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [
         "US-002"
       ],
@@ -183,13 +183,13 @@
         "Run `uv run ty check` with no errors"
       ],
       "startedAt": "2026-01-30T12:44:58.888578+00:00",
-      "completedAt": null,
-      "updatedAt": "2026-01-30T12:44:58.888782+00:00"
+      "completedAt": "2026-01-30T12:48:46.533107+00:00",
+      "updatedAt": "2026-01-30T12:48:46.532777+00:00"
     },
     {
       "id": "US-004",
       "title": "Implement pydantic-settings configuration",
-      "status": "open",
+      "status": "in_progress",
       "dependsOn": [
         "US-002"
       ],
@@ -205,7 +205,10 @@
         "Create asciibench/common/yaml_config.py with functions to load models.yaml and prompts.yaml",
         "Add load_models() and load_prompts() functions returning validated models",
         "Run `uv run pytest` with no errors"
-      ]
+      ],
+      "startedAt": "2026-01-30T12:48:48.639136+00:00",
+      "completedAt": null,
+      "updatedAt": "2026-01-30T12:48:48.639276+00:00"
     },
     {
       "id": "US-005",

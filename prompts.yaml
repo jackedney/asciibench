@@ -1,0 +1,7 @@
+prompts:
+  - text: Draw a cat
+    category: animal
+    template_type: simple
+  - text: Draw a tree
+    category: nature
+    template_type: simple
