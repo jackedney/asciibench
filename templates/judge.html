@@ -2,29 +2,27 @@
 
 {% block content %}
 <h1>ASCIIBench Judge Interface</h1>
-<p>Compare two ASCII art samples and choose the winner.</p>
+<p id="prompt-display">Compare two ASCII art samples and choose the winner.</p>
 
-<div class="comparison-container">
+<div id="loading-indicator" class="loading-indicator" style="display: none;">
+    Loading matchup...
+</div>
+
+<div id="matchup-container" class="comparison-container">
     <div class="sample">
         <h2>Sample A</h2>
         <div class="font-variants">
             <div class="font-variant">
                 <span class="font-label">Classic</span>
-                <div class="art-display font-classic">/_/\
-( o.o )
- > ^ <</div>
+                <div id="sample-a-classic" class="art-display font-classic"></div>
             </div>
             <div class="font-variant">
                 <span class="font-label">Modern</span>
-                <div class="art-display font-modern">/_/\
-( o.o )
- > ^ <</div>
+                <div id="sample-a-modern" class="art-display font-modern"></div>
             </div>
             <div class="font-variant">
                 <span class="font-label">Condensed</span>
-                <div class="art-display font-condensed">/_/\
-( o.o )
- > ^ <</div>
+                <div id="sample-a-condensed" class="art-display font-condensed"></div>
             </div>
         </div>
     </div>
@@ -33,36 +31,354 @@
         <div class="font-variants">
             <div class="font-variant">
                 <span class="font-label">Classic</span>
-                <div class="art-display font-classic">|\__/,|   (`\
-_.|o o  |_   ) )
--(((---(((--------</div>
+                <div id="sample-b-classic" class="art-display font-classic"></div>
             </div>
             <div class="font-variant">
                 <span class="font-label">Modern</span>
-                <div class="art-display font-modern">|\__/,|   (`\
-_.|o o  |_   ) )
--(((---(((--------</div>
+                <div id="sample-b-modern" class="art-display font-modern"></div>
             </div>
             <div class="font-variant">
                 <span class="font-label">Condensed</span>
-                <div class="art-display font-condensed">|\__/,|   (`\
-_.|o o  |_   ) )
--(((---(((--------</div>
+                <div id="sample-b-condensed" class="art-display font-condensed"></div>
             </div>
         </div>
     </div>
 </div>
 
+<div id="error-message" class="error-message" style="display: none;"></div>
+
 <div class="controls">
     <h3>Which sample do you prefer?</h3>
-    <button>A wins</button>
-    <button>B wins</button>
-    <button>Tie</button>
-    <button>Both fail</button>
+    <div class="vote-buttons">
+        <button id="btn-a" class="vote-btn" data-winner="A">A wins</button>
+        <button id="btn-b" class="vote-btn" data-winner="B">B wins</button>
+        <button id="btn-tie" class="vote-btn" data-winner="tie">Tie</button>
+        <button id="btn-fail" class="vote-btn" data-winner="fail">Both fail</button>
+    </div>
+    <div class="undo-container">
+        <button id="btn-undo" class="undo-btn">Undo (Z)</button>
+    </div>
     <p class="keyboard-hint">
-        Keyboard shortcuts: <span class="keyboard-key">A</span> <span class="keyboard-key">D</span> <span class="keyboard-key">S</span> <span class="keyboard-key">F</span>
+        Keyboard shortcuts:
+        <span class="keyboard-key">A</span> left wins
+        <span class="keyboard-key">D</span> right wins
+        <span class="keyboard-key">S</span> tie
+        <span class="keyboard-key">F</span> fail
+        <span class="keyboard-key">Z</span> undo
     </p>
 </div>
 
-<p><a href="/">Back to Home</a>
+<div id="progress-display" class="progress-display">
+    <span id="progress-text">Votes: 0</span>
+</div>
+
+<p><a href="/">Back to Home</a></p>
+
+<script>
+(function() {
+    'use strict';
+
+    // State
+    let currentMatchup = null;
+    let isProcessing = false;
+
+    // DOM Elements
+    const promptDisplay = document.getElementById('prompt-display');
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const matchupContainer = document.getElementById('matchup-container');
+    const errorMessage = document.getElementById('error-message');
+    const progressText = document.getElementById('progress-text');
+    const btnA = document.getElementById('btn-a');
+    const btnB = document.getElementById('btn-b');
+    const btnTie = document.getElementById('btn-tie');
+    const btnFail = document.getElementById('btn-fail');
+    const btnUndo = document.getElementById('btn-undo');
+
+    // Sample display elements
+    const sampleAClassic = document.getElementById('sample-a-classic');
+    const sampleAModern = document.getElementById('sample-a-modern');
+    const sampleACondensed = document.getElementById('sample-a-condensed');
+    const sampleBClassic = document.getElementById('sample-b-classic');
+    const sampleBModern = document.getElementById('sample-b-modern');
+    const sampleBCondensed = document.getElementById('sample-b-condensed');
+
+    // Key to winner mapping
+    const keyToWinner = {
+        'a': 'A',
+        'A': 'A',
+        'd': 'B',
+        'D': 'B',
+        's': 'tie',
+        'S': 'tie',
+        'f': 'fail',
+        'F': 'fail'
+    };
+
+    // Key to button mapping
+    const keyToButton = {
+        'a': btnA,
+        'A': btnA,
+        'd': btnB,
+        'D': btnB,
+        's': btnTie,
+        'S': btnTie,
+        'f': btnFail,
+        'F': btnFail,
+        'z': btnUndo,
+        'Z': btnUndo
+    };
+
+    /**
+     * Show loading state
+     */
+    function showLoading() {
+        loadingIndicator.style.display = 'block';
+        matchupContainer.style.opacity = '0.5';
+        setButtonsDisabled(true);
+    }
+
+    /**
+     * Hide loading state
+     */
+    function hideLoading() {
+        loadingIndicator.style.display = 'none';
+        matchupContainer.style.opacity = '1';
+        setButtonsDisabled(false);
+    }
+
+    /**
+     * Show error message
+     */
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+    }
+
+    /**
+     * Hide error message
+     */
+    function hideError() {
+        errorMessage.style.display = 'none';
+    }
+
+    /**
+     * Enable or disable all vote buttons
+     */
+    function setButtonsDisabled(disabled) {
+        btnA.disabled = disabled;
+        btnB.disabled = disabled;
+        btnTie.disabled = disabled;
+        btnFail.disabled = disabled;
+        btnUndo.disabled = disabled;
+    }
+
+    /**
+     * Highlight a button briefly
+     */
+    function highlightButton(button) {
+        if (!button) return;
+        button.classList.add('active');
+        setTimeout(() => {
+            button.classList.remove('active');
+        }, 150);
+    }
+
+    /**
+     * Update the sample displays with new matchup data
+     */
+    function updateSampleDisplays(matchup) {
+        const sampleA = matchup.sample_a;
+        const sampleB = matchup.sample_b;
+
+        // Update Sample A displays
+        sampleAClassic.textContent = sampleA.sanitized_output;
+        sampleAModern.textContent = sampleA.sanitized_output;
+        sampleACondensed.textContent = sampleA.sanitized_output;
+
+        // Update Sample B displays
+        sampleBClassic.textContent = sampleB.sanitized_output;
+        sampleBModern.textContent = sampleB.sanitized_output;
+        sampleBCondensed.textContent = sampleB.sanitized_output;
+
+        // Update prompt display
+        promptDisplay.textContent = 'Prompt: ' + matchup.prompt;
+    }
+
+    /**
+     * Load a new matchup from the API
+     */
+    async function loadMatchup() {
+        showLoading();
+        hideError();
+
+        try {
+            const response = await fetch('/api/matchup');
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.detail || 'Failed to load matchup');
+            }
+
+            currentMatchup = await response.json();
+            updateSampleDisplays(currentMatchup);
+        } catch (error) {
+            showError(error.message);
+            currentMatchup = null;
+        } finally {
+            hideLoading();
+        }
+    }
+
+    /**
+     * Update progress display
+     */
+    async function updateProgress() {
+        try {
+            const response = await fetch('/api/progress');
+            if (response.ok) {
+                const data = await response.json();
+                progressText.textContent = `Votes: ${data.votes_completed} | Pairs judged: ${data.unique_pairs_judged}/${data.total_possible_pairs}`;
+            }
+        } catch (error) {
+            // Silently fail - progress display is not critical
+            console.error('Failed to update progress:', error);
+        }
+    }
+
+    /**
+     * Submit a vote
+     */
+    async function submitVote(winner) {
+        if (isProcessing || !currentMatchup) return;
+
+        isProcessing = true;
+        showLoading();
+        hideError();
+
+        try {
+            const response = await fetch('/api/votes', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    sample_a_id: currentMatchup.sample_a.id,
+                    sample_b_id: currentMatchup.sample_b.id,
+                    winner: winner
+                })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.detail || 'Failed to submit vote');
+            }
+
+            // Load next matchup and update progress
+            await Promise.all([loadMatchup(), updateProgress()]);
+        } catch (error) {
+            showError(error.message);
+            hideLoading();
+        } finally {
+            isProcessing = false;
+        }
+    }
+
+    /**
+     * Undo the last vote
+     */
+    async function undoVote() {
+        if (isProcessing) return;
+
+        isProcessing = true;
+        showLoading();
+        hideError();
+
+        try {
+            const response = await fetch('/api/undo', {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.detail || 'Failed to undo vote');
+            }
+
+            // Update progress after undo
+            await updateProgress();
+            hideLoading();
+        } catch (error) {
+            showError(error.message);
+            hideLoading();
+        } finally {
+            isProcessing = false;
+        }
+    }
+
+    /**
+     * Handle keydown events
+     */
+    function handleKeydown(event) {
+        // Ignore if typing in an input field
+        if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {
+            return;
+        }
+
+        // Ignore if processing
+        if (isProcessing) return;
+
+        const key = event.key;
+
+        // Handle Ctrl+Z for undo
+        if ((event.ctrlKey || event.metaKey) && (key === 'z' || key === 'Z')) {
+            event.preventDefault();
+            highlightButton(btnUndo);
+            undoVote();
+            return;
+        }
+
+        // Handle undo with just 'z' or 'Z'
+        if (key === 'z' || key === 'Z') {
+            highlightButton(btnUndo);
+            undoVote();
+            return;
+        }
+
+        // Handle vote keys
+        if (keyToWinner[key]) {
+            highlightButton(keyToButton[key]);
+            submitVote(keyToWinner[key]);
+            return;
+        }
+
+        // Other keys do nothing (as per acceptance criteria)
+    }
+
+    /**
+     * Handle button clicks
+     */
+    function handleButtonClick(event) {
+        const winner = event.target.dataset.winner;
+        if (winner) {
+            highlightButton(event.target);
+            submitVote(winner);
+        }
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add keyboard event listener
+        document.addEventListener('keydown', handleKeydown);
+
+        // Add click handlers to vote buttons
+        btnA.addEventListener('click', handleButtonClick);
+        btnB.addEventListener('click', handleButtonClick);
+        btnTie.addEventListener('click', handleButtonClick);
+        btnFail.addEventListener('click', handleButtonClick);
+        btnUndo.addEventListener('click', undoVote);
+
+        // Load initial matchup and progress
+        loadMatchup();
+        updateProgress();
+    });
+})();
+</script>
 {% endblock %}
