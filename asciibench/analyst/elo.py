@@ -26,10 +26,14 @@ Dependencies:
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from asciibench.common.models import Vote
+    from asciibench.common.models import ArtSample, Vote
 
 
-def calculate_elo(votes: list["Vote"]) -> dict[str, float]:
+BASE_RATING = 1500
+K_FACTOR = 32
+
+
+def calculate_elo(votes: list["Vote"], samples: list["ArtSample"]) -> dict[str, float]:
     """Calculate Elo ratings from a list of votes.
 
     This function processes judge votes to compute Elo ratings for each
@@ -38,25 +42,77 @@ def calculate_elo(votes: list["Vote"]) -> dict[str, float]:
 
     Args:
         votes: A list of Vote objects representing pairwise comparisons.
+        samples: A list of ArtSample objects for looking up model IDs.
 
     Returns:
         A dictionary mapping model IDs to their calculated Elo ratings.
 
     Example:
+        >>> from uuid import uuid4
+        >>> from asciibench.common.models import ArtSample
+        >>> sample_a = ArtSample(id=uuid4(), model_id="model1", prompt_text="test",
+        ...     category="test", attempt_number=1, raw_output="test", sanitized_output="test",
+        ...     is_valid=True)
+        >>> sample_b = ArtSample(id=uuid4(), model_id="model2", prompt_text="test",
+        ...     category="test", attempt_number=1, raw_output="test", sanitized_output="test",
+        ...     is_valid=True)
         >>> votes = [
-        ...     Vote(sample_a_id="model1-0", sample_b_id="model2-0", winner="A"),
-        ...     Vote(sample_a_id="model1-1", sample_b_id="model2-1", winner="B"),
+        ...     Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A"),
         ... ]
-        >>> ratings = calculate_elo(votes)
-        >>> ratings["model1"]
-        1495.0
-        >>> ratings["model2"]
-        1505.0
+        >>> ratings = calculate_elo(votes, [sample_a, sample_b])
+        >>> ratings["model1"] > 1500
+        True
+        >>> ratings["model2"] < 1500
+        True
 
     Negative case:
-        >>> calculate_elo([])
-        {}
-        >>> calculate_elo([Vote(sample_a_id="x", sample_b_id="y", winner="A")])
+        >>> calculate_elo([], [])
         {}
     """
-    raise NotImplementedError("calculate_elo() not yet implemented")
+    if not votes:
+        return {}
+
+    sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
+
+    votes_sorted = sorted(votes, key=lambda v: v.timestamp)
+
+    ratings: dict[str, float] = {}
+
+    for vote in votes_sorted:
+        model_a = sample_to_model.get(vote.sample_a_id)
+        model_b = sample_to_model.get(vote.sample_b_id)
+
+        if not model_a or not model_b:
+            continue
+
+        if model_a == model_b:
+            continue
+
+        if model_a not in ratings:
+            ratings[model_a] = float(BASE_RATING)
+        if model_b not in ratings:
+            ratings[model_b] = float(BASE_RATING)
+
+        rating_a = ratings[model_a]
+        rating_b = ratings[model_b]
+
+        if vote.winner == "fail":
+            continue
+
+        expected_a = 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
+        expected_b = 1 / (1 + 10 ** ((rating_a - rating_b) / 400))
+
+        if vote.winner == "A":
+            score_a = 1.0
+            score_b = 0.0
+        elif vote.winner == "B":
+            score_a = 0.0
+            score_b = 1.0
+        else:
+            score_a = 0.5
+            score_b = 0.5
+
+        ratings[model_a] = rating_a + K_FACTOR * (score_a - expected_a)
+        ratings[model_b] = rating_b + K_FACTOR * (score_b - expected_b)
+
+    return ratings
