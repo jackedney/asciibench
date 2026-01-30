@@ -127,5 +127,51 @@ Run summary: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-i
   - For testing invalid pydantic literal values, use type: ignore[arg-type] comment to satisfy type checker while still testing ValidationError
   - Use cast() to handle type narrowing in tests when iterating over valid literal values
   - Pydantic v2 validates Literal types at runtime and produces clear ValidationError messages with "literal_error" type
-  - When testing that ValidationError is raised for invalid input, verify both that it's raised and that the error details (loc, type) are correct
+   - When testing that ValidationError is raised for invalid input, verify both that it's raised and that the error details (loc, type) are correct
+ ---
+
+## [Fri 30 Jan 2026 12:50:00] - US-004: Implement pydantic-settings configuration
+Thread:
+Run: 20260130-123401-97774 (iteration 4)
+Run log: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-4.log
+Run summary: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-4.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: e4be798 feat(config): implement pydantic-settings configuration
+- Post-commit status: M .ralph/runs/run-20260130-123401-97774-iter-4.log
+- Verification:
+  - Command: uv run pytest -> PASS (12 tests)
+  - Command: uv run ruff check -> PASS
+  - Command: uv run ruff format --check -> PASS (11 files already formatted)
+  - Command: uv run ty check -> PASS
+- Files changed:
+  - asciibench/common/config.py (created)
+  - asciibench/common/yaml_config.py (created)
+  - .env.example (created)
+  - config.yaml (created)
+  - models.yaml (created)
+  - prompts.yaml (created)
+  - tests/test_config.py (created)
+- What was implemented:
+  - Created asciibench/common/config.py with Settings(BaseSettings) and GenerationConfig(BaseModel)
+  - Settings includes fields: openrouter_api_key (default=''), base_url (default='https://openrouter.ai/api/v1')
+  - GenerationConfig includes fields: attempts_per_prompt=5, temperature=0.0, max_tokens=1000, provider='openrouter', system_prompt
+  - Created .env.example with OPENROUTER_API_KEY placeholder
+  - Created config.yaml skeleton with generation section
+  - Created asciibench/common/yaml_config.py with load_models() and load_prompts() functions returning validated models
+  - Created models.yaml and prompts.yaml skeleton files
+  - Added comprehensive tests in tests/test_config.py covering:
+    - Settings with default values
+    - Settings loading from .env file
+    - Settings with missing .env file loads defaults
+    - GenerationConfig default and custom values
+    - load_models() function validation
+    - load_prompts() function validation
+  - All quality gates pass (pytest, ruff check, ruff format, ty check)
+- **Learnings for future iterations:**
+  - pydantic-settings SettingsConfigDict.env_file accepts Path objects for specifying custom .env file locations
+  - To test loading from a custom .env file, create a new Settings subclass with custom model_config instead of passing parameters to constructor
+  - yaml.safe_load is used for secure YAML parsing; pydantic validates the loaded data into models
+  - The .env.example should be committed to repo but .env should be in .gitignore (already done by uv)
+  - For testing that Settings loads from .env file, need to create a temporary .env file and use a custom Settings subclass
  ---
