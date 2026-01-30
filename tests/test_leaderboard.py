@@ -1,9 +1,16 @@
 """Tests for leaderboard generation."""
 
+import csv
+import json
+from pathlib import Path
 from uuid import uuid4
 
 from asciibench.analyst.elo import calculate_elo
-from asciibench.analyst.leaderboard import generate_leaderboard
+from asciibench.analyst.leaderboard import (
+    export_rankings_csv,
+    export_rankings_json,
+    generate_leaderboard,
+)
 from asciibench.common.models import ArtSample, Vote
 
 
@@ -551,3 +558,496 @@ class TestGenerateLeaderboard:
         assert "## Rankings" in board
         assert "| Rank | Model | Elo Rating | Comparisons | Win Rate | Last Updated |" in board
         assert "|------|-------|------------|-------------|----------|--------------|" in board
+
+
+class TestExportRankingsJson:
+    """Tests for export_rankings_json function."""
+
+    def test_empty_data_creates_valid_empty_structures(self):
+        """Empty data produces valid JSON with empty structures."""
+        export_rankings_json([], [], {}, "/tmp/test_empty.json")
+
+        data = json.loads(Path("/tmp/test_empty.json").read_text())
+
+        assert "overall_ratings" in data
+        assert "category_ratings" in data
+        assert "consistency_metrics" in data
+        assert "last_updated" in data
+        assert data["overall_ratings"] == {}
+        assert data["category_ratings"] == {}
+        assert data["consistency_metrics"] == {}
+
+        Path("/tmp/test_empty.json").unlink()
+
+    def test_json_export_includes_overall_ratings(self):
+        """JSON export includes overall Elo ratings."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A")
+            for _ in range(5)
+        ]
+
+        ratings = calculate_elo(votes, [sample_a, sample_b])
+        export_rankings_json(votes, [sample_a, sample_b], ratings, "/tmp/test_overall.json")
+
+        data = json.loads(Path("/tmp/test_overall.json").read_text())
+
+        assert "overall_ratings" in data
+        assert "model1" in data["overall_ratings"]
+        assert "model2" in data["overall_ratings"]
+        assert data["overall_ratings"]["model1"] > 1500
+        assert data["overall_ratings"]["model2"] < 1500
+
+        Path("/tmp/test_overall.json").unlink()
+
+    def test_json_export_includes_category_ratings(self):
+        """JSON export includes category-specific ratings."""
+        sample_a1 = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b1 = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_a2 = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b2 = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(sample_a1.id), sample_b_id=str(sample_b1.id), winner="A"),
+            Vote(sample_a_id=str(sample_a2.id), sample_b_id=str(sample_b2.id), winner="B"),
+        ]
+
+        ratings = {"model1": 1500.0, "model2": 1500.0}
+        export_rankings_json(
+            votes, [sample_a1, sample_b1, sample_a2, sample_b2], ratings, "/tmp/test_category.json"
+        )
+
+        data = json.loads(Path("/tmp/test_category.json").read_text())
+
+        assert "category_ratings" in data
+        assert "single_object" in data["category_ratings"]
+        assert "single_animal" in data["category_ratings"]
+
+        Path("/tmp/test_category.json").unlink()
+
+    def test_json_export_includes_consistency_metrics(self):
+        """JSON export includes consistency metrics."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A"),
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="B"),
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A"),
+        ]
+
+        ratings = {"model1": 1500.0, "model2": 1500.0}
+        export_rankings_json(votes, [sample_a, sample_b], ratings, "/tmp/test_metrics.json")
+
+        data = json.loads(Path("/tmp/test_metrics.json").read_text())
+
+        assert "consistency_metrics" in data
+        assert "model1" in data["consistency_metrics"]
+        assert "model2" in data["consistency_metrics"]
+        assert "win_rate" in data["consistency_metrics"]["model1"]
+        assert "std_dev" in data["consistency_metrics"]["model1"]
+        assert "comparisons" in data["consistency_metrics"]["model1"]
+
+        Path("/tmp/test_metrics.json").unlink()
+
+    def test_json_export_creates_valid_json_file(self):
+        """export_rankings_json creates a valid JSON file."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A")]
+
+        ratings = {"model1": 1516.0, "model2": 1484.0}
+        export_rankings_json(votes, [sample_a, sample_b], ratings, "/tmp/test_valid.json")
+
+        json.loads(Path("/tmp/test_valid.json").read_text())
+
+        Path("/tmp/test_valid.json").unlink()
+
+    def test_json_export_includes_last_updated_timestamp(self):
+        """JSON export includes last updated timestamp."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A")]
+
+        ratings = {"model1": 1500.0, "model2": 1500.0}
+        export_rankings_json(votes, [sample_a, sample_b], ratings, "/tmp/test_timestamp.json")
+
+        data = json.loads(Path("/tmp/test_timestamp.json").read_text())
+
+        assert "last_updated" in data
+        assert isinstance(data["last_updated"], str)
+
+        Path("/tmp/test_timestamp.json").unlink()
+
+
+class TestExportRankingsCsv:
+    """Tests for export_rankings_csv function."""
+
+    def test_empty_data_creates_valid_empty_csv(self):
+        """Empty data produces valid CSV with only header."""
+        export_rankings_csv([], [], {}, "/tmp/test_empty.csv")
+
+        rows = list(csv.reader(Path("/tmp/test_empty.csv").read_text().splitlines()))
+
+        assert len(rows) == 1
+        assert rows[0][0] == "model"
+        assert rows[0][1] == "overall_elo"
+
+        Path("/tmp/test_empty.csv").unlink()
+
+    def test_csv_export_has_flat_table_structure(self):
+        """CSV export has flat table with one row per model."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A")
+            for _ in range(5)
+        ]
+
+        ratings = calculate_elo(votes, [sample_a, sample_b])
+        export_rankings_csv(votes, [sample_a, sample_b], ratings, "/tmp/test_flat.csv")
+
+        rows = list(csv.reader(Path("/tmp/test_flat.csv").read_text().splitlines()))
+
+        assert len(rows) == 3
+        assert rows[0][0] == "model"
+        assert rows[1][0] == "model1" or rows[2][0] == "model1"
+        assert rows[1][0] == "model2" or rows[2][0] == "model2"
+
+        Path("/tmp/test_flat.csv").unlink()
+
+    def test_csv_export_includes_overall_elo(self):
+        """CSV export includes overall Elo rating column."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A")
+            for _ in range(5)
+        ]
+
+        ratings = calculate_elo(votes, [sample_a, sample_b])
+        export_rankings_csv(votes, [sample_a, sample_b], ratings, "/tmp/test_overall_elo.csv")
+
+        rows = list(csv.reader(Path("/tmp/test_overall_elo.csv").read_text().splitlines()))
+
+        assert rows[0][1] == "overall_elo"
+
+        Path("/tmp/test_overall_elo.csv").unlink()
+
+    def test_csv_export_includes_category_elo_columns(self):
+        """CSV export includes category-specific Elo columns."""
+        sample_a1 = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b1 = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_a2 = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b2 = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_animal",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(sample_a1.id), sample_b_id=str(sample_b1.id), winner="A"),
+            Vote(sample_a_id=str(sample_a2.id), sample_b_id=str(sample_b2.id), winner="B"),
+        ]
+
+        ratings = {"model1": 1500.0, "model2": 1500.0}
+        export_rankings_csv(
+            votes, [sample_a1, sample_b1, sample_a2, sample_b2], ratings, "/tmp/test_cat_elo.csv"
+        )
+
+        rows = list(csv.reader(Path("/tmp/test_cat_elo.csv").read_text().splitlines()))
+
+        assert "single_object_elo" in rows[0]
+        assert "single_animal_elo" in rows[0]
+
+        Path("/tmp/test_cat_elo.csv").unlink()
+
+    def test_csv_export_includes_win_rate_and_comparisons(self):
+        """CSV export includes win_rate and comparisons columns."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A"),
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="B"),
+            Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A"),
+        ]
+
+        ratings = {"model1": 1500.0, "model2": 1500.0}
+        export_rankings_csv(votes, [sample_a, sample_b], ratings, "/tmp/test_metrics.csv")
+
+        rows = list(csv.reader(Path("/tmp/test_metrics.csv").read_text().splitlines()))
+
+        assert "win_rate" in rows[0]
+        assert "comparisons" in rows[0]
+
+        Path("/tmp/test_metrics.csv").unlink()
+
+    def test_csv_export_handles_missing_category_ratings(self):
+        """CSV export handles models with no ratings in some categories."""
+        sample_a1 = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b1 = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [Vote(sample_a_id=str(sample_a1.id), sample_b_id=str(sample_b1.id), winner="A")]
+
+        ratings = {"model1": 1500.0, "model2": 1500.0}
+        export_rankings_csv(votes, [sample_a1, sample_b1], ratings, "/tmp/test_missing_cat.csv")
+
+        rows = list(csv.reader(Path("/tmp/test_missing_cat.csv").read_text().splitlines()))
+
+        assert "single_object_elo" in rows[0]
+
+        Path("/tmp/test_missing_cat.csv").unlink()
+
+    def test_csv_export_creates_valid_csv_file(self):
+        """export_rankings_csv creates a valid CSV file."""
+        sample_a = ArtSample(
+            id=uuid4(),
+            model_id="model1",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=uuid4(),
+            model_id="model2",
+            prompt_text="test",
+            category="single_object",
+            attempt_number=1,
+            raw_output="test",
+            sanitized_output="test",
+            is_valid=True,
+        )
+
+        votes = [Vote(sample_a_id=str(sample_a.id), sample_b_id=str(sample_b.id), winner="A")]
+
+        ratings = {"model1": 1516.0, "model2": 1484.0}
+        export_rankings_csv(votes, [sample_a, sample_b], ratings, "/tmp/test_valid.csv")
+
+        rows = list(csv.reader(Path("/tmp/test_valid.csv").read_text().splitlines()))
+
+        assert len(rows) >= 2
+        assert rows[0][0] == "model"
+
+        Path("/tmp/test_valid.csv").unlink()
