@@ -180,3 +180,12 @@ A  data/votes.jsonl
 [master 302ce0e] chore: add progress entry for US-007
  1 file changed, 40 insertions(+), 2 deletions(-)
 
+[91m[1m| [0m[90m Bash     [0mFinal commit of iteration 8
+
+[master 0f6a5b4] chore: finalize iteration 8 progress and logs
+ 1 file changed, 17 insertions(+)
+
+[91m[1m| [0m[90m Bash     [0mVerify working tree is clean
+
+ M .ralph/runs/run-20260130-123401-97774-iter-8.log
+
