@@ -263,8 +263,74 @@ Run summary: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-i
   - yaml.safe_load is used for secure YAML parsing; pydantic validates the loaded data into models
   - The .env.example should be committed to repo but .env should be in .gitignore (already done by uv)
    - For testing that Settings loads from .env file, need to create a temporary .env file and use a custom Settings subclass
-  ---
+---
 
+## [Fri 30 Jan 2026 15:14:00] - US-010: Create README.md and project documentation skeleton
+Thread:
+Run: 20260130-123401-97774 (iteration 11)
+Run log: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-11.log
+Run summary: /Users/jackedney/asciibench/.ralph/runs/run-20260130-123401-97774-iter-11.md
+- Guardrails reviewed: yes
+- No-commit run: false
+- Commit: f9beb8c docs: add comprehensive project documentation
+- Post-commit status: clean
+- Verification:
+  - Command: uv run pytest --cov -> PASS (12 tests, 100% coverage)
+  - Command: uv run ruff check -> PASS
+  - Command: uv run ruff format --check -> PASS (20 files already formatted)
+  - Command: uv run ty check -> PASS
+- Files changed:
+  - README.md (enhanced with detailed module descriptions)
+  - CONTRIBUTING.md (created with contribution guidelines)
+  - .gitignore (updated with Python exclusions: .env, .ruff_cache, .pytest_cache, *.pyc, .coverage, htmlcov/)
+- What was implemented:
+  - Enhanced README.md with comprehensive documentation:
+    - Updated project overview with detailed module descriptions
+    - Added detailed project structure tree showing all subdirectories and files
+    - Added dedicated "Modules" section with descriptions for Generator, Judge UI, and Analyst
+    - Maintained existing installation, development, quality gates sections
+    - Maintained CI badge and reference to SPECIFICATION.md
+  - Created CONTRIBUTING.md with development guidelines:
+    - Setting up development environment (fork, clone, uv sync, .env setup)
+    - Development workflow (dev server, tests, code quality commands)
+    - Code style guidelines (type hints, PEP 8, max line length 100, pydantic v2)
+    - Module-specific guidelines for Generator, Judge UI, and Analyst
+    - Commit message format following conventional commits
+    - Pull request process with clear steps
+  - Updated .gitignore with required Python exclusions:
+    - Added *.pyc
+    - Added .env (environment variables)
+    - Added .pytest_cache/ (testing artifacts)
+    - Added .coverage and htmlcov/ (coverage reports)
+    - Added .ruff_cache/ (linting cache)
+  - All acceptance criteria verified:
+    - README.md has project title, description, and overview
+    - Installation instructions using uv present
+    - Development setup instructions (uv sync, uv run dev) present
+    - Project structure section showing package layout present
+    - Quality gates section with commands present
+    - Section for each module (Generator, Judge UI, Analyst) with purpose description present
+    - GitHub Actions CI badge at top of README present
+    - CONTRIBUTING.md created with contribution guidelines
+    - .gitignore includes Python exclusions (__pycache__, .venv, .env, .ruff_cache, .pytest_cache, *.pyc, .coverage, htmlcov/)
+    - References to SPECIFICATION.md present
+    - README includes 'uv sync' and 'uv run pytest' commands
+    - Negative case verified: .env in .gitignore prevents environment file from being committed
+    - README markdown syntax is valid for GitHub rendering
+  - All quality gates pass (pytest, ruff check, ruff format, ty check)
+- **Learnings for future iterations:**
+  - When enhancing existing documentation, preserve existing structure while adding depth
+  - Module documentation should explain not just what it does, but also how it works (file-by-file breakdown)
+  - CONTRIBUTING.md should include both technical setup and process guidelines (commit format, PR process)
+  - .gitignore should exclude all Python-specific artifacts (__pycache__, *.pyc, .pytest_cache, .ruff_cache, .coverage, htmlcov/)
+  - Environment files (.env) must be in .gitignore to prevent committing secrets
+  - Quality gates section in README should match CI workflow for consistency
+  - Project structure tree helps developers quickly understand codebase organization
+  - Module descriptions should reference actual file names and directories for clarity
+  - CI badge URL placeholder (YOUR_USERNAME) needs to be updated when repo is created
+  - All verification commands should be documented in both README.md and CONTRIBUTING.md for accessibility
+
+---
 ## [Fri 30 Jan 2026 12:59:00] - US-005: Create Generator package structure and skeleton
 Thread:
 Run: 20260130-123401-97774 (iteration 5)
