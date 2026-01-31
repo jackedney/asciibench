@@ -9,10 +9,55 @@ Dependencies:
 """
 
 import asyncio
+import threading
+from typing import Any
 
 from smolagents import OpenAIModel
 
 from asciibench.common.config import GenerationConfig
+
+
+class APITimeoutError(Exception):
+    """Raised when API call times out."""
+
+    pass
+
+
+def run_with_timeout(func, timeout_seconds: int) -> Any:
+    """Run a function with a timeout.
+
+    Args:
+        func: Function to execute
+        timeout_seconds: Maximum time to wait in seconds
+
+    Returns:
+        Result of the function
+
+    Raises:
+        APITimeoutError: If function doesn't complete within timeout
+    """
+    result = None
+    exception = None
+
+    def target():
+        nonlocal result, exception
+        try:
+            result = func()
+        except Exception as e:
+            exception = e
+
+    thread = threading.Thread(target=target)
+    thread.daemon = True
+    thread.start()
+    thread.join(timeout=timeout_seconds)
+
+    if thread.is_alive():
+        raise APITimeoutError(f"API call timed out after {timeout_seconds} seconds")
+
+    if exception is not None:
+        raise exception
+
+    return result
 
 
 class OpenRouterClientError(Exception):
@@ -36,15 +81,19 @@ class ModelError(OpenRouterClientError):
 class OpenRouterClient:
     """Client for interacting with OpenRouter API using smolagents OpenAIModel."""
 
-    def __init__(self, api_key: str, base_url: str = "https://openrouter.ai/api/v1") -> None:
+    def __init__(
+        self, api_key: str, base_url: str = "https://openrouter.ai/api/v1", timeout: int = 120
+    ) -> None:
         """Initialize the OpenRouter client.
 
         Args:
             api_key: OpenRouter API key for authentication
             base_url: Base URL for the OpenRouter API
+            timeout: Timeout in seconds for API calls (default: 120)
         """
         self.api_key = api_key
         self.base_url = base_url
+        self.timeout = timeout
 
     def generate(
         self,
@@ -72,12 +121,15 @@ class OpenRouterClient:
 
         try:
             # Initialize the model with OpenRouter configuration
+            # Disable retries to prevent indefinite retrying on rate limits
             model = OpenAIModel(
                 model_id=model_id,
                 api_base=self.base_url,
                 api_key=self.api_key,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
+                client_kwargs={"max_retries": 0, "timeout": self.timeout},
+                retry=False,  # Disable smolagents' built-in retry logic
             )
 
             # Build messages list
@@ -100,8 +152,8 @@ class OpenRouterClient:
                 }
             )
 
-            # Call the model and get response
-            response = model(messages)
+            # Call the model with timeout to prevent indefinite hanging
+            response = run_with_timeout(lambda: model(messages), self.timeout)
 
             # The response from smolagents model call is a ChatMessage object
             # We need to extract the text content
@@ -109,6 +161,8 @@ class OpenRouterClient:
                 return str(response.content)
             return str(response)
 
+        except APITimeoutError as e:
+            raise OpenRouterClientError(f"API call timed out after {self.timeout} seconds") from e
         except Exception as e:
             error_message = str(e).lower()
 

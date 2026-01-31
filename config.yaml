@@ -6,6 +6,12 @@ generation:
   system_prompt: |
     Draw the requested ASCII art.
 
+    THINKING CONSTRAINTS:
+    - Keep your internal reasoning and thinking minimal (target: < 500 thinking tokens)
+    - Do not overanalyze or extensively explore alternatives
+    - Focus on the core artistic representation
+    - Respond directly without extended explanation
+
     FORMAT REQUIREMENTS:
     - Wrap your art in a Markdown code block using triple backticks
     - Use one of: ``` or ```text or ```ascii or ```plaintext

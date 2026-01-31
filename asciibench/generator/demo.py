@@ -192,6 +192,7 @@ def generate_demo_sample(
     model_id: str,
     model_name: str,
     logger: logging.Logger | None = None,
+    max_attempts: int = 3,
 ) -> DemoResult:
     """Generate a demo ASCII art sample from a single model.
 
@@ -202,6 +203,7 @@ def generate_demo_sample(
         model_id: Model identifier (e.g., 'openai/gpt-4o-mini')
         model_name: Human-readable model name (e.g., 'GPT-4o Mini')
         logger: Optional error logger for detailed failure tracking
+        max_attempts: Maximum number of API attempts (default: 3)
 
     Returns:
         DemoResult with model info, ascii_output, is_valid, timestamp,
@@ -234,59 +236,58 @@ def generate_demo_sample(
 
     raw_output: str | None = None
     error_reason: str | None = None
+    last_exception: Exception | None = None
 
-    try:
-        raw_output = client.generate(model_id, demo_prompt, config=config)
-        ascii_output = extract_ascii_from_markdown(raw_output)
-        is_valid = bool(ascii_output)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            raw_output = client.generate(model_id, demo_prompt, config=config)
+            ascii_output = extract_ascii_from_markdown(raw_output)
+            is_valid = bool(ascii_output)
 
-        if not is_valid:
-            error_reason = "No valid ASCII art block found in output"
-            if logger:
-                log_generation_error(
-                    logger,
-                    model_id,
-                    model_name,
-                    error_reason,
-                    raw_output=raw_output,
+            if is_valid:
+                return DemoResult(
+                    model_id=model_id,
+                    model_name=model_name,
+                    ascii_output=ascii_output,
+                    is_valid=True,
+                    timestamp=datetime.now(),
+                    error_reason=None,
+                    raw_output=None,
                 )
 
-    except (AuthenticationError, ModelError, OpenRouterClientError) as e:
-        error_reason = f"API error: {type(e).__name__}"
-        ascii_output = f"Error: {e!s}"
-        is_valid = False
-        if logger:
-            log_generation_error(
-                logger,
-                model_id,
-                model_name,
-                error_reason,
-                raw_output=raw_output,
-                exception=e,
-            )
+            error_reason = "No valid ASCII art block found in output"
+            last_exception = None
 
-    except Exception as e:
-        error_reason = f"Unexpected error: {type(e).__name__}"
-        ascii_output = f"Unexpected error: {e!s}"
-        is_valid = False
-        if logger:
-            log_generation_error(
-                logger,
-                model_id,
-                model_name,
-                error_reason,
-                raw_output=raw_output,
-                exception=e,
-            )
+        except (AuthenticationError, ModelError, OpenRouterClientError) as e:
+            error_reason = f"API error: {type(e).__name__}"
+            last_exception = e
+        except Exception as e:
+            error_reason = f"Unexpected error: {type(e).__name__}"
+            last_exception = e
+
+    # All attempts exhausted - return invalid result
+    if logger and error_reason:
+        log_generation_error(
+            logger,
+            model_id,
+            model_name,
+            error_reason,
+            raw_output=raw_output,
+            exception=last_exception,
+        )
+
+    ascii_output = f"Error: {error_reason}"
+    if last_exception:
+        ascii_output += f" ({last_exception})"
 
     return DemoResult(
         model_id=model_id,
         model_name=model_name,
         ascii_output=ascii_output,
-        is_valid=is_valid,
+        is_valid=False,
         timestamp=datetime.now(),
         error_reason=error_reason,
-        raw_output=raw_output if not is_valid else None,
+        raw_output=raw_output,
     )
 
 
