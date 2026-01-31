@@ -386,6 +386,12 @@ def generate_html() -> None:
             margin-left: 10px;
             font-family: 'Courier New', monospace;
         }
+        .cost-tokens {
+            color: #6b7280;
+            font-size: 0.9em;
+            margin-left: 10px;
+            font-family: 'Courier New', monospace;
+        }
         pre {
             font-family: 'Courier New', Courier, monospace;
             background-color: #f3f4f6;
@@ -448,12 +454,19 @@ def generate_html() -> None:
             badge_class = "valid" if result.is_valid else "invalid"
             badge_text = "Valid" if result.is_valid else "Invalid"
             escaped_output = html.escape(result.ascii_output)
+            cost_str = f"${result.cost:.6f}" if result.cost is not None else "$0.000000"
+            tokens_str = (
+                f"{result.output_tokens} tokens"
+                if result.output_tokens is not None
+                else "N/A tokens"
+            )
 
             html_content += f"""
     <div class="model-section {section_class}">
         <h2>
             {result.model_name}
             <span class="model-id">({result.model_id})</span>
+            <span class="cost-tokens">({cost_str} | {tokens_str})</span>
             <span class="valid-badge {badge_class}">{badge_text}</span>
         </h2>
         <pre>{escaped_output}</pre>
