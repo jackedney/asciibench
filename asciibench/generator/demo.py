@@ -15,20 +15,12 @@ from datetime import datetime
 from pathlib import Path
 
 from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
 from asciibench.common.config import Settings
-from asciibench.common.display import (
-    GOLD,
-    create_live_stats,
-    failed_badge,
-    get_console,
-    print_banner,
-    success_badge,
-    update_live_stats,
-)
+from asciibench.common.display import get_console
 from asciibench.common.models import DemoResult
+from asciibench.common.simple_display import create_loader, show_banner, show_prompt
 from asciibench.common.yaml_config import load_generation_config, load_models
 from asciibench.generator.client import (
     AuthenticationError,
@@ -457,16 +449,18 @@ def main() -> None:
     """Main entry point for the Demo module.
 
     This function runs the demo generator that:
-    1. Displays Rich banner
+    1. Displays ASCII banner
     2. Sets up error logging to .demo_outputs/errors.log
     3. Loads models from models.yaml
-    4. Generates ASCII art for each model using fixed prompt
-    5. Saves results to .demo_outputs/results.json
-    6. Generates HTML output to .demo_outputs/demo.html
+    4. Shows demo prompt above loading bar
+    5. Generates ASCII art for each model using animated loader
+    6. Saves results to .demo_outputs/results.json
+    7. Generates HTML output to .demo_outputs/demo.html
     """
     console = get_console()
 
-    print_banner()
+    # Show ASCII banner at startup
+    show_banner()
 
     # Set up error logging
     error_logger = setup_error_logger()
@@ -506,37 +500,15 @@ def main() -> None:
     console.print(f"\n[info]Loaded {len(models)} models from models.yaml[/info]")
 
     results = load_demo_results()
-    console.print(f"[info]Loaded {len(results)} existing results[/info]")
-
     completed_ids = get_completed_model_ids()
-    console.print(f"[info]Completed models: {len(completed_ids)}[/info]")
-
-    # Display model status table
-    if completed_ids or models:
-        models_table = Table(title="Model Status", border_style="accent")
-        models_table.add_column("Status", justify="center")
-        models_table.add_column("Model Name", style="bold")
-        models_table.add_column("Model ID")
-
-        for model in models:
-            if model.id in completed_ids:
-                status = success_badge()
-            else:
-                status = Text("[PENDING]", style=f"bold {GOLD}")
-            models_table.add_row(str(status), model.name, model.id)
-
-        console.print()
-        console.print(models_table)
-
     remaining_models = [m for m in models if m.id not in completed_ids]
-    console.print(f"\n[info]Remaining models to generate: {len(remaining_models)}[/info]")
+
+    console.print(f"[info]Remaining models to generate: {len(remaining_models)}[/info]\n")
 
     if not remaining_models:
-        console.print()
         console.print(
             Panel(
-                f"{success_badge()} All models already have results.\n\n"
-                f"Total results: {len(results)}",
+                f"All models already have results.\n\nTotal results: {len(results)}",
                 title="[success]Demo Complete![/success]",
                 border_style="success",
             )
@@ -545,71 +517,46 @@ def main() -> None:
         console.print(f"\n[info]HTML output generated: {DEMO_HTML_PATH}[/info]")
         return
 
-    console.print()
-    console.print("[info]Starting generation...[/info]")
-    console.print(f"[info]Errors will be logged to: {ERRORS_LOG_PATH}[/info]")
-    console.print()
+    # Show the demo prompt above the loading bar
+    demo_prompt = "Draw a skeleton in ASCII art"
+    show_prompt(demo_prompt)
 
-    # Initialize live stats
+    # Track completion stats
     completed_count = len(completed_ids)
     failed_count = 0
-    remaining_count = len(remaining_models)
 
-    # Create custom LiveStatsDisplay for demo (completed, remaining, failed)
-    from asciibench.common.display import LiveStatsDisplay
+    # Create loader for the generation process
+    # Each model is one step in the loader
+    loader = create_loader(
+        remaining_models[0].name if remaining_models else "Loading",
+        total=len(remaining_models),
+    )
 
-    class DemoLiveStats(LiveStatsDisplay):
-        def render(self) -> Panel:
-            stats_text = Text.assemble(
-                ("Completed: ", "success"),
-                (f"{self.total}", "success bold"),
-                (" | ", "default"),
-                ("Remaining: ", "info"),
-                (f"{remaining_count - (self.total - completed_count)}", "info bold"),
-                (" | ", "default"),
-                ("Failed: ", "error"),
-                (f"{self.invalid}", "error bold"),
-            )
+    try:
+        with loader:
+            # Generate for remaining models
+            for i, model in enumerate(remaining_models, start=1):
+                # Update loader to show current model name
+                loader.set_model(model.name)
+                loader.update(i - 1)  # Show progress before generation
 
-            panel = Panel(
-                stats_text,
-                border_style=GOLD,
-                padding=(0, 2),
-            )
-            return panel
+                result = generate_demo_sample(model.id, model.name, logger=error_logger)
 
-    live_stats = DemoLiveStats(total=completed_count, valid=0, invalid=failed_count)
-    _, live = create_live_stats()
+                results.append(result)
+                save_demo_results(results)
 
-    # Update live stats with initial values
-    update_live_stats(live_stats, live, total=completed_count, valid=0, invalid=failed_count)
+                if result.is_valid:
+                    completed_count += 1
+                    # Show success flash and continue to next model
+                    loader.complete(success=True)
+                else:
+                    failed_count += 1
+                    # Show failure flash and continue to next model
+                    loader.complete(success=False)
 
-    # Generate for remaining models
-    for i, model in enumerate(remaining_models, start=1):
-        console.print(
-            f"[info][{i}/{len(remaining_models)}] Generating for {model.name} "
-            f"({model.id})...[/info]"
-        )
-
-        result = generate_demo_sample(model.id, model.name, logger=error_logger)
-
-        results.append(result)
-        save_demo_results(results)
-
-        if result.is_valid:
-            console.print(
-                f"  {success_badge()} Generated successfully "
-                f"({len(result.ascii_output)} characters)"
-            )
-            completed_count += 1
-        else:
-            failed_count += 1
-            error_msg = result.error_reason or "Unknown error"
-            console.print(f"  {failed_badge()} {error_msg}")
-
-        # Update live stats
-        remaining_count = len(remaining_models) - i
-        update_live_stats(live_stats, live, total=completed_count, valid=0, invalid=failed_count)
+    except KeyboardInterrupt:
+        # Handle Ctrl+C gracefully
+        console.print("\n[warning]Generation interrupted by user.[/warning]")
 
     # Final summary panel
     console.print()
