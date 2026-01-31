@@ -25,6 +25,8 @@ from asciibench.judge_ui.main import (
     _select_matchup,
     app,
 )
+from asciibench.judge_ui.matchup_service import MatchupService
+from asciibench.judge_ui.undo_service import UndoService
 
 
 @pytest.fixture
@@ -41,8 +43,13 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(main_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(main_module, "DATABASE_PATH", tmp_path / "database.jsonl")
     monkeypatch.setattr(main_module, "VOTES_PATH", tmp_path / "votes.jsonl")
-    # Reset undo state to ensure tests don't interfere with each other
-    monkeypatch.setattr(main_module, "_last_action_was_undo", False)
+    # Create MatchupService and UndoService instances for tests
+    matchup_service = MatchupService(
+        database_path=tmp_path / "database.jsonl", votes_path=tmp_path / "votes.jsonl"
+    )
+    undo_service = UndoService(votes_path=tmp_path / "votes.jsonl")
+    monkeypatch.setattr(main_module, "matchup_service", matchup_service)
+    monkeypatch.setattr(main_module, "undo_service", undo_service)
     return tmp_path
 
 

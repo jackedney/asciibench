@@ -238,7 +238,7 @@ def generate_demo_sample(
     error_reason: str | None = None
     last_exception: Exception | None = None
 
-    for attempt in range(1, max_attempts + 1):
+    for _attempt in range(1, max_attempts + 1):
         try:
             raw_output = client.generate(model_id, demo_prompt, config=config)
             ascii_output = extract_ascii_from_markdown(raw_output)

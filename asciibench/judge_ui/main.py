@@ -13,8 +13,9 @@ from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
     read_jsonl_by_id,
-    write_jsonl,
 )
+from asciibench.judge_ui.matchup_service import MatchupService
+from asciibench.judge_ui.undo_service import UndoService
 
 app = FastAPI(title="ASCIIBench Judge UI")
 templates = Jinja2Templates(directory="templates")
@@ -24,9 +25,9 @@ DATA_DIR = Path("data")
 DATABASE_PATH = DATA_DIR / "database.jsonl"
 VOTES_PATH = DATA_DIR / "votes.jsonl"
 
-# Session state tracking for undo functionality
-# Tracks whether the last action was an undo (prevents calling undo twice in a row)
-_last_action_was_undo: bool = False
+# Service instances
+matchup_service = MatchupService(database_path=DATABASE_PATH, votes_path=VOTES_PATH)
+undo_service = UndoService(votes_path=VOTES_PATH)
 
 
 class SampleResponse(BaseModel):
@@ -80,154 +81,47 @@ class ProgressResponse(BaseModel):
     by_category: dict[str, CategoryProgress]
 
 
+# Backward compatibility wrappers for tests
 def _make_sorted_pair(a: str, b: str) -> tuple[str, str]:
     """Create a sorted pair of strings for consistent ordering."""
-    return (a, b) if a <= b else (b, a)
+    return matchup_service._make_sorted_pair(a, b)
 
 
 def _get_pair_comparison_counts(votes: list[Vote]) -> Counter[tuple[str, str]]:
-    """Count comparisons for each ordered pair of samples.
-
-    Returns a Counter where keys are (sample_a_id, sample_b_id) tuples
-    and values are the number of times that pair has been compared.
-    The pair is stored in sorted order to ensure (A, B) and (B, A) are treated the same.
-    """
-    counts: Counter[tuple[str, str]] = Counter()
-    for vote in votes:
-        # Sort IDs to normalize the pair ordering
-        pair = _make_sorted_pair(vote.sample_a_id, vote.sample_b_id)
-        counts[pair] += 1
-    return counts
+    """Count comparisons for each ordered pair of samples."""
+    return matchup_service._get_pair_comparison_counts(votes)
 
 
 def _get_model_pair_comparison_counts(
     votes: list[Vote], samples: list[ArtSample]
 ) -> Counter[tuple[str, str]]:
-    """Count comparisons between each pair of models.
-
-    Returns a Counter where keys are (model_a_id, model_b_id) tuples (sorted)
-    and values are the number of comparisons between those models.
-    """
-    # Build a lookup from sample_id to model_id
-    sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
-
-    counts: Counter[tuple[str, str]] = Counter()
-    for vote in votes:
-        model_a = sample_to_model.get(vote.sample_a_id)
-        model_b = sample_to_model.get(vote.sample_b_id)
-        if model_a and model_b and model_a != model_b:
-            pair = _make_sorted_pair(model_a, model_b)
-            counts[pair] += 1
-    return counts
+    """Count comparisons between each pair of models."""
+    return matchup_service._get_model_pair_comparison_counts(votes, samples)
 
 
 def _select_matchup(
     valid_samples: list[ArtSample], votes: list[Vote]
 ) -> tuple[ArtSample, ArtSample]:
-    """Select two samples for a matchup, prioritizing pairs with fewer comparisons.
-
-    Samples must be from different models. The selection prioritizes model pairs
-    that have had fewer comparisons to ensure balanced coverage.
-    """
-    # Group samples by model
-    samples_by_model: dict[str, list[ArtSample]] = {}
-    for sample in valid_samples:
-        if sample.model_id not in samples_by_model:
-            samples_by_model[sample.model_id] = []
-        samples_by_model[sample.model_id].append(sample)
-
-    model_ids = list(samples_by_model.keys())
-    if len(model_ids) < 2:
-        # Need at least 2 different models to create a matchup
-        # If only one model, just pick two random samples from it
-        if len(valid_samples) >= 2:
-            sample_a, sample_b = random.sample(valid_samples, 2)
-            return sample_a, sample_b
-        raise ValueError("Not enough valid samples for a matchup")
-
-    # Get comparison counts between model pairs
-    model_pair_counts = _get_model_pair_comparison_counts(votes, valid_samples)
-
-    # Create all possible model pairs and sort by comparison count
-    model_pairs = [
-        (model_ids[i], model_ids[j])
-        for i in range(len(model_ids))
-        for j in range(i + 1, len(model_ids))
-    ]
-
-    # Find the minimum comparison count among all pairs
-    min_count = float("inf")
-    for pair in model_pairs:
-        sorted_pair = tuple(sorted(pair))
-        count = model_pair_counts.get(sorted_pair, 0)
-        if count < min_count:
-            min_count = count
-
-    # Filter to only pairs with minimum comparisons
-    least_compared_pairs = []
-    for pair in model_pairs:
-        sorted_pair = tuple(sorted(pair))
-        if model_pair_counts.get(sorted_pair, 0) == min_count:
-            least_compared_pairs.append(pair)
-
-    # Pick a random pair from the least compared
-    model_a_id, model_b_id = random.choice(least_compared_pairs)
-
-    # Pick random samples from each model
-    sample_a = random.choice(samples_by_model[model_a_id])
-    sample_b = random.choice(samples_by_model[model_b_id])
-
-    return sample_a, sample_b
+    """Select two samples for a matchup."""
+    return matchup_service._select_matchup(valid_samples, votes)
 
 
 def _calculate_total_possible_pairs(valid_samples: list[ArtSample]) -> int:
-    """Calculate total possible unique matchups between samples from different models.
-
-    A valid matchup requires two samples from different models. This counts
-    all unique sample pairs where the samples have different model_ids.
-    """
-    total = 0
-    n = len(valid_samples)
-    for i in range(n):
-        for j in range(i + 1, n):
-            if valid_samples[i].model_id != valid_samples[j].model_id:
-                total += 1
-    return total
-
-
-def _calculate_total_possible_pairs_for_samples(
-    samples: list[ArtSample],
-) -> int:
-    """Calculate total possible unique matchups for a list of samples.
-
-    Helper that filters to valid samples and calculates pairs.
-    """
-    valid_samples = [s for s in samples if s.is_valid]
-    return _calculate_total_possible_pairs(valid_samples)
+    """Calculate total possible unique matchups between samples."""
+    return matchup_service._calculate_total_possible_pairs(valid_samples)
 
 
 def _get_unique_model_pairs_judged(votes: list[Vote], samples: list[ArtSample]) -> int:
-    """Count unique model pairs that have been compared at least once.
-
-    Returns the number of distinct (model_a, model_b) pairs found in votes
-    where the two models are different.
-    """
-    model_pair_counts = _get_model_pair_comparison_counts(votes, samples)
-    return len(model_pair_counts)
+    """Count unique model pairs that have been compared."""
+    return matchup_service.get_unique_model_pairs_judged(votes, samples)
 
 
 def _calculate_progress_by_category(
     votes: list[Vote], samples: list[ArtSample]
 ) -> dict[str, CategoryProgress]:
-    """Calculate progress statistics broken down by category.
-
-    Returns a dict mapping category name to CategoryProgress with
-    votes_completed, unique_pairs_judged, and total_possible_pairs.
-    """
-    # Build lookup from sample_id to sample
+    """Calculate progress statistics broken down by category."""
     sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
 
-    # Group samples by category
     samples_by_category: dict[str, list[ArtSample]] = {}
     for sample in samples:
         if sample.is_valid:
@@ -235,7 +129,6 @@ def _calculate_progress_by_category(
                 samples_by_category[sample.category] = []
             samples_by_category[sample.category].append(sample)
 
-    # Group votes by category (based on sample_a's category)
     votes_by_category: dict[str, list[Vote]] = {}
     for vote in votes:
         sample_a = sample_lookup.get(vote.sample_a_id)
@@ -245,16 +138,15 @@ def _calculate_progress_by_category(
                 votes_by_category[category] = []
             votes_by_category[category].append(vote)
 
-    # Calculate progress for each category
     result: dict[str, CategoryProgress] = {}
     for category, category_samples in samples_by_category.items():
         category_votes = votes_by_category.get(category, [])
 
-        # Count unique model pairs judged in this category
-        unique_pairs = _get_unique_model_pairs_judged(category_votes, category_samples)
+        unique_pairs = matchup_service.get_unique_model_pairs_judged(
+            category_votes, category_samples
+        )
 
-        # Calculate total possible pairs in this category
-        total_pairs = _calculate_total_possible_pairs(category_samples)
+        total_pairs = matchup_service._calculate_total_possible_pairs(category_samples)
 
         result[category] = CategoryProgress(
             votes_completed=len(category_votes),
@@ -297,11 +189,8 @@ async def get_matchup() -> MatchupResponse:
             "Please run the generator to create more samples.",
         )
 
-    # Load existing votes for comparison count prioritization
-    votes = read_jsonl(VOTES_PATH, Vote)
-
     # Select a matchup
-    sample_a, sample_b = _select_matchup(valid_samples, votes)
+    sample_a, sample_b = matchup_service.get_matchup(valid_samples)
 
     # Randomize which sample is A vs B to prevent position bias
     if random.random() < 0.5:
@@ -367,8 +256,7 @@ async def submit_vote(vote_request: VoteRequest) -> VoteResponse:
     append_jsonl(VOTES_PATH, vote)
 
     # Clear the undo state since a new vote was submitted
-    global _last_action_was_undo
-    _last_action_was_undo = False
+    undo_service.record_vote_submitted()
 
     # Return the saved vote with generated ID and timestamp
     return VoteResponse(
@@ -397,35 +285,20 @@ async def undo_vote() -> VoteResponse:
         HTTPException: 404 if no votes exist
         HTTPException: 400 if undo was already called without a new vote in between
     """
-    global _last_action_was_undo
+    last_vote = undo_service.undo_vote()
 
-    # Check if last action was already an undo (prevent double-undo)
-    if _last_action_was_undo:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot undo twice in a row. Please submit a new vote before undoing again.",
-        )
-
-    # Read all current votes
-    votes = read_jsonl(VOTES_PATH, Vote)
-
-    # Check if there are any votes to undo
-    if not votes:
+    if last_vote is None:
+        if undo_service.last_action_was_undo:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot undo twice in a row. Please submit a new vote before undoing again.",
+            )
         raise HTTPException(
             status_code=404,
             detail="No votes to undo. The vote history is empty.",
         )
 
-    # Get the last vote
-    last_vote = votes[-1]
     last_vote_id = str(last_vote.id)
-
-    # Remove the last vote and rewrite the file atomically
-    votes_without_last = votes[:-1]
-    write_jsonl(VOTES_PATH, votes_without_last)
-
-    # Track that this action was an undo
-    _last_action_was_undo = True
 
     # Return the removed vote for confirmation
     return VoteResponse(
@@ -457,8 +330,8 @@ async def get_progress() -> ProgressResponse:
 
     # Calculate overall statistics
     votes_completed = len(votes)
-    unique_pairs_judged = _get_unique_model_pairs_judged(votes, valid_samples)
-    total_possible_pairs = _calculate_total_possible_pairs(valid_samples)
+    unique_pairs_judged = matchup_service.get_unique_model_pairs_judged(votes, valid_samples)
+    total_possible_pairs = matchup_service._calculate_total_possible_pairs(valid_samples)
 
     # Calculate per-category breakdown
     by_category = _calculate_progress_by_category(votes, all_samples)
@@ -500,11 +373,8 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
                 },
             )
 
-        # Load existing votes for comparison count prioritization
-        votes = read_jsonl(VOTES_PATH, Vote)
-
         # Select a matchup
-        sample_a, sample_b = _select_matchup(valid_samples, votes)
+        sample_a, sample_b = matchup_service.get_matchup(valid_samples)
 
         # Randomize which sample is A vs B to prevent position bias
         if random.random() < 0.5:
@@ -550,11 +420,8 @@ async def htmx_get_prompt(request: Request) -> HTMLResponse:
                 {"prompt": "No samples available"},
             )
 
-        # Load existing votes for comparison count prioritization
-        votes = read_jsonl(VOTES_PATH, Vote)
-
         # Select a matchup to get the prompt
-        sample_a, _ = _select_matchup(valid_samples, votes)
+        sample_a, _ = matchup_service.get_matchup(valid_samples)
 
         return templates.TemplateResponse(
             request,
@@ -584,8 +451,8 @@ async def htmx_get_progress(request: Request) -> HTMLResponse:
 
     # Calculate overall statistics
     votes_completed = len(votes)
-    unique_pairs_judged = _get_unique_model_pairs_judged(votes, valid_samples)
-    total_possible_pairs = _calculate_total_possible_pairs(valid_samples)
+    unique_pairs_judged = matchup_service.get_unique_model_pairs_judged(votes, valid_samples)
+    total_possible_pairs = matchup_service._calculate_total_possible_pairs(valid_samples)
 
     return templates.TemplateResponse(
         request,
@@ -605,8 +472,6 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
     Accepts form data with sample_a_id, sample_b_id, and winner.
     Returns a new matchup HTML fragment after saving the vote.
     """
-    global _last_action_was_undo
-
     try:
         # Parse form data
         form_data = await request.form()
@@ -656,7 +521,7 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
         append_jsonl(VOTES_PATH, vote)
 
         # Clear the undo state since a new vote was submitted
-        _last_action_was_undo = False
+        undo_service.record_vote_submitted()
 
         # Return a new matchup
         return await htmx_get_matchup(request)
@@ -676,11 +541,9 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
     Returns the current matchup (unchanged) with an optional message,
     or an error message if undo fails.
     """
-    global _last_action_was_undo
-
     try:
         # Check if last action was already an undo (prevent double-undo)
-        if _last_action_was_undo:
+        if undo_service.last_action_was_undo:
             return templates.TemplateResponse(
                 request,
                 "partials/matchup.html",
@@ -689,23 +552,15 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
                 },
             )
 
-        # Read all current votes
-        votes = read_jsonl(VOTES_PATH, Vote)
+        last_vote = undo_service.undo_vote()
 
-        # Check if there are any votes to undo
-        if not votes:
+        # Check if there was a vote to undo
+        if last_vote is None:
             return templates.TemplateResponse(
                 request,
                 "partials/matchup.html",
                 {"error": "No votes to undo."},
             )
-
-        # Remove the last vote and rewrite the file atomically
-        votes_without_last = votes[:-1]
-        write_jsonl(VOTES_PATH, votes_without_last)
-
-        # Track that this action was an undo
-        _last_action_was_undo = True
 
         # Return the current matchup (don't load a new one)
         return await htmx_get_matchup(request)
