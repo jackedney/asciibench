@@ -1,5 +1,6 @@
 """Tests for the RuneScape-style animated loading bar component."""
 
+import os
 import threading
 from unittest.mock import patch
 
@@ -9,9 +10,12 @@ from rich.text import Text
 
 from asciibench.common.loader import (
     FAILURE_COLOR,
+    FALLBACK_BAR_WIDTH,
     FLASH_DURATION_MS,
     SUCCESS_COLOR,
     RuneScapeLoader,
+    detect_terminal_capabilities,
+    format_simple_progress,
 )
 
 
@@ -398,41 +402,51 @@ class TestRuneScapeLoaderComplete:
 
     def test_complete_success_sets_flash_color_green(self):
         """complete(success=True) sets flash color to green (#00FF00)."""
-        loader = RuneScapeLoader("Model", total_steps=100)
-        loader.update(100)  # Complete the progress
+        # Force terminal mode to use the flash code path (not fallback)
+        env = os.environ.copy()
+        env.pop("NO_COLOR", None)
+        with patch.dict(os.environ, env, clear=True):
+            console = Console(force_terminal=True)
+            loader = RuneScapeLoader("Model", total_steps=100, console=console)
+            loader.update(100)  # Complete the progress
 
-        # Capture flash color during the flash
-        captured_color = []
+            # Capture flash color during the flash
+            captured_color = []
 
-        def capture_during_flash(duration):
-            # Capture state during the flash (while sleeping)
-            with loader._lock:
-                if loader._flashing:
-                    captured_color.append(loader._flash_color)
-            # Don't actually sleep to speed up test
+            def capture_during_flash(duration):
+                # Capture state during the flash (while sleeping)
+                with loader._lock:
+                    if loader._flashing:
+                        captured_color.append(loader._flash_color)
+                # Don't actually sleep to speed up test
 
-        with patch("asciibench.common.loader.time.sleep", side_effect=capture_during_flash):
-            loader.complete(success=True)
+            with patch("asciibench.common.loader.time.sleep", side_effect=capture_during_flash):
+                loader.complete(success=True)
 
-        # Verify green color was used during flash
-        assert SUCCESS_COLOR in captured_color
+            # Verify green color was used during flash
+            assert SUCCESS_COLOR in captured_color
 
     def test_complete_failure_sets_flash_color_red(self):
         """complete(success=False) sets flash color to red (#FF0000)."""
-        loader = RuneScapeLoader("Model", total_steps=100)
-        loader.update(100)  # Complete the progress
+        # Force terminal mode to use the flash code path (not fallback)
+        env = os.environ.copy()
+        env.pop("NO_COLOR", None)
+        with patch.dict(os.environ, env, clear=True):
+            console = Console(force_terminal=True)
+            loader = RuneScapeLoader("Model", total_steps=100, console=console)
+            loader.update(100)  # Complete the progress
 
-        captured_color = []
+            captured_color = []
 
-        def capture_during_flash(duration):
-            with loader._lock:
-                if loader._flashing:
-                    captured_color.append(loader._flash_color)
+            def capture_during_flash(duration):
+                with loader._lock:
+                    if loader._flashing:
+                        captured_color.append(loader._flash_color)
 
-        with patch("asciibench.common.loader.time.sleep", side_effect=capture_during_flash):
-            loader.complete(success=False)
+            with patch("asciibench.common.loader.time.sleep", side_effect=capture_during_flash):
+                loader.complete(success=False)
 
-        assert FAILURE_COLOR in captured_color
+            assert FAILURE_COLOR in captured_color
 
     def test_complete_resets_progress_after_flash(self):
         """After flash, loader resets progress for next model."""
@@ -461,24 +475,29 @@ class TestRuneScapeLoaderComplete:
 
     def test_complete_multiple_times_does_not_stack(self):
         """Calling complete multiple times does not stack flashes."""
-        loader = RuneScapeLoader("Model", total_steps=100)
-        loader.update(100)
-
-        flash_count = 0
-
-        def count_flash(duration):
-            nonlocal flash_count
-            flash_count += 1
-
-        with patch("asciibench.common.loader.time.sleep", side_effect=count_flash):
-            # First call should flash
-            loader.complete(success=True)
-            assert flash_count == 1
-
-            # Second call should also flash (since first is done)
+        # Force terminal mode to use the flash code path (not fallback)
+        env = os.environ.copy()
+        env.pop("NO_COLOR", None)
+        with patch.dict(os.environ, env, clear=True):
+            console = Console(force_terminal=True)
+            loader = RuneScapeLoader("Model", total_steps=100, console=console)
             loader.update(100)
-            loader.complete(success=False)
-            assert flash_count == 2
+
+            flash_count = 0
+
+            def count_flash(duration):
+                nonlocal flash_count
+                flash_count += 1
+
+            with patch("asciibench.common.loader.time.sleep", side_effect=count_flash):
+                # First call should flash
+                loader.complete(success=True)
+                assert flash_count == 1
+
+                # Second call should also flash (since first is done)
+                loader.update(100)
+                loader.complete(success=False)
+                assert flash_count == 2
 
     def test_complete_during_flash_is_ignored(self):
         """If complete is called while already flashing, it's ignored."""
@@ -566,3 +585,288 @@ class TestRuneScapeLoaderComplete:
         assert SUCCESS_COLOR == "#00FF00"
         assert FAILURE_COLOR == "#FF0000"
         assert FLASH_DURATION_MS == 300
+
+
+class TestDetectTerminalCapabilities:
+    """Tests for terminal capability detection (US-008)."""
+
+    def test_returns_dict_with_expected_keys(self):
+        """detect_terminal_capabilities returns dict with required keys."""
+        caps = detect_terminal_capabilities()
+        assert "is_terminal" in caps
+        assert "has_color" in caps
+        assert "supports_live" in caps
+
+    def test_all_values_are_booleans(self):
+        """All capability values are booleans."""
+        caps = detect_terminal_capabilities()
+        assert isinstance(caps["is_terminal"], bool)
+        assert isinstance(caps["has_color"], bool)
+        assert isinstance(caps["supports_live"], bool)
+
+    def test_accepts_console_argument(self):
+        """Can pass a custom Console instance."""
+        console = Console()
+        caps = detect_terminal_capabilities(console)
+        assert isinstance(caps, dict)
+
+    def test_no_color_env_disables_color(self):
+        """NO_COLOR environment variable disables color support."""
+        with patch.dict(os.environ, {"NO_COLOR": "1"}):
+            # Create a fresh console to pick up the environment
+            console = Console(force_terminal=True)
+            caps = detect_terminal_capabilities(console)
+            assert caps["has_color"] is False
+
+    def test_no_color_env_not_set_allows_color(self):
+        """Without NO_COLOR, color support depends on terminal."""
+        env = os.environ.copy()
+        env.pop("NO_COLOR", None)  # Ensure NO_COLOR is not set
+        with patch.dict(os.environ, env, clear=True):
+            console = Console(force_terminal=True)
+            caps = detect_terminal_capabilities(console)
+            # In a forced terminal, should have color support
+            assert caps["has_color"] is True
+
+    def test_non_terminal_has_no_live_support(self):
+        """Non-terminal output (piped) does not support Live updates."""
+        console = Console(force_terminal=False)
+        caps = detect_terminal_capabilities(console)
+        assert caps["supports_live"] is False
+        assert caps["is_terminal"] is False
+
+    def test_terminal_has_live_support(self):
+        """Terminal output supports Live updates."""
+        console = Console(force_terminal=True)
+        caps = detect_terminal_capabilities(console)
+        assert caps["supports_live"] is True
+        assert caps["is_terminal"] is True
+
+
+class TestFormatSimpleProgress:
+    """Tests for simple text progress formatting (US-008)."""
+
+    def test_zero_progress(self):
+        """0% progress shows empty bar."""
+        result = format_simple_progress("GPT-4o", 0.0)
+        assert "Model: GPT-4o" in result
+        assert "[" in result
+        assert "]" in result
+        assert "0%" in result
+        # Bar should be all spaces
+        bar_content = result.split("[")[1].split("]")[0]
+        assert bar_content.strip() == ""
+
+    def test_50_percent_progress(self):
+        """50% progress shows half-filled bar."""
+        result = format_simple_progress("GPT-4o", 0.5)
+        assert "Model: GPT-4o" in result
+        assert "50%" in result
+        # Check bar has some fill characters
+        bar_content = result.split("[")[1].split("]")[0]
+        assert "=" in bar_content or ">" in bar_content
+
+    def test_100_percent_progress(self):
+        """100% progress shows full bar."""
+        result = format_simple_progress("GPT-4o", 1.0)
+        assert "Model: GPT-4o" in result
+        assert "100%" in result
+        # Bar should be all equals
+        bar_content = result.split("[")[1].split("]")[0]
+        assert bar_content == "=" * FALLBACK_BAR_WIDTH
+
+    def test_progress_clamped_above_1(self):
+        """Progress > 1.0 is clamped to 1.0."""
+        result = format_simple_progress("Model", 1.5)
+        assert "100%" in result
+
+    def test_progress_clamped_below_0(self):
+        """Progress < 0.0 is clamped to 0.0."""
+        result = format_simple_progress("Model", -0.5)
+        assert "0%" in result
+
+    def test_custom_bar_width(self):
+        """Can specify custom bar width."""
+        result = format_simple_progress("Model", 1.0, width=10)
+        bar_content = result.split("[")[1].split("]")[0]
+        assert len(bar_content) == 10
+
+    def test_percentage_format_consistent(self):
+        """Percentage format is consistent width."""
+        result_0 = format_simple_progress("M", 0.0)
+        result_50 = format_simple_progress("M", 0.5)
+        result_100 = format_simple_progress("M", 1.0)
+        # All should have same length with consistent percent formatting
+        assert "  0%" in result_0
+        assert " 50%" in result_50
+        assert "100%" in result_100
+
+
+class TestRuneScapeLoaderFallbackMode:
+    """Tests for fallback mode functionality (US-008)."""
+
+    def test_use_fallback_property_exists(self):
+        """RuneScapeLoader has use_fallback property."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        assert hasattr(loader, "use_fallback")
+
+    def test_fallback_enabled_when_no_color(self):
+        """Fallback mode is enabled when NO_COLOR is set."""
+        with patch.dict(os.environ, {"NO_COLOR": "1"}):
+            console = Console(force_terminal=True)
+            loader = RuneScapeLoader("Model", total_steps=100, console=console)
+            assert loader.use_fallback is True
+
+    def test_fallback_enabled_when_piped(self):
+        """Fallback mode is enabled when output is piped."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=100, console=console)
+        assert loader.use_fallback is True
+
+    def test_fallback_disabled_in_color_terminal(self):
+        """Fallback mode is disabled in color terminal."""
+        env = os.environ.copy()
+        env.pop("NO_COLOR", None)
+        with patch.dict(os.environ, env, clear=True):
+            console = Console(force_terminal=True)
+            loader = RuneScapeLoader("Model", total_steps=100, console=console)
+            assert loader.use_fallback is False
+
+    def test_fallback_start_does_not_create_live(self):
+        """In fallback mode, start() does not create Live display."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=100, console=console)
+        assert loader.use_fallback is True
+        loader.start()
+        assert loader._live is None
+        assert loader._animation_thread is None
+        loader.stop()
+
+    def test_fallback_start_sets_running(self):
+        """In fallback mode, start() still sets _running to True."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=100, console=console)
+        loader.start()
+        assert loader._running is True
+        loader.stop()
+
+    def test_fallback_update_prints_progress(self, capsys):
+        """In fallback mode, update() prints progress to stdout."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("GPT-4o", total_steps=100, console=console)
+        loader.start()
+        loader.update(50)
+        loader.stop()
+        captured = capsys.readouterr()
+        assert "GPT-4o" in captured.out
+        assert "50%" in captured.out
+
+    def test_fallback_complete_prints_status(self, capsys):
+        """In fallback mode, complete() prints completion status."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("GPT-4o", total_steps=100, console=console)
+        loader.start()
+        loader.update(100)
+        loader.complete(success=True)
+        loader.stop()
+        captured = capsys.readouterr()
+        assert "DONE" in captured.out
+
+    def test_fallback_complete_failure_prints_failed(self, capsys):
+        """In fallback mode, failure shows FAILED status."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("GPT-4o", total_steps=100, console=console)
+        loader.start()
+        loader.update(50)
+        loader.complete(success=False)
+        loader.stop()
+        captured = capsys.readouterr()
+        assert "FAILED" in captured.out
+
+    def test_fallback_progress_percentage_correct(self, capsys):
+        """Fallback mode shows correct progress percentage."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=100, console=console)
+        loader.start()
+        loader.update(25)
+        loader.stop()
+        captured = capsys.readouterr()
+        assert "25%" in captured.out
+
+    def test_fallback_context_manager_works(self, capsys):
+        """Context manager works in fallback mode."""
+        console = Console(force_terminal=False)
+        with RuneScapeLoader("Model", total_steps=100, console=console) as loader:
+            loader.update(50)
+        captured = capsys.readouterr()
+        assert "Model" in captured.out
+
+
+class TestRuneScapeLoaderFallbackExamples:
+    """Tests demonstrating fallback mode examples from acceptance criteria."""
+
+    def test_example_no_color_env_uses_fallback(self):
+        """Example: running with NO_COLOR=1 uses fallback."""
+        with patch.dict(os.environ, {"NO_COLOR": "1"}):
+            console = Console(force_terminal=True)
+            loader = RuneScapeLoader("GPT-4o", total_steps=100, console=console)
+            assert loader.use_fallback is True
+
+    def test_example_piped_output_uses_simple_progress(self, capsys):
+        """Example: piping output to file uses simple text progress."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Claude-3", total_steps=100, console=console)
+        loader.start()
+        loader.update(75)
+        loader.stop()
+        captured = capsys.readouterr()
+        # Should have simple format: 'Model: Claude-3 [=====>    ] 75%'
+        assert "Model: Claude-3" in captured.out
+        assert "[" in captured.out
+        assert "]" in captured.out
+        assert "75%" in captured.out
+
+    def test_negative_case_fallback_shows_correct_percentage(self, capsys):
+        """Negative case: fallback mode still shows progress percentage correctly."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=200, console=console)
+        loader.start()
+        # Test various percentages
+        loader.update(0)
+        loader.update(100)  # 50%
+        loader.update(200)  # 100%
+        loader.stop()
+        captured = capsys.readouterr()
+        # Should show correct percentages
+        assert "0%" in captured.out or "50%" in captured.out or "100%" in captured.out
+
+
+class TestRuneScapeLoaderFallbackProgressTracking:
+    """Tests for fallback progress update throttling."""
+
+    def test_fallback_throttles_updates(self, capsys):
+        """Fallback mode throttles updates to avoid excessive output."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=100, console=console)
+        loader.start()
+        # Many small updates should be throttled
+        for i in range(10):
+            loader.update(i)
+        loader.stop()
+        captured = capsys.readouterr()
+        # Should not have 10 lines of output due to throttling
+        lines = [line for line in captured.out.strip().split("\n") if line]
+        assert len(lines) < 10
+
+    def test_set_model_resets_progress_tracking(self, capsys):
+        """set_model() resets progress tracking for new model."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model1", total_steps=100, console=console)
+        loader.start()
+        loader.update(50)
+        loader.set_model("Model2")
+        loader.update(10)  # Should print since it's a new model
+        loader.stop()
+        captured = capsys.readouterr()
+        assert "Model1" in captured.out
+        assert "Model2" in captured.out

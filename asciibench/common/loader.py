@@ -1,5 +1,6 @@
 """RuneScape-style animated loading bar component using Rich Live."""
 
+import os
 import shutil
 import threading
 import time
@@ -16,6 +17,101 @@ SUCCESS_COLOR = "#00FF00"  # Green
 FAILURE_COLOR = "#FF0000"  # Red
 FLASH_DURATION_MS = 300  # Duration of flash effect in milliseconds
 
+# Fallback progress bar constants
+FALLBACK_BAR_WIDTH = 20  # Width of the progress bar in characters
+
+
+def detect_terminal_capabilities(console: Console | None = None) -> dict[str, bool]:
+    """Detect terminal capabilities for the loader.
+
+    Checks for:
+    - is_terminal: Whether output is going to a terminal (not piped)
+    - has_color: Whether the terminal supports colors
+    - supports_live: Whether Rich Live updates are supported
+
+    The NO_COLOR environment variable (https://no-color.org/) is respected
+    and disables color support when set.
+
+    Args:
+        console: Optional Rich Console to check. Creates one if not provided.
+
+    Returns:
+        Dictionary with capability flags:
+        - is_terminal: True if stdout is a terminal
+        - has_color: True if color output is supported
+        - supports_live: True if Live updates are supported (requires terminal)
+
+    Example:
+        >>> caps = detect_terminal_capabilities()
+        >>> if not caps['has_color']:
+        ...     print("Using fallback mode")
+    """
+    if console is None:
+        console = Console()
+
+    # Check if NO_COLOR environment variable is set
+    no_color = os.environ.get("NO_COLOR") is not None
+
+    # Check if we're outputting to a terminal
+    is_terminal = console.is_terminal
+
+    # Check for color support (Rich's color_system returns None if no color)
+    # Also respect NO_COLOR environment variable
+    has_color = console.color_system is not None and not no_color
+
+    # Live updates require a terminal - piped output cannot do in-place updates
+    supports_live = is_terminal
+
+    return {
+        "is_terminal": is_terminal,
+        "has_color": has_color,
+        "supports_live": supports_live,
+    }
+
+
+def format_simple_progress(
+    model_name: str, progress: float, width: int = FALLBACK_BAR_WIDTH
+) -> str:
+    """Format a simple text-based progress bar.
+
+    Creates a simple progress display like: 'Model: GPT-4o [=====>    ] 50%'
+
+    Args:
+        model_name: The model name to display.
+        progress: Progress value from 0.0 to 1.0.
+        width: Width of the progress bar (default 20).
+
+    Returns:
+        Formatted progress string.
+
+    Example:
+        >>> format_simple_progress('GPT-4o', 0.5)
+        'Model: GPT-4o [==========>          ]  50%'
+        >>> format_simple_progress('GPT-4o', 0.0)
+        'Model: GPT-4o [                    ]   0%'
+        >>> format_simple_progress('GPT-4o', 1.0)
+        'Model: GPT-4o [====================] 100%'
+    """
+    # Clamp progress to valid range
+    progress = max(0.0, min(1.0, progress))
+
+    # Calculate filled portion
+    filled = int(width * progress)
+    remaining = width - filled
+
+    # Build the bar - use '=' for filled, '>' for the leading edge (if not at start/end)
+    if filled == 0:
+        bar = " " * width
+    elif filled == width:
+        bar = "=" * width
+    else:
+        bar = "=" * (filled - 1) + ">" + " " * remaining
+
+    # Format percentage with consistent width
+    percent = int(progress * 100)
+
+    return f"Model: {model_name} [{bar}] {percent:3d}%"
+
 
 class RuneScapeLoader:
     """Animated loading bar with RuneScape-style wave text and rainbow colors.
@@ -23,6 +119,12 @@ class RuneScapeLoader:
     Uses Rich Live for non-blocking animation updates. Combines wave_text rendering
     with progress fill calculation to show animated model name filling across the
     terminal as progress increases.
+
+    Automatically detects terminal capabilities and falls back to simple text
+    progress if the terminal doesn't support colors or animations:
+    - If NO_COLOR environment variable is set: uses simple text progress
+    - If output is piped (not a terminal): uses simple line-based updates
+    - If terminal doesn't support colors: uses simple text progress
 
     Args:
         model_name: The model name to display (e.g., 'GPT-4o').
@@ -35,6 +137,9 @@ class RuneScapeLoader:
         ...     for i in range(100):
         ...         loader.update(i + 1)
         ...         time.sleep(0.1)
+
+    Fallback mode example (when NO_COLOR=1 or piped output):
+        Model: Claude-4o [==========>          ]  50%
     """
 
     def __init__(
@@ -58,6 +163,18 @@ class RuneScapeLoader:
         self._flashing = False  # Guards against stacking flash effects
         self._flash_color: str | None = None  # Current flash color if flashing
         self._lock = threading.Lock()
+
+        # Detect terminal capabilities for fallback mode
+        self._capabilities = detect_terminal_capabilities(self._console)
+        has_color = self._capabilities["has_color"]
+        supports_live = self._capabilities["supports_live"]
+        self._use_fallback = not has_color or not supports_live
+        self._last_printed_progress: float | None = None  # Track last progress
+
+    @property
+    def use_fallback(self) -> bool:
+        """Check if the loader is using fallback mode."""
+        return self._use_fallback
 
     @property
     def model_name(self) -> str:
@@ -86,11 +203,15 @@ class RuneScapeLoader:
             self._model_name = model_name
             self._current_step = 0
             self._completed = False
+            self._last_printed_progress = None
 
     def update(self, current_step: int) -> None:
         """Update the progress to the given step.
 
         Safe to call after completion - will not error.
+
+        In fallback mode, prints a new line with the progress bar when progress
+        changes significantly (to avoid excessive output).
 
         Args:
             current_step: The current step number (0 to total_steps).
@@ -101,12 +222,46 @@ class RuneScapeLoader:
             # Check if we've completed
             if self._current_step >= self._total_steps:
                 self._completed = True
+            progress = self._current_step / self._total_steps
+            model_name = self._model_name
+
+        # In fallback mode, print progress updates
+        if self._use_fallback and self._running:
+            self._print_fallback_progress(progress, model_name)
+
+    def _print_fallback_progress(self, progress: float, model_name: str) -> None:
+        """Print fallback progress bar to console.
+
+        For terminals: uses carriage return to update in place.
+        For piped output: prints new lines only when progress changes significantly.
+
+        Args:
+            progress: Current progress from 0.0 to 1.0.
+            model_name: The model name to display.
+        """
+        # Only print if progress has changed enough (5% increments or completion)
+        if self._last_printed_progress is not None:
+            progress_diff = abs(progress - self._last_printed_progress)
+            if progress_diff < 0.05 and progress < 1.0:
+                return
+
+        self._last_printed_progress = progress
+        progress_text = format_simple_progress(model_name, progress)
+
+        if self._capabilities["is_terminal"]:
+            # Terminal mode: use carriage return to update in place
+            print(f"\r{progress_text}", end="", flush=True)
+        else:
+            # Piped mode: print new lines
+            print(progress_text, flush=True)
 
     def complete(self, success: bool) -> None:
         """Flash the bar to indicate completion status.
 
         Shows a brief color flash (green for success, red for failure) for ~300ms,
         then clears and prepares the loader for the next model.
+
+        In fallback mode, prints a completion message instead of flashing.
 
         Calling complete multiple times does not stack flashes - if a flash is
         already in progress, subsequent calls are ignored.
@@ -118,6 +273,24 @@ class RuneScapeLoader:
             >>> loader.complete(success=True)  # Shows green flash
             >>> loader.complete(success=False)  # Shows red flash
         """
+        # Handle fallback mode separately
+        if self._use_fallback:
+            with self._lock:
+                model_name = self._model_name
+                self._current_step = 0
+                self._completed = False
+                self._last_printed_progress = None
+
+            if self._running:
+                status = "DONE" if success else "FAILED"
+                progress_text = format_simple_progress(model_name, 1.0)
+                if self._capabilities["is_terminal"]:
+                    # Clear the line and print final status
+                    print(f"\r{progress_text} [{status}]")
+                else:
+                    print(f"{progress_text} [{status}]", flush=True)
+            return
+
         with self._lock:
             # Guard against stacking flashes
             if self._flashing:
@@ -205,13 +378,22 @@ class RuneScapeLoader:
             time.sleep(interval)
 
     def start(self) -> None:
-        """Start the animated loader."""
+        """Start the animated loader.
+
+        In fallback mode, no animation thread or Live display is started.
+        Progress updates are printed directly in the update() method.
+        """
         if self._running:
             return
 
         self._running = True
         self._frame = 0
         self._completed = False
+        self._last_printed_progress = None
+
+        # In fallback mode, don't start animation or Live display
+        if self._use_fallback:
+            return
 
         # Create and start the Live display
         self._live = Live(
@@ -227,8 +409,17 @@ class RuneScapeLoader:
         self._animation_thread.start()
 
     def stop(self) -> None:
-        """Stop the animated loader."""
+        """Stop the animated loader.
+
+        In fallback mode, ensures a newline is printed after progress output.
+        """
         self._running = False
+
+        # In fallback mode, ensure we end on a new line if we printed anything
+        if self._use_fallback:
+            if self._last_printed_progress is not None and self._capabilities["is_terminal"]:
+                print()  # End the line after carriage return updates
+            return
 
         # Wait for animation thread to finish
         if self._animation_thread is not None:
