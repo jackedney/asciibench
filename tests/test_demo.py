@@ -533,7 +533,7 @@ class TestGenerateDemoSample:
         result = generate_demo_sample("openai/gpt-4o-mini", "GPT-4o Mini")
 
         assert result.is_valid is False
-        assert result.ascii_output == ""
+        assert "Error:" in result.ascii_output
 
 
 class TestGenerateHtml:

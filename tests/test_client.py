@@ -54,6 +54,8 @@ class TestOpenRouterClientGenerate:
             api_key="test-key",
             temperature=0.0,
             max_tokens=1000,
+            client_kwargs={"max_retries": 0, "timeout": 120},
+            retry=False,
         )
 
     @patch("asciibench.generator.client.OpenAIModel")
@@ -78,6 +80,8 @@ class TestOpenRouterClientGenerate:
             api_key="test-key",
             temperature=0.7,
             max_tokens=500,
+            client_kwargs={"max_retries": 0, "timeout": 120},
+            retry=False,
         )
 
     @patch("asciibench.generator.client.OpenAIModel")

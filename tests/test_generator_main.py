@@ -72,7 +72,9 @@ class TestMain:
         ):
             main()
 
-        assert exc_info.value.code == 1
+        exc = exc_info.value
+        assert isinstance(exc, SystemExit)
+        assert exc.code == 1
 
     def test_main_missing_api_key_error_message(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Missing API key shows helpful error message."""
@@ -247,7 +249,9 @@ class TestMain:
         ):
             main()
 
-        assert exc_info.value.code == 1
+        exc = exc_info.value
+        assert isinstance(exc, SystemExit)
+        assert exc.code == 1
 
     def test_main_missing_prompts_file_exits(self) -> None:
         """Missing prompts.yaml prints error and exits."""
@@ -269,7 +273,9 @@ class TestMain:
         ):
             main()
 
-        assert exc_info.value.code == 1
+        exc = exc_info.value
+        assert isinstance(exc, SystemExit)
+        assert exc.code == 1
 
     def test_main_nothing_to_generate_shows_warning(
         self,

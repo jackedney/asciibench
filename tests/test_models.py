@@ -42,7 +42,9 @@ def test_vote_invalid_winner():
             sample_b_id="sample2",
             winner="X",  # type: ignore[arg-type]
         )
-    errors = exc_info.value.errors()
+    exc = exc_info.value
+    assert isinstance(exc, ValidationError)
+    errors = exc.errors()
     assert len(errors) == 1
     assert errors[0]["loc"] == ("winner",)
     assert errors[0]["type"] == "literal_error"

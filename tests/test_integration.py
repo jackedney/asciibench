@@ -73,6 +73,7 @@ def sample_prompts() -> list[Prompt]:
 def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Set up temporary data directory for all modules."""
     import asciibench.judge_ui.main as judge_main
+    from asciibench.judge_ui.undo_service import UndoService
 
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -80,7 +81,9 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(judge_main, "DATA_DIR", data_dir)
     monkeypatch.setattr(judge_main, "DATABASE_PATH", data_dir / "database.jsonl")
     monkeypatch.setattr(judge_main, "VOTES_PATH", data_dir / "votes.jsonl")
-    monkeypatch.setattr(judge_main, "_last_action_was_undo", False)
+    # Replace undo_service with one using temp votes path
+    temp_undo_service = UndoService(votes_path=data_dir / "votes.jsonl")
+    monkeypatch.setattr(judge_main, "undo_service", temp_undo_service)
 
     return data_dir
 
