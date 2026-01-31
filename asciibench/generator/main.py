@@ -15,18 +15,13 @@ Dependencies:
 import sys
 
 from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
 from asciibench.common.config import Settings
-from asciibench.common.display import (
-    create_live_stats,
-    get_console,
-    print_banner,
-    success_badge,
-    update_live_stats,
-)
+from asciibench.common.display import get_console, success_badge
+from asciibench.common.loader import RuneScapeLoader
 from asciibench.common.models import ArtSample
+from asciibench.common.simple_display import create_loader, show_banner, show_prompt
 from asciibench.common.yaml_config import load_generation_config, load_models, load_prompts
 from asciibench.generator.sampler import generate_samples
 
@@ -53,12 +48,13 @@ def main() -> None:
     2. Loading models from models.yaml
     3. Loading and expanding prompts from prompts.yaml
     4. Calling generate_samples() with loaded configuration
-    5. Displaying progress with Rich components
+    5. Displaying progress with RuneScape-style loader
     6. Displaying summary with Rich components
     """
     console = get_console()
 
-    print_banner()
+    # Show ASCII banner at startup
+    show_banner()
 
     console.print("\n[info]Loading configuration...[/info]\n")
 
@@ -83,34 +79,13 @@ def main() -> None:
     # Load generation config from config.yaml
     try:
         config = load_generation_config()
-        config_text = Text.assemble(
-            ("Attempts per prompt: ", "info"),
-            (f"{config.attempts_per_prompt}", "accent bold"),
-            (" | Temperature: ", "info"),
-            (f"{config.temperature}", "accent bold"),
-            (" | Max tokens: ", "info"),
-            (f"{config.max_tokens}", "accent bold"),
-        )
-        console.print(
-            Panel(config_text, title="[primary]Generation Config[/primary]", border_style="accent")
-        )
     except Exception as e:
         console.print(f"[error]Error loading config.yaml: {e}[/error]")
         sys.exit(1)
 
-    console.print()
-
     # Load models from models.yaml
     try:
         models = load_models()
-        models_table = Table(title=f"Models ({len(models)} loaded)", border_style="accent")
-        models_table.add_column("Name", style="bold")
-        models_table.add_column("ID")
-
-        for model in models:
-            models_table.add_row(model.name, model.id)
-
-        console.print(models_table)
     except FileNotFoundError:
         console.print("[error]Error: models.yaml not found[/error]")
         sys.exit(1)
@@ -118,20 +93,9 @@ def main() -> None:
         console.print(f"[error]Error loading models.yaml: {e}[/error]")
         sys.exit(1)
 
-    console.print()
-
     # Load and expand prompts from prompts.yaml
     try:
         prompts = load_prompts()
-        console.print(f"[info]Prompts loaded: {len(prompts)}[/info]")
-
-        # Show category breakdown
-        categories: dict[str, int] = {}
-        for prompt in prompts:
-            categories[prompt.category] = categories.get(prompt.category, 0) + 1
-
-        for category, count in sorted(categories.items()):
-            console.print(f"  - {category}: {count} prompts")
     except FileNotFoundError:
         console.print("[error]Error: prompts.yaml not found[/error]")
         sys.exit(1)
@@ -141,10 +105,6 @@ def main() -> None:
 
     # Calculate expected samples
     total_expected = len(models) * len(prompts) * config.attempts_per_prompt
-    console.print(
-        f"\n[info]Expected samples: {len(models)} models x {len(prompts)} prompts x "
-        f"{config.attempts_per_prompt} attempts = {total_expected} samples[/info]\n"
-    )
 
     if total_expected == 0:
         console.print(
@@ -155,60 +115,77 @@ def main() -> None:
         )
         return
 
-    # Track generation progress
-    samples_processed = 0
+    # Track state for the RuneScape loader
+    current_model_id: str | None = None
+    current_prompt_text: str | None = None
+    samples_for_current_model = 0
+    total_samples_per_model = len(prompts) * config.attempts_per_prompt
+    loader: RuneScapeLoader | None = None
+    samples_generated: list[ArtSample] = []
 
-    def _rich_progress_callback(
+    def _loader_progress_callback(
         model_id: str, prompt_text: str, attempt: int, remaining: int
     ) -> None:
-        """Progress callback using Rich display."""
-        nonlocal samples_processed
+        """Progress callback using RuneScape loader."""
+        nonlocal current_model_id, current_prompt_text, samples_for_current_model, loader
 
-        # Track total samples processed
-        total = total_expected - remaining + 1
-        samples_processed = total
+        # Detect model change
+        if model_id != current_model_id:
+            # Complete previous loader if exists
+            if loader is not None:
+                loader.complete(success=True)
+                loader.stop()
 
-        # Update live stats with running total
-        update_live_stats(live_stats, live, total=total, valid=0, invalid=0)
+            # Reset for new model
+            current_model_id = model_id
+            samples_for_current_model = 0
 
-    # Initialize live stats
-    live_stats, live = create_live_stats()
-    samples_generated: list[ArtSample] = []
+            # Show first prompt for this model batch
+            show_prompt(prompt_text)
+            current_prompt_text = prompt_text
+
+            # Create and start new loader for this model
+            loader = create_loader(model_id, total_samples_per_model)
+            loader.start()
+
+        # Update progress
+        samples_for_current_model += 1
+        if loader is not None:
+            loader.update(samples_for_current_model)
 
     # Generate samples with progress callback
     try:
-        if live is not None:
-            with live:
-                new_samples = generate_samples(
-                    models=models,
-                    prompts=prompts,
-                    config=config,
-                    settings=settings,
-                    progress_callback=_rich_progress_callback,
-                )
-        else:
-            new_samples = generate_samples(
-                models=models,
-                prompts=prompts,
-                config=config,
-                settings=settings,
-                progress_callback=_rich_progress_callback,
-            )
+        samples_generated = generate_samples(
+            models=models,
+            prompts=prompts,
+            config=config,
+            settings=settings,
+            progress_callback=_loader_progress_callback,
+        )
+
+        # Complete the final loader
+        if loader is not None:
+            loader.complete(success=True)
+            loader.stop()
+
+    except KeyboardInterrupt:
+        # Handle Ctrl+C gracefully
+        if loader is not None:
+            loader.complete(success=False)
+            loader.stop()
+        console.print("\n[warning]Generation interrupted by user.[/warning]")
+        sys.exit(0)
     except Exception as e:
+        # Handle other errors
+        if loader is not None:
+            loader.complete(success=False)
+            loader.stop()
         console.print(f"\n[error]Error during generation: {e}[/error]")
         sys.exit(1)
-
-    samples_generated = new_samples
 
     # Calculate final stats from newly generated samples
     valid_count = sum(1 for s in samples_generated if s.is_valid)
     invalid_count = len(samples_generated) - valid_count
-
-    # Update final stats display
-    if live is not None:
-        update_live_stats(
-            live_stats, live, total=len(samples_generated), valid=valid_count, invalid=invalid_count
-        )
 
     # Final summary panel
     console.print()
