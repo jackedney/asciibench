@@ -5,7 +5,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from asciibench.common.models import ArtSample, Model, Prompt, Vote
+from asciibench.common.models import ArtSample, DemoResult, Model, OpenRouterResponse, Prompt, Vote
 
 
 def test_art_sample_valid():
@@ -134,3 +134,164 @@ def test_two_votes_have_different_uuids():
     vote1 = Vote(sample_a_id="sample1", sample_b_id="sample2", winner="A")
     vote2 = Vote(sample_a_id="sample3", sample_b_id="sample4", winner="B")
     assert vote1.id != vote2.id
+
+
+def test_demo_result_with_cost_and_tokens():
+    """DemoResult with output_tokens and cost fields."""
+    result = DemoResult(
+        model_id="openai/gpt-4o-mini",
+        model_name="GPT-4o Mini",
+        ascii_output="skeleton",
+        is_valid=True,
+        timestamp=datetime(2026, 1, 30, 20, 0, 0),
+        output_tokens=1234,
+        cost=0.001234,
+    )
+    assert result.model_id == "openai/gpt-4o-mini"
+    assert result.model_name == "GPT-4o Mini"
+    assert result.output_tokens == 1234
+    assert result.cost == 0.001234
+
+
+def test_demo_result_without_cost_and_tokens():
+    """DemoResult without output_tokens and cost fields defaults to None."""
+    result = DemoResult(
+        model_id="openai/gpt-4o-mini",
+        model_name="GPT-4o Mini",
+        ascii_output="skeleton",
+        is_valid=True,
+        timestamp=datetime(2026, 1, 30, 20, 0, 0),
+    )
+    assert result.output_tokens is None
+    assert result.cost is None
+
+
+def test_demo_result_serialization_includes_cost_and_tokens():
+    """DemoResult serialization includes output_tokens and cost fields."""
+    result = DemoResult(
+        model_id="openai/gpt-4o-mini",
+        model_name="GPT-4o Mini",
+        ascii_output="skeleton",
+        is_valid=True,
+        timestamp=datetime(2026, 1, 30, 20, 0, 0),
+        output_tokens=1234,
+        cost=0.001234,
+    )
+    data = result.model_dump(mode="json")
+    assert "output_tokens" in data
+    assert data["output_tokens"] == 1234
+    assert "cost" in data
+    assert data["cost"] == 0.001234
+
+
+def test_demo_result_serialization_with_none_values():
+    """DemoResult serialization handles None values for cost/tokens."""
+    result = DemoResult(
+        model_id="openai/gpt-4o-mini",
+        model_name="GPT-4o Mini",
+        ascii_output="skeleton",
+        is_valid=True,
+        timestamp=datetime(2026, 1, 30, 20, 0, 0),
+        output_tokens=None,
+        cost=None,
+    )
+    data = result.model_dump(mode="json")
+    assert "output_tokens" in data
+    assert data["output_tokens"] is None
+    assert "cost" in data
+    assert data["cost"] is None
+
+
+def test_art_sample_with_cost_and_tokens():
+    """ArtSample with output_tokens and cost fields."""
+    sample = ArtSample(
+        model_id="openai/gpt-4o",
+        prompt_text="Draw a cat",
+        category="animal",
+        attempt_number=1,
+        raw_output="```\ncat\n```",
+        sanitized_output="cat",
+        is_valid=True,
+        output_tokens=100,
+        cost=0.0001,
+    )
+    assert sample.model_id == "openai/gpt-4o"
+    assert sample.output_tokens == 100
+    assert sample.cost == 0.0001
+
+
+def test_art_sample_without_cost_and_tokens():
+    """ArtSample without output_tokens and cost fields defaults to None."""
+    sample = ArtSample(
+        model_id="openai/gpt-4o",
+        prompt_text="Draw a cat",
+        category="animal",
+        attempt_number=1,
+        raw_output="```\ncat\n```",
+        sanitized_output="cat",
+        is_valid=True,
+    )
+    assert sample.output_tokens is None
+    assert sample.cost is None
+
+
+def test_art_sample_serialization_includes_cost_and_tokens():
+    """ArtSample serialization includes output_tokens and cost fields."""
+    sample = ArtSample(
+        model_id="openai/gpt-4o",
+        prompt_text="Draw a cat",
+        category="animal",
+        attempt_number=1,
+        raw_output="```\ncat\n```",
+        sanitized_output="cat",
+        is_valid=True,
+        output_tokens=200,
+        cost=0.0002,
+    )
+    data = sample.model_dump(mode="json")
+    assert "output_tokens" in data
+    assert data["output_tokens"] == 200
+    assert "cost" in data
+    assert data["cost"] == 0.0002
+
+
+def test_open_router_response_with_all_fields():
+    """OpenRouterResponse with all fields populated."""
+    response = OpenRouterResponse(
+        text="Generated text",
+        prompt_tokens=10,
+        completion_tokens=20,
+        total_tokens=30,
+        cost=0.001234,
+    )
+    assert response.text == "Generated text"
+    assert response.prompt_tokens == 10
+    assert response.completion_tokens == 20
+    assert response.total_tokens == 30
+    assert response.cost == 0.001234
+
+
+def test_open_router_response_with_none_values():
+    """OpenRouterResponse with None values for optional fields."""
+    response = OpenRouterResponse(
+        text="Generated text",
+        prompt_tokens=None,
+        completion_tokens=None,
+        total_tokens=None,
+        cost=None,
+    )
+    assert response.text == "Generated text"
+    assert response.prompt_tokens is None
+    assert response.completion_tokens is None
+    assert response.total_tokens is None
+    assert response.cost is None
+
+
+def test_open_router_response_text_only():
+    """OpenRouterResponse with only text field."""
+    response = OpenRouterResponse(text="Generated text")
+    assert response.text == "Generated text"
+    assert response.prompt_tokens is None
+    assert response.completion_tokens is None
+    assert response.total_tokens is None
+    assert response.cost is None

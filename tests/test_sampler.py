@@ -98,10 +98,15 @@ class TestGenerateSamples:
     def mock_client(self) -> MagicMock:
         """Create a mock OpenRouterClient."""
         client = MagicMock(spec=OpenRouterClient)
-        client.generate.return_value = OpenRouterResponse(text="```\n/\\_/\\\n( o.o )\n > ^ <\n```")
-        client.generate_async = AsyncMock(
-            return_value=OpenRouterResponse(text="```\n/\\_/\\\n( o.o )\n > ^ <\n```")
+        mock_response = OpenRouterResponse(
+            text="```\n/\\_/\\\n( o.o )\n > ^ <\n```",
+            prompt_tokens=10,
+            completion_tokens=50,
+            total_tokens=60,
+            cost=0.0001,
         )
+        client.generate.return_value = mock_response
+        client.generate_async = AsyncMock(return_value=mock_response)
         return client
 
     @pytest.fixture
@@ -525,3 +530,97 @@ class TestGenerateSamples:
 
         # Verify timestamp is set
         assert sample.timestamp is not None
+
+    def test_sample_includes_cost_and_tokens(
+        self,
+        mock_client: MagicMock,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """Generated samples include cost and token metadata from API response."""
+        db_path = tmp_path / "database.jsonl"
+        config = GenerationConfig(attempts_per_prompt=1)
+
+        result = generate_samples(
+            models=sample_models,
+            prompts=sample_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        assert len(result) == 1
+        sample = result[0]
+
+        # Verify cost and tokens are set from mock response
+        assert sample.output_tokens == 50
+        assert sample.cost == 0.0001
+
+    def test_sample_handles_missing_cost_and_tokens(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Generated samples handle None cost and tokens from API response."""
+        db_path = tmp_path / "database.jsonl"
+        config = GenerationConfig(attempts_per_prompt=1)
+
+        # Create mock with missing cost/tokens
+        mock_client = MagicMock(spec=OpenRouterClient)
+        mock_response = OpenRouterResponse(
+            text="```\n/\\_/\\\n( o.o )\n > ^ <\n```",
+            prompt_tokens=None,
+            completion_tokens=None,
+            total_tokens=None,
+            cost=None,
+        )
+        mock_client.generate.return_value = mock_response
+        mock_client.generate_async = AsyncMock(return_value=mock_response)
+
+        models = [Model(id="openai/gpt-4o", name="GPT-4o")]
+        prompts = [Prompt(text="Draw a cat", category="single_animal", template_type="animal")]
+
+        result = generate_samples(
+            models=models,
+            prompts=prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        assert len(result) == 1
+        sample = result[0]
+
+        # Verify cost and tokens are None when missing from API response
+        assert sample.output_tokens is None
+        assert sample.cost is None
+
+    def test_failed_sample_has_none_cost_and_tokens(
+        self,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """Failed samples have None cost and tokens."""
+        db_path = tmp_path / "database.jsonl"
+        config = GenerationConfig(attempts_per_prompt=1)
+
+        # Create mock that raises error
+        mock_client = MagicMock(spec=OpenRouterClient)
+        mock_client.generate_async = AsyncMock(side_effect=OpenRouterClientError("API error"))
+
+        result = generate_samples(
+            models=sample_models,
+            prompts=sample_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        assert len(result) == 1
+        sample = result[0]
+
+        # Failed samples should have None cost and tokens
+        assert sample.is_valid is False
+        assert sample.output_tokens is None
+        assert sample.cost is None

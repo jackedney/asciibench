@@ -14,6 +14,7 @@ from asciibench.generator.demo import (
     get_completed_model_ids,
     load_demo_results,
     save_demo_results,
+    show_stats,
 )
 
 
@@ -763,3 +764,97 @@ class TestGenerateHtml:
         assert "&quot;" in html_content
         assert "<div>" not in html_content
         assert "&quot;quotes&quot;" in html_content
+
+    def test_generate_html_includes_cost_and_tokens(self, tmp_path: Path) -> None:
+        """Test HTML generation includes cost and tokens when available."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        result = DemoResult(
+            model_id="openai/gpt-4o-mini",
+            model_name="GPT-4o-mini",
+            ascii_output="skeleton",
+            is_valid=True,
+            timestamp=datetime(2026, 1, 30, 20, 0, 0),
+            output_tokens=1234,
+            cost=0.001234,
+        )
+        save_demo_results([result])
+
+        generate_html()
+
+        assert demo_module.DEMO_HTML_PATH.exists()
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert "$0.001234" in html_content
+        assert "1234 tokens" in html_content
+        assert 'class="cost-tokens"' in html_content
+
+    def test_generate_html_handles_missing_cost_and_tokens(self, tmp_path: Path) -> None:
+        """Test HTML generation handles missing cost and tokens gracefully."""
+        import asciibench.generator.demo as demo_module
+
+        demo_module.DEMO_OUTPUTS_DIR = tmp_path
+        demo_module.DEMO_HTML_PATH = tmp_path / "demo.html"
+        demo_module.RESULTS_JSON_PATH = tmp_path / "results.json"
+
+        result = DemoResult(
+            model_id="openai/gpt-4o-mini",
+            model_name="GPT-4o-mini",
+            ascii_output="skeleton",
+            is_valid=True,
+            timestamp=datetime(2026, 1, 30, 20, 0, 0),
+            output_tokens=None,
+            cost=None,
+        )
+        save_demo_results([result])
+
+        generate_html()
+
+        assert demo_module.DEMO_HTML_PATH.exists()
+        html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
+
+        assert "$0.000000" in html_content
+        assert "N/A tokens" in html_content
+        assert 'class="cost-tokens"' in html_content
+
+
+class TestShowStats:
+    """Tests for show_stats function."""
+
+    def test_show_stats_displays_formatted_cost(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Test show_stats displays cost formatted to 6 decimal places."""
+        show_stats(success_count=5, failure_count=2, running_cost=0.001234)
+
+        captured = capsys.readouterr()
+        assert "✓ 5" in captured.out
+        assert "✗ 2" in captured.out
+        assert "$0.001234" in captured.out
+
+    def test_show_stats_displays_zero_cost(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Test show_stats displays zero cost formatted to 6 decimal places."""
+        show_stats(success_count=0, failure_count=0, running_cost=0.0)
+
+        captured = capsys.readouterr()
+        assert "✓ 0" in captured.out
+        assert "✗ 0" in captured.out
+        assert "$0.000000" in captured.out
+
+    def test_show_stats_displays_small_cost(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Test show_stats displays very small cost formatted to 6 decimal places."""
+        show_stats(success_count=1, failure_count=0, running_cost=0.000001)
+
+        captured = capsys.readouterr()
+        assert "$0.000001" in captured.out
+
+    def test_show_stats_displays_large_cost(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Test show_stats displays large cost formatted to 6 decimal places."""
+        show_stats(success_count=100, failure_count=5, running_cost=1.234567)
+
+        captured = capsys.readouterr()
+        assert "✓ 100" in captured.out
+        assert "✗ 5" in captured.out
+        assert "$1.234567" in captured.out
