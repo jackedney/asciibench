@@ -44,3 +44,5 @@ class DemoResult(BaseModel):
     timestamp: datetime
     error_reason: str | None = None
     raw_output: str | None = None
+    output_tokens: int | None = None
+    cost: float | None = None
