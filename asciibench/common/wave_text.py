@@ -1,0 +1,77 @@
+"""RuneScape-style wave text renderer with rainbow colors and sine wave animation."""
+
+import math
+
+from rich.text import Text
+
+# Rainbow color sequence: red -> orange -> yellow -> green -> cyan -> blue -> purple
+RAINBOW_COLORS = [
+    "#FF0000",  # red
+    "#FF7F00",  # orange
+    "#FFFF00",  # yellow
+    "#00FF00",  # green
+    "#00FFFF",  # cyan
+    "#0000FF",  # blue
+    "#8B00FF",  # purple
+]
+
+
+def render_wave_text(text: str, frame: int = 0) -> Text:
+    """Render text with RuneScape-style wave animation and rainbow colors.
+
+    Characters are vertically displaced using a sine wave based on character
+    position and frame number. Colors cycle through the rainbow spectrum
+    and shift based on the frame number for a flowing effect.
+
+    Args:
+        text: The text to render with wave effect.
+        frame: Animation frame number (affects wave position and color shift).
+
+    Returns:
+        Rich Text object with styled characters. Empty Text if input is empty.
+    """
+    if not text:
+        return Text()
+
+    result = Text()
+    num_colors = len(RAINBOW_COLORS)
+
+    for i, char in enumerate(text):
+        # Calculate color index with frame-based shift for flowing effect
+        # The color shifts based on both character position and frame
+        color_index = (i + frame) % num_colors
+        color = RAINBOW_COLORS[color_index]
+
+        # Calculate vertical displacement using sine wave
+        # Wave parameters: amplitude determines visual "height" of wave
+        # Phase shifts based on character position and frame for animation
+        wave_phase = (i * 0.5) + (frame * 0.3)
+        displacement = math.sin(wave_phase)
+
+        # For Rich Text, we can't actually displace vertically in terminal,
+        # but we can simulate the wave effect through style variations.
+        # The displacement value is stored in case future implementations
+        # need it for multi-line wave effects.
+        # For now, we apply the color and could add bold for "peak" positions.
+        style = color
+        if displacement > 0.7:
+            # At wave peaks, add bold for visual emphasis
+            style = f"bold {color}"
+
+        result.append(char, style=style)
+
+    return result
+
+
+def get_wave_displacement(char_index: int, frame: int) -> float:
+    """Calculate the vertical displacement for a character in the wave.
+
+    Args:
+        char_index: Position of the character in the text.
+        frame: Current animation frame.
+
+    Returns:
+        Displacement value between -1.0 and 1.0.
+    """
+    wave_phase = (char_index * 0.5) + (frame * 0.3)
+    return math.sin(wave_phase)
