@@ -279,7 +279,34 @@ def generate_demo_sample(
         timestamp=datetime.now(),
         error_reason=error_reason,
         raw_output=raw_output,
+        output_tokens=None,
+        cost=None,
     )
+
+
+def show_stats(success_count: int, failure_count: int, running_cost: float) -> None:
+    """Display current stats line with colored success/failure counts.
+
+    Args:
+        success_count: Number of successfully generated samples
+        failure_count: Number of failed generations
+        running_cost: Total cost of all successful generations
+
+    Example:
+        >>> show_stats(3, 1, 0.001234)
+        # Prints: ✓ 3 | ✗ 1 | Cost: $0.001234 (with colors)
+    """
+    console = get_console()
+    stats_text = Text.assemble(
+        ("✓ ", "green bold"),
+        (f"{success_count}", "green bold"),
+        (" | ", "info"),
+        ("✗ ", "red bold"),
+        (f"{failure_count}", "red bold"),
+        (" | Cost: $", "info"),
+        (f"{running_cost:.6f}", "accent bold"),
+    )
+    console.print(stats_text)
 
 
 def generate_html() -> None:
@@ -522,6 +549,11 @@ def main() -> None:
     # Track completion stats
     completed_count = len(completed_ids)
     failed_count = 0
+    running_cost = 0.0
+
+    # Display initial stats
+    show_stats(completed_count, failed_count, running_cost)
+    console.print()
 
     # Create loader for the generation process
     # Each model is one step in the loader
@@ -547,12 +579,17 @@ def main() -> None:
 
                 if result.is_valid:
                     completed_count += 1
+                    if result.cost is not None:
+                        running_cost += result.cost
                     # Show success flash and continue to next model
                     loader.complete(success=True)
                 else:
                     failed_count += 1
                     # Show failure flash and continue to next model
                     loader.complete(success=False)
+
+                # Update stats display
+                show_stats(completed_count, failed_count, running_cost)
 
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
