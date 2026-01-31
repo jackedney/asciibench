@@ -12,10 +12,45 @@ import asyncio
 import threading
 from typing import Any
 
-from smolagents import OpenAIModel
+from smolagents import ChatMessage, LiteLLMModel, OpenAIModel
 
 from asciibench.common.config import GenerationConfig
 from asciibench.common.models import OpenRouterResponse
+
+
+class LiteLLMModelWithCost(LiteLLMModel):
+    """Custom LiteLLMModel subclass that extracts cost from LiteLLM responses.
+
+    LiteLLM provides cost data via response._hidden_params['response_cost'].
+    This subclass extracts that cost and makes it available via _litellm_cost attribute.
+    """
+
+    def generate(
+        self,
+        messages: list[ChatMessage | dict],
+        stop_sequences: list[str] | None = None,
+        response_format: dict[str, str] | None = None,
+        tools_to_call_from: list[Any] | None = None,
+        **kwargs,
+    ) -> ChatMessage:
+        """Generate and extract cost from LiteLLM response."""
+        chat_message = super().generate(
+            messages, stop_sequences, response_format, tools_to_call_from, **kwargs
+        )
+
+        # Extract cost from LiteLLM's _hidden_params if available
+        if chat_message.raw is not None:
+            raw_response = chat_message.raw
+
+            # LiteLLM stores cost in _hidden_params['response_cost']
+            if hasattr(raw_response, "_hidden_params"):
+                hidden_params = raw_response._hidden_params
+                if hidden_params and "response_cost" in hidden_params:
+                    cost = hidden_params["response_cost"]
+                    # Store cost as an attribute on the raw response
+                    raw_response._litellm_cost = cost
+
+        return chat_message
 
 
 class APITimeoutError(Exception):
