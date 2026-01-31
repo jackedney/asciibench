@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from asciibench.common.models import DemoResult
+from asciibench.common.models import DemoResult, OpenRouterResponse
 from asciibench.generator.demo import (
     generate_demo_sample,
     generate_html,
@@ -357,7 +357,9 @@ class TestGenerateDemoSample:
         mock_settings_class.return_value = mock_settings
 
         mock_client_instance = MagicMock()
-        mock_client_instance.generate.return_value = "```\n/_/\\\n( o.o )\n > ^ <\n```"
+        mock_client_instance.generate.return_value = OpenRouterResponse(
+            text="```\n/_/\\\n( o.o )\n > ^ <\n```"
+        )
         mock_client_class.return_value = mock_client_instance
 
         result = generate_demo_sample("openai/gpt-4o-mini", "GPT-4o Mini")
@@ -392,7 +394,7 @@ class TestGenerateDemoSample:
         mock_settings_class.return_value = mock_settings
 
         mock_client_instance = MagicMock()
-        mock_client_instance.generate.return_value = "```\ntest\n```"
+        mock_client_instance.generate.return_value = OpenRouterResponse(text="```\ntest\n```")
         mock_client_class.return_value = mock_client_instance
 
         result = generate_demo_sample("anthropic/claude-3.5-sonnet", "Claude 3.5 Sonnet")
@@ -527,7 +529,7 @@ class TestGenerateDemoSample:
         mock_settings_class.return_value = mock_settings
 
         mock_client_instance = MagicMock()
-        mock_client_instance.generate.return_value = "No code block here"
+        mock_client_instance.generate.return_value = OpenRouterResponse(text="No code block here")
         mock_client_class.return_value = mock_client_instance
 
         result = generate_demo_sample("openai/gpt-4o-mini", "GPT-4o Mini")

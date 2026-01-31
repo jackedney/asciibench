@@ -18,7 +18,7 @@ from asciibench.analyst.leaderboard import (
     generate_leaderboard,
 )
 from asciibench.common.config import GenerationConfig
-from asciibench.common.models import ArtSample, Model, Prompt, Vote
+from asciibench.common.models import ArtSample, Model, OpenRouterResponse, Prompt, Vote
 from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
@@ -29,16 +29,18 @@ from asciibench.generator.sampler import generate_samples
 from asciibench.judge_ui.main import app
 
 
-def _mock_generate_response(model_id: str, prompt: str, config: object = None) -> str:
+def _mock_generate_response(
+    model_id: str, prompt: str, config: object = None
+) -> OpenRouterResponse:
     """Generate ASCII art based on prompt content."""
     if "cat" in prompt.lower():
-        return "```\n/\\_/\\\n( o.o )\n > ^ <\n```"
+        return OpenRouterResponse(text="```\n/\\_/\\\n( o.o )\n > ^ <\n```")
     elif "dog" in prompt.lower():
-        return "```\n/ \\__\n(    @\\___\n```\n"
+        return OpenRouterResponse(text="```\n/ \\__\n(    @\\___\n```\n")
     elif "tree" in prompt.lower():
-        return "```\n  /\\  \n /  \\ \n/____\\\n```"
+        return OpenRouterResponse(text="```\n  /\\  \n /  \\ \n/____\\\n```")
     else:
-        return "```\n? ? ?\n```\n"
+        return OpenRouterResponse(text="```\n? ? ?\n```")
 
 
 @pytest.fixture

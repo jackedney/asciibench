@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from asciibench.common.config import GenerationConfig
-from asciibench.common.models import ArtSample, Model, Prompt
+from asciibench.common.models import ArtSample, Model, OpenRouterResponse, Prompt
 from asciibench.generator.client import OpenRouterClient, OpenRouterClientError
 from asciibench.generator.sampler import (
     _build_existing_sample_keys,
@@ -98,8 +98,10 @@ class TestGenerateSamples:
     def mock_client(self) -> MagicMock:
         """Create a mock OpenRouterClient."""
         client = MagicMock(spec=OpenRouterClient)
-        client.generate.return_value = "```\n/\\_/\\\n( o.o )\n > ^ <\n```"
-        client.generate_async = AsyncMock(return_value="```\n/\\_/\\\n( o.o )\n > ^ <\n```")
+        client.generate.return_value = OpenRouterResponse(text="```\n/\\_/\\\n( o.o )\n > ^ <\n```")
+        client.generate_async = AsyncMock(
+            return_value=OpenRouterResponse(text="```\n/\\_/\\\n( o.o )\n > ^ <\n```")
+        )
         return client
 
     @pytest.fixture
@@ -255,14 +257,11 @@ class TestGenerateSamples:
             Prompt(text="Draw a dog", category="single_animal", template_type="animal"),
         ]
 
-        # Mock client that fails on first 3 calls (all retries), succeeds after
         mock_client = MagicMock(spec=OpenRouterClient)
         mock_client.generate_async = AsyncMock(
             side_effect=[
                 OpenRouterClientError("API error"),
-                OpenRouterClientError("API error"),
-                OpenRouterClientError("API error"),  # 3 retries for cat
-                "```\ndog\n```",  # Success for dog
+                OpenRouterResponse(text="```\ndog\n```"),
             ]
         )
 
@@ -273,21 +272,16 @@ class TestGenerateSamples:
             config=config,
             database_path=db_path,
             client=mock_client,
-            max_retries=3,
         )
 
-        # Both samples should be recorded (one failed, one successful)
         assert len(result) == 2
 
-        # Find cat and dog samples (order may vary due to async)
         cat_sample = next(s for s in result if s.prompt_text == "Draw a cat")
         dog_sample = next(s for s in result if s.prompt_text == "Draw a dog")
 
-        # Cat sample should be marked invalid due to API error (all retries exhausted)
         assert cat_sample.is_valid is False
         assert cat_sample.raw_output == ""
 
-        # Dog sample should be valid
         assert dog_sample.is_valid is True
         assert dog_sample.sanitized_output == "dog"
 
@@ -303,11 +297,12 @@ class TestGenerateSamples:
         sample_prompts: list[Prompt],
         tmp_path: Path,
     ) -> None:
-        """Sample is marked invalid when no code block is found after all retries."""
+        """Sample is marked invalid when no code block is found."""
         db_path = tmp_path / "database.jsonl"
 
-        # Return output without code block (all retries will fail)
-        mock_client.generate_async = AsyncMock(return_value="Here is a cat: /\\_/\\")
+        mock_client.generate_async = AsyncMock(
+            return_value=OpenRouterResponse(text="Here is a cat: /\\_/\\")
+        )
 
         config = GenerationConfig(attempts_per_prompt=1)
         result = generate_samples(
@@ -316,7 +311,6 @@ class TestGenerateSamples:
             config=config,
             database_path=db_path,
             client=mock_client,
-            max_retries=3,
         )
 
         assert len(result) == 1
@@ -331,12 +325,13 @@ class TestGenerateSamples:
         sample_prompts: list[Prompt],
         tmp_path: Path,
     ) -> None:
-        """Sample is marked invalid when output exceeds max_tokens limit after all retries."""
+        """Sample is marked invalid when output exceeds max_tokens limit."""
         db_path = tmp_path / "database.jsonl"
 
-        # Return very long output (exceeds 10 tokens * 4 chars = 40 chars)
         long_content = "x" * 100
-        mock_client.generate_async = AsyncMock(return_value=f"```\n{long_content}\n```")
+        mock_client.generate_async = AsyncMock(
+            return_value=OpenRouterResponse(text=f"```\n{long_content}\n```")
+        )
 
         config = GenerationConfig(attempts_per_prompt=1, max_tokens=10)
         result = generate_samples(
@@ -345,7 +340,6 @@ class TestGenerateSamples:
             config=config,
             database_path=db_path,
             client=mock_client,
-            max_retries=3,
         )
 
         assert len(result) == 1
@@ -406,7 +400,9 @@ class TestGenerateSamples:
         """Each sample is persisted immediately after generation."""
         db_path = tmp_path / "database.jsonl"
 
-        mock_client.generate_async = AsyncMock(return_value="```\nart\n```")
+        mock_client.generate_async = AsyncMock(
+            return_value=OpenRouterResponse(text="```\nart\n```")
+        )
 
         config = GenerationConfig(attempts_per_prompt=3)
         generate_samples(
@@ -437,7 +433,9 @@ class TestGenerateSamples:
 
         with patch("asciibench.generator.sampler.OpenRouterClient") as mock_client_class:
             mock_instance = MagicMock()
-            mock_instance.generate_async = AsyncMock(return_value="```\nart\n```")
+            mock_instance.generate_async = AsyncMock(
+                return_value=OpenRouterResponse(text="```\nart\n```")
+            )
             mock_client_class.return_value = mock_instance
 
             from asciibench.common.config import Settings

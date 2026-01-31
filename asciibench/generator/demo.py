@@ -19,7 +19,7 @@ from rich.text import Text
 
 from asciibench.common.config import Settings
 from asciibench.common.display import get_console
-from asciibench.common.models import DemoResult
+from asciibench.common.models import DemoResult, OpenRouterResponse
 from asciibench.common.simple_display import create_loader, show_banner, show_prompt
 from asciibench.common.yaml_config import load_generation_config, load_models
 from asciibench.generator.client import (
@@ -184,7 +184,6 @@ def generate_demo_sample(
     model_id: str,
     model_name: str,
     logger: logging.Logger | None = None,
-    max_attempts: int = 3,
 ) -> DemoResult:
     """Generate a demo ASCII art sample from a single model.
 
@@ -195,7 +194,6 @@ def generate_demo_sample(
         model_id: Model identifier (e.g., 'openai/gpt-4o-mini')
         model_name: Human-readable model name (e.g., 'GPT-4o Mini')
         logger: Optional error logger for detailed failure tracking
-        max_attempts: Maximum number of API attempts (default: 3)
 
     Returns:
         DemoResult with model info, ascii_output, is_valid, timestamp,
@@ -229,35 +227,36 @@ def generate_demo_sample(
     raw_output: str | None = None
     error_reason: str | None = None
     last_exception: Exception | None = None
+    response: OpenRouterResponse | None = None
 
-    for _attempt in range(1, max_attempts + 1):
-        try:
-            raw_output = client.generate(model_id, demo_prompt, config=config)
-            ascii_output = extract_ascii_from_markdown(raw_output)
-            is_valid = bool(ascii_output)
+    try:
+        response = client.generate(model_id, demo_prompt, config=config)
+        raw_output = response.text
+        ascii_output = extract_ascii_from_markdown(raw_output)
+        is_valid = bool(ascii_output)
 
-            if is_valid:
-                return DemoResult(
-                    model_id=model_id,
-                    model_name=model_name,
-                    ascii_output=ascii_output,
-                    is_valid=True,
-                    timestamp=datetime.now(),
-                    error_reason=None,
-                    raw_output=None,
-                )
+        if is_valid:
+            return DemoResult(
+                model_id=model_id,
+                model_name=model_name,
+                ascii_output=ascii_output,
+                is_valid=True,
+                timestamp=datetime.now(),
+                error_reason=None,
+                raw_output=None,
+                output_tokens=response.completion_tokens,
+                cost=response.cost,
+            )
 
-            error_reason = "No valid ASCII art block found in output"
-            last_exception = None
+        error_reason = "No valid ASCII art block found in output"
 
-        except (AuthenticationError, ModelError, OpenRouterClientError) as e:
-            error_reason = f"API error: {type(e).__name__}"
-            last_exception = e
-        except Exception as e:
-            error_reason = f"Unexpected error: {type(e).__name__}"
-            last_exception = e
+    except (AuthenticationError, ModelError, OpenRouterClientError) as e:
+        error_reason = f"API error: {type(e).__name__}"
+        last_exception = e
+    except Exception as e:
+        error_reason = f"Unexpected error: {type(e).__name__}"
+        last_exception = e
 
-    # All attempts exhausted - return invalid result
     if logger and error_reason:
         log_generation_error(
             logger,
@@ -366,8 +365,7 @@ def generate_html() -> None:
             padding: 20px;
             border-radius: 6px;
             overflow-x: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
+            white-space: pre;
             font-size: 14px;
             line-height: 1.5;
             border: 1px solid #e5e7eb;
@@ -538,7 +536,9 @@ def main() -> None:
             for i, model in enumerate(remaining_models, start=1):
                 # Update loader to show current model name
                 loader.set_model(model.name)
-                loader.update(i - 1)  # Show progress before generation
+                # Set progress to current step (1 to total) so the bar shows activity
+                # Each model is one full step in the total progress
+                loader.update(i)  # Show progress for current model being processed
 
                 result = generate_demo_sample(model.id, model.name, logger=error_logger)
 

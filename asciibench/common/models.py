@@ -46,3 +46,21 @@ class DemoResult(BaseModel):
     raw_output: str | None = None
     output_tokens: int | None = None
     cost: float | None = None
+
+
+class OpenRouterResponse:
+    """Response from OpenRouter API including usage and cost metadata."""
+
+    def __init__(
+        self,
+        text: str,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        cost: float | None = None,
+    ):
+        self.text = text
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.total_tokens = total_tokens
+        self.cost = cost

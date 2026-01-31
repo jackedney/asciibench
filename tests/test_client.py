@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from asciibench.common.config import GenerationConfig
+from asciibench.common.models import OpenRouterResponse
 from asciibench.generator.client import (
     AuthenticationError,
     ModelError,
@@ -34,11 +35,13 @@ class TestOpenRouterClientGenerate:
 
     @patch("asciibench.generator.client.OpenAIModel")
     def test_generate_returns_text_response(self, mock_model_class):
-        """Generate returns text response from model."""
+        """Generate returns OpenRouterResponse with text from model."""
         # Setup mock
         mock_model_instance = MagicMock()
         mock_response = MagicMock()
         mock_response.content = "```\n/_/\\\n( o.o )\n```"
+        mock_response.token_usage = None
+        mock_response.raw = None
         mock_model_instance.return_value = mock_response
         mock_model_class.return_value = mock_model_instance
 
@@ -47,7 +50,12 @@ class TestOpenRouterClientGenerate:
         result = client.generate("openai/gpt-4o", "Draw a cat")
 
         # Verify
-        assert result == "```\n/_/\\\n( o.o )\n```"
+        assert isinstance(result, OpenRouterResponse)
+        assert result.text == "```\n/_/\\\n( o.o )\n```"
+        assert result.prompt_tokens is None
+        assert result.completion_tokens is None
+        assert result.total_tokens is None
+        assert result.cost is None
         mock_model_class.assert_called_once_with(
             model_id="openai/gpt-4o",
             api_base="https://openrouter.ai/api/v1",
@@ -64,6 +72,8 @@ class TestOpenRouterClientGenerate:
         mock_model_instance = MagicMock()
         mock_response = MagicMock()
         mock_response.content = "Generated art"
+        mock_response.token_usage = None
+        mock_response.raw = None
         mock_model_instance.return_value = mock_response
         mock_model_class.return_value = mock_model_instance
 
@@ -73,7 +83,8 @@ class TestOpenRouterClientGenerate:
         client = OpenRouterClient(api_key="test-key")
         result = client.generate("anthropic/claude-3-opus", "Draw a tree", config=config)
 
-        assert result == "Generated art"
+        assert isinstance(result, OpenRouterResponse)
+        assert result.text == "Generated art"
         mock_model_class.assert_called_once_with(
             model_id="anthropic/claude-3-opus",
             api_base="https://openrouter.ai/api/v1",
@@ -90,6 +101,8 @@ class TestOpenRouterClientGenerate:
         mock_model_instance = MagicMock()
         mock_response = MagicMock()
         mock_response.content = "Art output"
+        mock_response.token_usage = None
+        mock_response.raw = None
         mock_model_instance.return_value = mock_response
         mock_model_class.return_value = mock_model_instance
 
@@ -112,6 +125,8 @@ class TestOpenRouterClientGenerate:
         mock_model_instance = MagicMock()
         mock_response = MagicMock()
         mock_response.content = "Art output"
+        mock_response.token_usage = None
+        mock_response.raw = None
         mock_model_instance.return_value = mock_response
         mock_model_class.return_value = mock_model_instance
 
@@ -135,7 +150,8 @@ class TestOpenRouterClientGenerate:
         client = OpenRouterClient(api_key="test-key")
         result = client.generate("openai/gpt-4o", "Draw a cat")
 
-        assert result == "Direct string response"
+        assert isinstance(result, OpenRouterResponse)
+        assert result.text == "Direct string response"
 
 
 class TestOpenRouterClientErrors:
@@ -214,6 +230,86 @@ class TestOpenRouterClientErrors:
         client = OpenRouterClient(api_key="test-key")
         with pytest.raises(OpenRouterClientError):
             client.generate("openai/gpt-4o", "Draw a cat")
+
+
+class TestOpenRouterClientUsageMetadata:
+    """Tests for usage and cost metadata extraction."""
+
+    @patch("asciibench.generator.client.OpenAIModel")
+    def test_generate_returns_usage_metadata(self, mock_model_class):
+        """Generate returns OpenRouterResponse with usage metadata."""
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "ASCII art"
+        mock_token_usage = MagicMock()
+        mock_token_usage.input_tokens = 10
+        mock_token_usage.output_tokens = 20
+        mock_token_usage.total_tokens = 30
+        mock_response.token_usage = mock_token_usage
+        mock_raw = MagicMock()
+        mock_raw.usage = MagicMock()
+        mock_raw.usage.total_cost = 0.001234
+        mock_response.raw = mock_raw
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        result = client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert isinstance(result, OpenRouterResponse)
+        assert result.text == "ASCII art"
+        assert result.prompt_tokens == 10
+        assert result.completion_tokens == 20
+        assert result.total_tokens == 30
+        assert result.cost == 0.001234
+
+    @patch("asciibench.generator.client.OpenAIModel")
+    def test_generate_returns_none_for_missing_usage(self, mock_model_class):
+        """Generate returns OpenRouterResponse with None values when usage metadata is missing."""
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "ASCII art"
+        mock_response.token_usage = None
+        mock_response.raw = None
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        result = client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert isinstance(result, OpenRouterResponse)
+        assert result.text == "ASCII art"
+        assert result.prompt_tokens is None
+        assert result.completion_tokens is None
+        assert result.total_tokens is None
+        assert result.cost is None
+
+    @patch("asciibench.generator.client.OpenAIModel")
+    def test_generate_returns_none_for_missing_cost(self, mock_model_class):
+        """Generate returns OpenRouterResponse with None cost when total_cost is missing."""
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "ASCII art"
+        mock_token_usage = MagicMock()
+        mock_token_usage.input_tokens = 10
+        mock_token_usage.output_tokens = 20
+        mock_token_usage.total_tokens = 30
+        mock_response.token_usage = mock_token_usage
+        mock_raw = MagicMock()
+        mock_raw.usage = None
+        mock_response.raw = mock_raw
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        result = client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert isinstance(result, OpenRouterResponse)
+        assert result.text == "ASCII art"
+        assert result.prompt_tokens == 10
+        assert result.completion_tokens == 20
+        assert result.total_tokens == 30
+        assert result.cost is None
 
 
 class TestOpenRouterClientExceptionHierarchy:

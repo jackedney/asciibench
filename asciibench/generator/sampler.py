@@ -94,64 +94,34 @@ async def _generate_single_sample(
     client: OpenRouterClient,
     task: SampleTask,
     config: GenerationConfig,
-    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> ArtSample:
-    """Generate a single sample with retry logic.
-
-    Retries on:
-    - API errors (OpenRouterClientError)
-    - Invalid output (no code block found or output too long)
+    """Generate a single sample without retry logic.
 
     Args:
         client: OpenRouter client instance
         task: Sample task with model, prompt, and attempt info
         config: Generation configuration
-        max_retries: Maximum number of retry attempts
 
     Returns:
-        Generated ArtSample (may be invalid if all retries exhausted)
+        Generated ArtSample
     """
-    last_raw_output = ""
-    last_sanitized_output = ""
+    response = await client.generate_async(
+        model_id=task.model.id,
+        prompt=task.prompt.text,
+        config=config,
+    )
+    raw_output = response.text
+    sanitized_output = extract_ascii_from_markdown(raw_output)
+    is_valid = _validate_output(raw_output, sanitized_output, config.max_tokens)
 
-    for _retry in range(max_retries):
-        try:
-            raw_output = await client.generate_async(
-                model_id=task.model.id,
-                prompt=task.prompt.text,
-                config=config,
-            )
-
-            sanitized_output = extract_ascii_from_markdown(raw_output)
-            is_valid = _validate_output(raw_output, sanitized_output, config.max_tokens)
-
-            if is_valid:
-                return ArtSample(
-                    model_id=task.model.id,
-                    prompt_text=task.prompt.text,
-                    category=task.prompt.category,
-                    attempt_number=task.attempt,
-                    raw_output=raw_output,
-                    sanitized_output=sanitized_output,
-                    is_valid=True,
-                )
-
-            # Invalid output - save for potential final sample and retry
-            last_raw_output = raw_output
-            last_sanitized_output = sanitized_output
-
-        except OpenRouterClientError:
-            pass  # Continue to retry
-
-    # All retries exhausted - return invalid sample
     return ArtSample(
         model_id=task.model.id,
         prompt_text=task.prompt.text,
         category=task.prompt.category,
         attempt_number=task.attempt,
-        raw_output=last_raw_output,
-        sanitized_output=last_sanitized_output,
-        is_valid=False,
+        raw_output=raw_output,
+        sanitized_output=sanitized_output,
+        is_valid=is_valid,
     )
 
 
@@ -165,7 +135,6 @@ async def _generate_batch_for_model(
     progress_callback: ProgressCallback | None,
     total_combinations: int,
     samples_processed_ref: list[int],
-    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> list[ArtSample]:
     """Generate all samples for a single model concurrently.
 
@@ -179,7 +148,6 @@ async def _generate_batch_for_model(
         progress_callback: Optional progress callback
         total_combinations: Total number of combinations for progress tracking
         samples_processed_ref: Mutable reference to track samples processed
-        max_retries: Maximum number of retry attempts
 
     Returns:
         List of newly generated samples
@@ -198,8 +166,18 @@ async def _generate_batch_for_model(
             remaining = total_combinations - samples_processed_ref[0] + 1
             progress_callback(task.model.id, task.prompt.text, task.attempt, remaining)
 
-        # Generate sample with retries
-        sample = await _generate_single_sample(client, task, config, max_retries)
+        try:
+            sample = await _generate_single_sample(client, task, config)
+        except (OpenRouterClientError, Exception):
+            sample = ArtSample(
+                model_id=task.model.id,
+                prompt_text=task.prompt.text,
+                category=task.prompt.category,
+                attempt_number=task.attempt,
+                raw_output="",
+                sanitized_output="",
+                is_valid=False,
+            )
 
         # Persist immediately for resume capability
         append_jsonl(database_path, sample)
@@ -226,16 +204,14 @@ async def generate_samples_async(
     client: OpenRouterClient | None = None,
     settings: Settings | None = None,
     progress_callback: ProgressCallback | None = None,
-    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> list[ArtSample]:
     """Generate ASCII art samples from configured models and prompts asynchronously.
 
     This function coordinates the generation of multiple samples by:
     1. Processing one model at a time
     2. Running all prompts for that model concurrently
-    3. Retrying on API errors or invalid outputs (up to max_retries times)
-    4. Checking for existing samples to support idempotent resume capability
-    5. Persisting each sample immediately for resume capability
+    3. Checking for existing samples to support idempotent resume capability
+    4. Persisting each sample immediately for resume capability
 
     Args:
         models: List of Model objects to generate samples from
@@ -246,7 +222,6 @@ async def generate_samples_async(
         settings: Optional Settings instance (required if client not provided)
         progress_callback: Optional callback called before each sample generation
             with (model_id, prompt_text, attempt_number, total_remaining)
-        max_retries: Maximum number of retries for invalid outputs or API errors
 
     Returns:
         List of newly generated ArtSample objects (excludes existing samples)
@@ -295,7 +270,6 @@ async def generate_samples_async(
             progress_callback=progress_callback,
             total_combinations=total_combinations,
             samples_processed_ref=samples_processed_ref,
-            max_retries=max_retries,
         )
 
         newly_generated.extend(model_samples)
@@ -311,7 +285,6 @@ def generate_samples(
     client: OpenRouterClient | None = None,
     settings: Settings | None = None,
     progress_callback: ProgressCallback | None = None,
-    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> list[ArtSample]:
     """Generate ASCII art samples from configured models and prompts.
 
@@ -327,7 +300,6 @@ def generate_samples(
         settings: Optional Settings instance (required if client not provided)
         progress_callback: Optional callback called before each sample generation
             with (model_id, prompt_text, attempt_number, total_remaining)
-        max_retries: Maximum number of retries for invalid outputs or API errors
 
     Returns:
         List of newly generated ArtSample objects (excludes existing samples)
@@ -341,6 +313,5 @@ def generate_samples(
             client=client,
             settings=settings,
             progress_callback=progress_callback,
-            max_retries=max_retries,
         )
     )

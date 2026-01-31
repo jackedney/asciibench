@@ -15,6 +15,7 @@ from typing import Any
 from smolagents import OpenAIModel
 
 from asciibench.common.config import GenerationConfig
+from asciibench.common.models import OpenRouterResponse
 
 
 class APITimeoutError(Exception):
@@ -100,7 +101,7 @@ class OpenRouterClient:
         model_id: str,
         prompt: str,
         config: GenerationConfig | None = None,
-    ) -> str:
+    ) -> OpenRouterResponse:
         """Generate text response from the specified model.
 
         Args:
@@ -109,7 +110,8 @@ class OpenRouterClient:
             config: Optional generation configuration with temperature, max_tokens, system_prompt
 
         Returns:
-            Generated text response from the model
+            OpenRouterResponse containing text and usage metadata
+            (prompt_tokens, completion_tokens, total_tokens, cost)
 
         Raises:
             AuthenticationError: When API authentication fails (invalid API key)
@@ -156,10 +158,38 @@ class OpenRouterClient:
             response = run_with_timeout(lambda: model(messages), self.timeout)
 
             # The response from smolagents model call is a ChatMessage object
-            # We need to extract the text content
+            # Extract text content and usage metadata
             if hasattr(response, "content"):
-                return str(response.content)
-            return str(response)
+                text = str(response.content)
+            else:
+                text = str(response)
+
+            # Extract usage metadata from response
+            prompt_tokens = None
+            completion_tokens = None
+            total_tokens = None
+            cost = None
+
+            # Extract token usage from response.token_usage
+            if hasattr(response, "token_usage") and response.token_usage is not None:
+                token_usage = response.token_usage
+                prompt_tokens = getattr(token_usage, "input_tokens", None)
+                completion_tokens = getattr(token_usage, "output_tokens", None)
+                total_tokens = getattr(token_usage, "total_tokens", None)
+
+            # Extract cost from raw response (OpenRouter-specific field)
+            if hasattr(response, "raw") and response.raw is not None:
+                raw = response.raw
+                if hasattr(raw, "usage") and raw.usage is not None:
+                    cost = getattr(raw.usage, "total_cost", None)
+
+            return OpenRouterResponse(
+                text=text,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                cost=cost,
+            )
 
         except APITimeoutError as e:
             raise OpenRouterClientError(f"API call timed out after {self.timeout} seconds") from e
@@ -188,7 +218,7 @@ class OpenRouterClient:
         model_id: str,
         prompt: str,
         config: GenerationConfig | None = None,
-    ) -> str:
+    ) -> OpenRouterResponse:
         """Async version of generate that runs the sync call in a thread pool.
 
         Args:
@@ -197,7 +227,8 @@ class OpenRouterClient:
             config: Optional generation configuration with temperature, max_tokens, system_prompt
 
         Returns:
-            Generated text response from the model
+            OpenRouterResponse containing text and usage metadata
+            (prompt_tokens, completion_tokens, total_tokens, cost)
 
         Raises:
             AuthenticationError: When API authentication fails (invalid API key)
