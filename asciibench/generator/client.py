@@ -12,7 +12,7 @@ import asyncio
 import threading
 from typing import Any
 
-from smolagents import ChatMessage, LiteLLMModel, OpenAIModel
+from smolagents import ChatMessage, LiteLLMModel
 
 from asciibench.common.config import GenerationConfig
 from asciibench.common.models import OpenRouterResponse
@@ -115,7 +115,7 @@ class ModelError(OpenRouterClientError):
 
 
 class OpenRouterClient:
-    """Client for interacting with OpenRouter API using smolagents OpenAIModel."""
+    """Client for interacting with OpenRouter API using smolagents LiteLLMModel."""
 
     def __init__(
         self, api_key: str, base_url: str = "https://openrouter.ai/api/v1", timeout: int = 120
@@ -157,16 +157,18 @@ class OpenRouterClient:
             config = GenerationConfig()
 
         try:
-            # Initialize the model with OpenRouter configuration
+            # Initialize the model with LiteLLMModelWithCost for cost tracking
             # Disable retries to prevent indefinite retrying on rate limits
-            model = OpenAIModel(
-                model_id=model_id,
+            # Auto-prepend 'openrouter/' prefix for LiteLLM
+            litellm_model_id = f"openrouter/{model_id}"
+            model = LiteLLMModelWithCost(
+                model_id=litellm_model_id,
                 api_base=self.base_url,
                 api_key=self.api_key,
                 temperature=config.temperature,
                 max_tokens=config.max_tokens,
                 client_kwargs={"max_retries": 0, "timeout": self.timeout},
-                retry=False,  # Disable smolagents' built-in retry logic
+                retry=False,
             )
 
             # Build messages list
@@ -212,11 +214,10 @@ class OpenRouterClient:
                 completion_tokens = getattr(token_usage, "output_tokens", None)
                 total_tokens = getattr(token_usage, "total_tokens", None)
 
-            # Extract cost from raw response (OpenRouter-specific field)
+            # Extract cost from raw response (set by LiteLLMModelWithCost)
             if hasattr(response, "raw") and response.raw is not None:
                 raw = response.raw
-                if hasattr(raw, "usage") and raw.usage is not None:
-                    cost = getattr(raw.usage, "total_cost", None)
+                cost = getattr(raw, "_litellm_cost", None)
 
             return OpenRouterResponse(
                 text=text,
