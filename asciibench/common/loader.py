@@ -11,6 +11,11 @@ from rich.text import Text
 
 from asciibench.common.wave_text import fill_progress, render_wave_text
 
+# Color constants for completion effects
+SUCCESS_COLOR = "#00FF00"  # Green
+FAILURE_COLOR = "#FF0000"  # Red
+FLASH_DURATION_MS = 300  # Duration of flash effect in milliseconds
+
 
 class RuneScapeLoader:
     """Animated loading bar with RuneScape-style wave text and rainbow colors.
@@ -50,6 +55,8 @@ class RuneScapeLoader:
         self._animation_thread: threading.Thread | None = None
         self._running = False
         self._completed = False
+        self._flashing = False  # Guards against stacking flash effects
+        self._flash_color: str | None = None  # Current flash color if flashing
         self._lock = threading.Lock()
 
     @property
@@ -95,6 +102,53 @@ class RuneScapeLoader:
             if self._current_step >= self._total_steps:
                 self._completed = True
 
+    def complete(self, success: bool) -> None:
+        """Flash the bar to indicate completion status.
+
+        Shows a brief color flash (green for success, red for failure) for ~300ms,
+        then clears and prepares the loader for the next model.
+
+        Calling complete multiple times does not stack flashes - if a flash is
+        already in progress, subsequent calls are ignored.
+
+        Args:
+            success: True for green (success) flash, False for red (failure) flash.
+
+        Example:
+            >>> loader.complete(success=True)  # Shows green flash
+            >>> loader.complete(success=False)  # Shows red flash
+        """
+        with self._lock:
+            # Guard against stacking flashes
+            if self._flashing:
+                return
+            self._flashing = True
+            self._flash_color = SUCCESS_COLOR if success else FAILURE_COLOR
+
+        # Update display to show flash
+        if self._live is not None:
+            try:
+                self._live.update(self._render_frame())
+            except Exception:
+                pass
+
+        # Hold the flash for the specified duration
+        time.sleep(FLASH_DURATION_MS / 1000.0)
+
+        # Clear the flash state and reset for next model
+        with self._lock:
+            self._flashing = False
+            self._flash_color = None
+            self._current_step = 0
+            self._completed = False
+
+        # Update display to clear the flash
+        if self._live is not None:
+            try:
+                self._live.update(self._render_frame())
+            except Exception:
+                pass
+
     def _get_terminal_width(self) -> int:
         """Get the current terminal width."""
         try:
@@ -112,8 +166,17 @@ class RuneScapeLoader:
             model_name = self._model_name
             progress = self._current_step / self._total_steps
             frame = self._frame
+            flashing = self._flashing
+            flash_color = self._flash_color
 
         width = self._get_terminal_width()
+
+        # If flashing, render entire bar in flash color
+        if flashing and flash_color is not None:
+            filled_text = fill_progress(model_name, width, 1.0)  # Full width
+            if not filled_text:
+                return Text("")
+            return Text(filled_text, style=flash_color)
 
         # Get the filled text based on progress
         filled_text = fill_progress(model_name, width, progress)

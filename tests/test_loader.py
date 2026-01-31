@@ -7,7 +7,12 @@ import pytest
 from rich.console import Console
 from rich.text import Text
 
-from asciibench.common.loader import RuneScapeLoader
+from asciibench.common.loader import (
+    FAILURE_COLOR,
+    FLASH_DURATION_MS,
+    SUCCESS_COLOR,
+    RuneScapeLoader,
+)
 
 
 class TestRuneScapeLoaderInit:
@@ -380,3 +385,184 @@ class TestRuneScapeLoaderExampleUsage:
             with RuneScapeLoader("GPT-4o", total_steps=100) as loader:
                 loader.update(50)
                 assert loader.progress == 0.5
+
+
+class TestRuneScapeLoaderComplete:
+    """Tests for completion and failure color effects (US-004)."""
+
+    def test_complete_method_exists(self):
+        """complete(success: bool) method exists on RuneScapeLoader."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        assert hasattr(loader, "complete")
+        assert callable(loader.complete)
+
+    def test_complete_success_sets_flash_color_green(self):
+        """complete(success=True) sets flash color to green (#00FF00)."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(100)  # Complete the progress
+
+        # Capture flash color during the flash
+        captured_color = []
+
+        def capture_during_flash(duration):
+            # Capture state during the flash (while sleeping)
+            with loader._lock:
+                if loader._flashing:
+                    captured_color.append(loader._flash_color)
+            # Don't actually sleep to speed up test
+
+        with patch("asciibench.common.loader.time.sleep", side_effect=capture_during_flash):
+            loader.complete(success=True)
+
+        # Verify green color was used during flash
+        assert SUCCESS_COLOR in captured_color
+
+    def test_complete_failure_sets_flash_color_red(self):
+        """complete(success=False) sets flash color to red (#FF0000)."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(100)  # Complete the progress
+
+        captured_color = []
+
+        def capture_during_flash(duration):
+            with loader._lock:
+                if loader._flashing:
+                    captured_color.append(loader._flash_color)
+
+        with patch("asciibench.common.loader.time.sleep", side_effect=capture_during_flash):
+            loader.complete(success=False)
+
+        assert FAILURE_COLOR in captured_color
+
+    def test_complete_resets_progress_after_flash(self):
+        """After flash, loader resets progress for next model."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(100)
+        assert loader.progress == 1.0
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True)
+
+        # After complete, progress should be reset
+        assert loader.progress == 0.0
+        assert loader.is_complete is False
+
+    def test_complete_clears_flash_state_after_duration(self):
+        """Flash state is cleared after the flash duration."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(100)
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True)
+
+        # After complete, flash state should be cleared
+        assert loader._flashing is False
+        assert loader._flash_color is None
+
+    def test_complete_multiple_times_does_not_stack(self):
+        """Calling complete multiple times does not stack flashes."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(100)
+
+        flash_count = 0
+
+        def count_flash(duration):
+            nonlocal flash_count
+            flash_count += 1
+
+        with patch("asciibench.common.loader.time.sleep", side_effect=count_flash):
+            # First call should flash
+            loader.complete(success=True)
+            assert flash_count == 1
+
+            # Second call should also flash (since first is done)
+            loader.update(100)
+            loader.complete(success=False)
+            assert flash_count == 2
+
+    def test_complete_during_flash_is_ignored(self):
+        """If complete is called while already flashing, it's ignored."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(100)
+
+        # Manually set flashing state
+        with loader._lock:
+            loader._flashing = True
+            loader._flash_color = SUCCESS_COLOR
+
+        # This should be ignored since we're already flashing
+        with patch("asciibench.common.loader.time.sleep") as mock_sleep:
+            loader.complete(success=False)
+            mock_sleep.assert_not_called()
+
+    def test_complete_example_success_shows_green_flash(self):
+        """Example: loader.complete(success=True) shows green flash then clears."""
+        loader = RuneScapeLoader("GPT-4o", total_steps=100)
+        loader.update(100)
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True)
+
+        # After complete, loader should be ready for next model
+        assert loader.progress == 0.0
+        assert loader.is_complete is False
+        assert loader._flashing is False
+
+    def test_complete_example_failure_shows_red_flash(self):
+        """Example: loader.complete(success=False) shows red flash then clears."""
+        loader = RuneScapeLoader("GPT-4o", total_steps=100)
+        loader.update(50)  # Partial progress before failure
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=False)
+
+        # After complete, loader should be ready for next model
+        assert loader.progress == 0.0
+        assert loader.is_complete is False
+        assert loader._flashing is False
+
+    def test_flash_renders_full_width(self):
+        """During flash, bar renders at full width with flash color."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(50)  # 50% progress
+
+        with loader._lock:
+            loader._flashing = True
+            loader._flash_color = SUCCESS_COLOR
+
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            # During flash, should render full width
+            assert len(str(result)) == 80
+            # The style should be the flash color
+            assert result.style == SUCCESS_COLOR
+
+    def test_flash_renders_with_failure_color(self):
+        """Flash renders with red color for failure."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+
+        with loader._lock:
+            loader._flashing = True
+            loader._flash_color = FAILURE_COLOR
+
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            assert result.style == FAILURE_COLOR
+
+    def test_complete_with_live_display_updates(self):
+        """complete() updates the Live display during flash."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(100)
+
+        mock_live = patch.object(loader, "_live")
+        with patch("asciibench.common.loader.time.sleep"):
+            with mock_live as live_mock:
+                live_mock.update = lambda x: None  # Mock update method
+                loader._live = live_mock
+                loader.complete(success=True)
+
+    def test_constants_have_correct_values(self):
+        """Verify color constants have correct hex values."""
+        assert SUCCESS_COLOR == "#00FF00"
+        assert FAILURE_COLOR == "#FF0000"
+        assert FLASH_DURATION_MS == 300
