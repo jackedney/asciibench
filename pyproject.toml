@@ -12,7 +12,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "pydantic-settings",
-    "smolagents[openai]",
+    "smolagents[litellm]",
     "python-multipart",
     "rich>=14.3.1",
 ]
