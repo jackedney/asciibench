@@ -1,10 +1,13 @@
 """JSONL persistence utilities for reading and writing Pydantic models."""
 
 from pathlib import Path
+from typing import TypeVar
 from uuid import UUID
 
 from filelock import FileLock
 from pydantic import BaseModel
+
+T = TypeVar("T", bound=BaseModel)
 
 
 def append_jsonl(path: str | Path, obj: BaseModel) -> None:
@@ -28,7 +31,7 @@ def append_jsonl(path: str | Path, obj: BaseModel) -> None:
             f.write(obj.model_dump_json() + "\n")
 
 
-def read_jsonl[T: BaseModel](path: str | Path, model_class: type[T]) -> list[T]:
+def read_jsonl(path: str | Path, model_class: type[T]) -> list[T]:
     """Read all lines from a JSONL file as model instances.
 
     Returns an empty list if the file doesn't exist.
@@ -55,9 +58,7 @@ def read_jsonl[T: BaseModel](path: str | Path, model_class: type[T]) -> list[T]:
     return results
 
 
-def read_jsonl_by_id[T: BaseModel](
-    path: str | Path, id: UUID | str, model_class: type[T]
-) -> T | None:
+def read_jsonl_by_id(path: str | Path, id: UUID | str, model_class: type[T]) -> T | None:
     """Find a single record by UUID from a JSONL file.
 
     Args:
@@ -88,7 +89,7 @@ def read_jsonl_by_id[T: BaseModel](
     return None
 
 
-def write_jsonl[T: BaseModel](path: str | Path, objects: list[T]) -> None:
+def write_jsonl(path: str | Path, objects: list[T]) -> None:
     """Write a list of Pydantic models to a JSONL file atomically.
 
     Uses file locking and atomic write (write to temp, then rename) to

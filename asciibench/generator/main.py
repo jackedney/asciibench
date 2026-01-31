@@ -26,6 +26,31 @@ from asciibench.common.yaml_config import load_generation_config, load_models, l
 from asciibench.generator.sampler import generate_samples
 
 
+def show_stats(success_count: int, failure_count: int, running_cost: float) -> None:
+    """Display current stats line with colored success/failure counts.
+
+    Args:
+        success_count: Number of successfully generated samples
+        failure_count: Number of failed generations
+        running_cost: Total cost of all successful generations
+
+    Example:
+        >>> show_stats(3, 1, 0.001234)
+        # Prints: ✓ 3 | ✗ 1 | Cost: $0.001234 (with colors)
+    """
+    console = get_console()
+    stats_text = Text.assemble(
+        ("✓ ", "green bold"),
+        (f"{success_count}", "green bold"),
+        (" | ", "info"),
+        ("✗ ", "red bold"),
+        (f"{failure_count}", "red bold"),
+        (" | Cost: $", "info"),
+        (f"{running_cost:.6f}", "accent bold"),
+    )
+    console.print(stats_text)
+
+
 def _print_progress(model_id: str, prompt_text: str, attempt: int, remaining: int) -> None:
     """Print progress information to stdout (deprecated, kept for test compatibility).
 
@@ -123,6 +148,11 @@ def main() -> None:
     loader: RuneScapeLoader | None = None
     samples_generated: list[ArtSample] = []
 
+    # Track stats across all samples
+    success_count = 0
+    failure_count = 0
+    running_cost = 0.0
+
     def _loader_progress_callback(
         model_id: str, prompt_text: str, attempt: int, remaining: int
     ) -> None:
@@ -144,6 +174,10 @@ def main() -> None:
             show_prompt(prompt_text)
             current_prompt_text = prompt_text
 
+            # Display stats above progress bar before each model batch starts
+            show_stats(success_count, failure_count, running_cost)
+            console.print()
+
             # Create and start new loader for this model
             loader = create_loader(model_id, total_samples_per_model)
             loader.start()
@@ -153,7 +187,18 @@ def main() -> None:
         if loader is not None:
             loader.update(samples_for_current_model)
 
-    # Generate samples with progress callback
+    def _stats_callback(is_valid: bool, cost: float | None) -> None:
+        """Stats callback called after each sample generation."""
+        nonlocal success_count, failure_count, running_cost
+
+        if is_valid:
+            success_count += 1
+            if cost is not None:
+                running_cost += cost
+        else:
+            failure_count += 1
+
+    # Generate samples with progress and stats callbacks
     try:
         samples_generated = generate_samples(
             models=models,
@@ -161,6 +206,7 @@ def main() -> None:
             config=config,
             settings=settings,
             progress_callback=_loader_progress_callback,
+            stats_callback=_stats_callback,
         )
 
         # Complete the final loader

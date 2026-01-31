@@ -25,6 +25,9 @@ from asciibench.generator.sanitizer import extract_ascii_from_markdown
 # Type alias for progress callback: (model_id, prompt_text, attempt_number, total_remaining) -> None
 ProgressCallback = Callable[[str, str, int, int], None]
 
+# Type alias for stats callback: (is_valid, cost) -> None
+StatsCallback = Callable[[bool, float | None], None]
+
 # Default number of retries for invalid outputs or API errors
 DEFAULT_MAX_RETRIES = 3
 
@@ -122,6 +125,8 @@ async def _generate_single_sample(
         raw_output=raw_output,
         sanitized_output=sanitized_output,
         is_valid=is_valid,
+        output_tokens=response.completion_tokens,
+        cost=response.cost,
     )
 
 
@@ -133,6 +138,7 @@ async def _generate_batch_for_model(
     database_path: Path,
     existing_keys: set[tuple[str, str, int]],
     progress_callback: ProgressCallback | None,
+    stats_callback: StatsCallback | None,
     total_combinations: int,
     samples_processed_ref: list[int],
 ) -> list[ArtSample]:
@@ -146,6 +152,7 @@ async def _generate_batch_for_model(
         database_path: Path to database file
         existing_keys: Set of existing sample keys (will be mutated)
         progress_callback: Optional progress callback
+        stats_callback: Optional stats callback called after each sample
         total_combinations: Total number of combinations for progress tracking
         samples_processed_ref: Mutable reference to track samples processed
 
@@ -177,7 +184,13 @@ async def _generate_batch_for_model(
                 raw_output="",
                 sanitized_output="",
                 is_valid=False,
+                output_tokens=None,
+                cost=None,
             )
+
+        # Call stats callback after generation
+        if stats_callback is not None:
+            stats_callback(sample.is_valid, sample.cost)
 
         # Persist immediately for resume capability
         append_jsonl(database_path, sample)
@@ -204,6 +217,7 @@ async def generate_samples_async(
     client: OpenRouterClient | None = None,
     settings: Settings | None = None,
     progress_callback: ProgressCallback | None = None,
+    stats_callback: StatsCallback | None = None,
 ) -> list[ArtSample]:
     """Generate ASCII art samples from configured models and prompts asynchronously.
 
@@ -222,6 +236,8 @@ async def generate_samples_async(
         settings: Optional Settings instance (required if client not provided)
         progress_callback: Optional callback called before each sample generation
             with (model_id, prompt_text, attempt_number, total_remaining)
+        stats_callback: Optional callback called after each sample generation
+            with (is_valid, cost)
 
     Returns:
         List of newly generated ArtSample objects (excludes existing samples)
@@ -268,6 +284,7 @@ async def generate_samples_async(
             database_path=database_path,
             existing_keys=existing_keys,
             progress_callback=progress_callback,
+            stats_callback=stats_callback,
             total_combinations=total_combinations,
             samples_processed_ref=samples_processed_ref,
         )
@@ -285,6 +302,7 @@ def generate_samples(
     client: OpenRouterClient | None = None,
     settings: Settings | None = None,
     progress_callback: ProgressCallback | None = None,
+    stats_callback: StatsCallback | None = None,
 ) -> list[ArtSample]:
     """Generate ASCII art samples from configured models and prompts.
 
@@ -300,6 +318,8 @@ def generate_samples(
         settings: Optional Settings instance (required if client not provided)
         progress_callback: Optional callback called before each sample generation
             with (model_id, prompt_text, attempt_number, total_remaining)
+        stats_callback: Optional callback called after each sample generation
+            with (is_valid, cost)
 
     Returns:
         List of newly generated ArtSample objects (excludes existing samples)
@@ -313,5 +333,6 @@ def generate_samples(
             client=client,
             settings=settings,
             progress_callback=progress_callback,
+            stats_callback=stats_callback,
         )
     )

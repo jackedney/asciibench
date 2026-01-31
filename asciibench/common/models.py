@@ -15,6 +15,8 @@ class ArtSample(BaseModel):
     sanitized_output: str
     is_valid: bool
     timestamp: datetime = Field(default_factory=datetime.now)
+    output_tokens: int | None = None
+    cost: float | None = None
 
 
 class Vote(BaseModel):
