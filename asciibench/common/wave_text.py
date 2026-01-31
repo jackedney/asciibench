@@ -75,3 +75,47 @@ def get_wave_displacement(char_index: int, frame: int) -> float:
     """
     wave_phase = (char_index * 0.5) + (frame * 0.3)
     return math.sin(wave_phase)
+
+
+def fill_progress(model_name: str, width: int, progress: float) -> str:
+    """Generate a string with model name repeated to fill width based on progress.
+
+    The model name is repeated with space separators to fill (width * progress)
+    characters. This is used for the loading bar to grow as generation progresses.
+
+    Args:
+        model_name: The model name to repeat (e.g., 'GPT-4o').
+        width: The total terminal width to fill at 100% progress.
+        progress: Progress percentage from 0.0 to 1.0 (clamped if out of range).
+
+    Returns:
+        String with model name repeated to fill the target length.
+        Empty string if model_name is empty, width is 0, or progress is 0.
+    """
+    # Handle edge cases
+    if not model_name or width <= 0:
+        return ""
+
+    # Clamp progress to [0.0, 1.0]
+    progress = max(0.0, min(1.0, progress))
+
+    # Calculate target length
+    target_length = int(width * progress)
+
+    if target_length == 0:
+        return ""
+
+    # Build repeated pattern with space separator
+    pattern = model_name + " "
+    pattern_len = len(pattern)
+
+    # Calculate how many full repetitions we need
+    if pattern_len == 0:
+        return ""
+
+    # Build the result by repeating the pattern
+    repetitions = (target_length // pattern_len) + 2  # +2 to ensure we have enough
+    full_text = pattern * repetitions
+
+    # Truncate to exact target length
+    return full_text[:target_length]

@@ -191,3 +191,118 @@ class TestRainbowColors:
             "#8B00FF",  # purple
         ]
         assert RAINBOW_COLORS == expected
+
+
+class TestFillProgress:
+    """Tests for fill_progress function."""
+
+    def test_returns_string(self):
+        """fill_progress returns a string."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=80, progress=0.5)
+        assert isinstance(result, str)
+
+    def test_zero_progress_returns_empty_string(self):
+        """Progress 0.0 returns empty string."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=80, progress=0.0)
+        assert result == ""
+
+    def test_full_progress_fills_width(self):
+        """Progress 1.0 returns full 80 chars filled."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=80, progress=1.0)
+        assert len(result) == 80
+
+    def test_half_progress_fills_half_width(self):
+        """Progress 0.5 returns approximately half the width."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=80, progress=0.5)
+        assert len(result) == 40
+
+    def test_model_name_repeated(self):
+        """Model name is repeated in the output."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=80, progress=1.0)
+        # The model name should appear multiple times
+        assert result.count("GPT-4o") > 1
+
+    def test_space_separator_between_repetitions(self):
+        """Space separator exists between repetitions for readability."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=80, progress=1.0)
+        # Should have "GPT-4o " pattern (with space separator)
+        assert "GPT-4o " in result or "GPT-4o" in result
+
+    def test_progress_greater_than_one_clamped(self):
+        """Progress > 1.0 is clamped to 1.0."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=80, progress=1.5)
+        # Should produce same result as progress=1.0
+        assert len(result) == 80
+
+    def test_progress_less_than_zero_clamped(self):
+        """Progress < 0.0 is clamped to 0.0."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=80, progress=-0.5)
+        assert result == ""
+
+    def test_exact_length_at_various_progress_values(self):
+        """Output length matches width * progress exactly."""
+        from asciibench.common.wave_text import fill_progress
+
+        assert len(fill_progress("Test", width=100, progress=0.0)) == 0
+        assert len(fill_progress("Test", width=100, progress=0.25)) == 25
+        assert len(fill_progress("Test", width=100, progress=0.5)) == 50
+        assert len(fill_progress("Test", width=100, progress=0.75)) == 75
+        assert len(fill_progress("Test", width=100, progress=1.0)) == 100
+
+    def test_short_model_name(self):
+        """Short model names work correctly."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("A", width=10, progress=1.0)
+        assert len(result) == 10
+
+    def test_long_model_name(self):
+        """Long model names work correctly."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("VeryLongModelName", width=50, progress=1.0)
+        assert len(result) == 50
+
+    def test_model_name_with_spaces(self):
+        """Model names with spaces work correctly."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("Claude 3", width=40, progress=1.0)
+        assert len(result) == 40
+
+    def test_empty_model_name_returns_empty(self):
+        """Empty model name returns empty string regardless of progress."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("", width=80, progress=1.0)
+        assert result == ""
+
+    def test_zero_width_returns_empty(self):
+        """Width of 0 returns empty string."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=0, progress=1.0)
+        assert result == ""
+
+    def test_small_width_truncates_model_name(self):
+        """Width smaller than model name + space truncates appropriately."""
+        from asciibench.common.wave_text import fill_progress
+
+        result = fill_progress("GPT-4o", width=3, progress=1.0)
+        assert len(result) == 3
