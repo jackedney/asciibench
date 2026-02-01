@@ -23,6 +23,7 @@ dev = [
     "pytest-cov",
     "ruff",
     "ty",
+    "pre-commit",
 ]
 
 [tool.ruff]

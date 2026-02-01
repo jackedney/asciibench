@@ -47,6 +47,24 @@ Run tests with coverage:
 uv run pytest --cov
 ```
 
+### Pre-Commit Hooks
+
+Pre-commit hooks automatically check code quality before each commit. Install them once:
+
+```bash
+uv run pre-commit install
+```
+
+Hooks will run automatically on staged files when you commit. They check:
+- Ruff linting with auto-fix
+- Ruff formatting
+- Type checking with ty
+
+If you need to skip hooks for emergencies:
+```bash
+git commit --no-verify -m "message"
+```
+
 ### Code Quality
 
 Before committing, ensure all quality gates pass:
