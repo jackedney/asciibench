@@ -15,11 +15,12 @@ from typing import Any
 import litellm
 from smolagents import ChatMessage, LiteLLMModel
 
-# Suppress LiteLLM debug info (e.g., "Provider List: https://docs.litellm.ai/docs/providers")
-litellm.suppress_debug_info = True
-
 from asciibench.common.config import GenerationConfig
 from asciibench.common.models import OpenRouterResponse
+from asciibench.common.retry import retry
+
+# Suppress LiteLLM debug info (e.g., "Provider List: https://docs.litellm.ai/docs/providers")
+litellm.suppress_debug_info = True  # type: ignore[invalid-assignment]
 
 
 class LiteLLMModelWithCost(LiteLLMModel):
@@ -118,6 +119,18 @@ class ModelError(OpenRouterClientError):
     pass
 
 
+class RateLimitError(OpenRouterClientError):
+    """Raised when API rate limit is exceeded."""
+
+    pass
+
+
+class TransientError(OpenRouterClientError):
+    """Raised for transient API errors that can be retried (5xx, connection errors)."""
+
+    pass
+
+
 class OpenRouterClient:
     """Client for interacting with OpenRouter API using smolagents LiteLLMModel."""
 
@@ -135,6 +148,11 @@ class OpenRouterClient:
         self.base_url = base_url
         self.timeout = timeout
 
+    @retry(
+        max_retries=3,
+        base_delay_seconds=1,
+        retryable_exceptions=(RateLimitError, TransientError),
+    )
     def generate(
         self,
         model_id: str,
@@ -153,6 +171,8 @@ class OpenRouterClient:
             (prompt_tokens, completion_tokens, total_tokens, cost)
 
         Raises:
+            RateLimitError: When API rate limit is exceeded (retries 3 times)
+            TransientError: For transient errors (502, 503, connection, timeout)
             AuthenticationError: When API authentication fails (invalid API key)
             ModelError: When the specified model is invalid or unavailable
             OpenRouterClientError: For other API errors
@@ -260,14 +280,36 @@ class OpenRouterClient:
             )
 
         except APITimeoutError as e:
-            raise OpenRouterClientError(f"API call timed out after {self.timeout} seconds") from e
+            raise TransientError(f"API call timed out after {self.timeout} seconds") from e
         except Exception as e:
             error_message = str(e).lower()
+
+            # Check for rate limit errors (429)
+            rate_limit_keywords = ["429", "rate limit", "too many requests"]
+            if any(keyword in error_message for keyword in rate_limit_keywords):
+                raise RateLimitError(f"Rate limit exceeded: {e}") from e
+
+            # Check for transient errors (502, 503, connection errors)
+            transient_keywords = [
+                "502",
+                "503",
+                "bad gateway",
+                "service unavailable",
+                "connection",
+                "timeout",
+            ]
+            if any(keyword in error_message for keyword in transient_keywords):
+                raise TransientError(f"Transient error: {e}") from e
 
             # Check for authentication errors
             auth_keywords = ["401", "unauthorized", "invalid api key", "authentication"]
             if any(keyword in error_message for keyword in auth_keywords):
                 raise AuthenticationError(f"Authentication failed: {e}") from e
+
+            # Check for bad request errors (400)
+            bad_request_keywords = ["400", "bad request"]
+            if any(keyword in error_message for keyword in bad_request_keywords):
+                raise OpenRouterClientError(f"Bad request: {e}") from e
 
             # Check for model-related errors
             model_keywords = ["not found", "invalid", "does not exist"]
@@ -299,6 +341,8 @@ class OpenRouterClient:
             (prompt_tokens, completion_tokens, total_tokens, cost)
 
         Raises:
+            RateLimitError: When API rate limit is exceeded (retries 3 times)
+            TransientError: For transient errors (502, 503, connection, timeout)
             AuthenticationError: When API authentication fails (invalid API key)
             ModelError: When the specified model is invalid or unavailable
             OpenRouterClientError: For other API errors

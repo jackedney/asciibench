@@ -1,5 +1,6 @@
 """Tests for the OpenRouter client module."""
 
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +12,8 @@ from asciibench.generator.client import (
     ModelError,
     OpenRouterClient,
     OpenRouterClientError,
+    RateLimitError,
+    TransientError,
 )
 
 
@@ -59,7 +62,7 @@ class TestOpenRouterClientGenerate:
             api_key="test-key",
             temperature=0.0,
             max_tokens=1000,
-            client_kwargs={"max_retries": 0, "timeout": 120},
+            client_kwargs={"max_retries": 0, "timeout": 180},
             retry=False,
         )
 
@@ -88,7 +91,7 @@ class TestOpenRouterClientGenerate:
             api_key="test-key",
             temperature=0.7,
             max_tokens=500,
-            client_kwargs={"max_retries": 0, "timeout": 120},
+            client_kwargs={"max_retries": 0, "timeout": 180},
             retry=False,
         )
 
@@ -202,29 +205,190 @@ class TestOpenRouterClientErrors:
             client.generate("fake/model", "Draw a cat")
 
     @patch("asciibench.generator.client.LiteLLMModelWithCost")
-    def test_generate_raises_client_error_on_other_errors(self, mock_model_class):
-        """Generate raises OpenRouterClientError on other API errors."""
+    def test_generate_raises_transient_error_on_connection_timeout(self, mock_model_class):
+        """Generate raises TransientError on connection timeout (retryable)."""
         mock_model_instance = MagicMock()
         mock_model_instance.side_effect = Exception("Connection timeout")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        from asciibench.generator.client import TransientError
+
+        with pytest.raises(TransientError) as exc_info:
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert "Transient error" in str(exc_info.value)
+        assert "Connection timeout" in str(exc_info.value)
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_generate_raises_rate_limit_error_on_429(self, mock_model_class):
+        """Generate raises RateLimitError on 429 response (retryable)."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("429 Too Many Requests")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        from asciibench.generator.client import RateLimitError
+
+        with pytest.raises(RateLimitError) as exc_info:
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert "Rate limit exceeded" in str(exc_info.value)
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_generate_raises_transient_error_on_503(self, mock_model_class):
+        """Generate raises TransientError on 503 response (service unavailable)."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("503 Service Unavailable")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        with pytest.raises(TransientError) as exc_info:
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert "Transient error" in str(exc_info.value)
+        assert "503" in str(exc_info.value)
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_generate_raises_transient_error_on_502(self, mock_model_class):
+        """Generate raises TransientError on 502 response (bad gateway)."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("502 Bad Gateway")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        with pytest.raises(TransientError) as exc_info:
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert "Transient error" in str(exc_info.value)
+        assert "502" in str(exc_info.value)
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_generate_raises_client_error_on_400(self, mock_model_class):
+        """Generate raises OpenRouterClientError on 400 response (not retryable)."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("400 Bad Request")
         mock_model_class.return_value = mock_model_instance
 
         client = OpenRouterClient(api_key="test-key")
         with pytest.raises(OpenRouterClientError) as exc_info:
             client.generate("openai/gpt-4o", "Draw a cat")
 
-        assert "API error" in str(exc_info.value)
-        assert "Connection timeout" in str(exc_info.value)
+        assert "Bad request" in str(exc_info.value)
+        assert "400" in str(exc_info.value)
+
+
+class TestOpenRouterClientRetryBehavior:
+    """Tests for retry behavior with rate limit and transient errors."""
 
     @patch("asciibench.generator.client.LiteLLMModelWithCost")
-    def test_generate_raises_client_error_on_rate_limit(self, mock_model_class):
-        """Generate raises OpenRouterClientError on rate limit."""
+    def test_rate_limit_retries_3_times_then_raises(self, mock_model_class):
+        """429 response retries 3 times before raising RateLimitError."""
         mock_model_instance = MagicMock()
         mock_model_instance.side_effect = Exception("429 Too Many Requests")
         mock_model_class.return_value = mock_model_instance
 
         client = OpenRouterClient(api_key="test-key")
+
+        start_time = time.time()
+        with pytest.raises(RateLimitError):
+            client.generate("openai/gpt-4o", "Draw a cat")
+        elapsed_time = time.time() - start_time
+
+        # Should have been called 4 times (initial + 3 retries)
+        assert mock_model_instance.call_count == 4
+
+        # Should have waited at least 1 + 2 + 4 = 7 seconds (with some tolerance)
+        assert elapsed_time >= 7 * 0.8
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_transient_error_retries_3_times_then_raises(self, mock_model_class):
+        """503 response retries 3 times before raising TransientError."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("503 Service Unavailable")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+
+        with pytest.raises(TransientError):
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have been called 4 times (initial + 3 retries)
+        assert mock_model_instance.call_count == 4
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_authentication_error_does_not_retry(self, mock_model_class):
+        """401 raises AuthenticationError immediately without retry."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("401 Unauthorized")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+
+        with pytest.raises(AuthenticationError):
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have been called only once (no retries)
+        assert mock_model_instance.call_count == 1
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_model_error_does_not_retry(self, mock_model_class):
+        """404 raises ModelError immediately without retry."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("404 Model not found")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+
+        with pytest.raises(ModelError):
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have been called only once (no retries)
+        assert mock_model_instance.call_count == 1
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_bad_request_error_does_not_retry(self, mock_model_class):
+        """400 raises OpenRouterClientError immediately without retry."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("400 Bad Request")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+
         with pytest.raises(OpenRouterClientError):
             client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have been called only once (no retries)
+        assert mock_model_instance.call_count == 1
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_rate_limit_succeeds_on_third_retry(self, mock_model_class):
+        """429 response succeeds after 2 retries (3rd attempt)."""
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "Generated art"
+        mock_response.token_usage = None
+        mock_response.raw = None
+
+        # Fail first 2 times, succeed on 3rd
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise Exception("429 Too Many Requests")
+            return mock_response
+
+        mock_model_instance.side_effect = side_effect
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        result = client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have succeeded on 3rd attempt
+        assert result.text == "Generated art"
+        assert mock_model_instance.call_count == 3
 
 
 class TestOpenRouterClientUsageMetadata:
@@ -341,6 +505,14 @@ class TestOpenRouterClientExceptionHierarchy:
     def test_model_error_is_client_error(self):
         """ModelError inherits from OpenRouterClientError."""
         assert issubclass(ModelError, OpenRouterClientError)
+
+    def test_rate_limit_error_is_client_error(self):
+        """RateLimitError inherits from OpenRouterClientError."""
+        assert issubclass(RateLimitError, OpenRouterClientError)
+
+    def test_transient_error_is_client_error(self):
+        """TransientError inherits from OpenRouterClientError."""
+        assert issubclass(TransientError, OpenRouterClientError)
 
     def test_client_error_is_exception(self):
         """OpenRouterClientError inherits from Exception."""
