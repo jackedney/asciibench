@@ -5,6 +5,7 @@ from rich.text import Text
 from asciibench.common.wave_text import (
     RAINBOW_COLORS,
     get_wave_displacement,
+    interpolate_color,
     render_wave_text,
 )
 
@@ -306,3 +307,115 @@ class TestFillProgress:
 
         result = fill_progress("GPT-4o", width=3, progress=1.0)
         assert len(result) == 3
+
+
+class TestInterpolateColor:
+    """Tests for interpolate_color function."""
+
+    def test_returns_hex_string(self):
+        """interpolate_color returns a hex color string."""
+        result = interpolate_color("#FF0000", "#0000FF", 0.5)
+        assert isinstance(result, str)
+        assert result.startswith("#")
+        assert len(result) == 7
+
+    def test_t_zero_returns_color1(self):
+        """t=0.0 returns the first color."""
+        result = interpolate_color("#FF0000", "#0000FF", 0.0)
+        assert result == "#FF0000"
+
+    def test_t_one_returns_color2(self):
+        """t=1.0 returns the second color."""
+        result = interpolate_color("#FF0000", "#0000FF", 1.0)
+        assert result == "#0000FF"
+
+    def test_t_half_returns_midpoint(self):
+        """t=0.5 returns the midpoint between colors."""
+        result = interpolate_color("#FF0000", "#0000FF", 0.5)
+        # Red (255,0,0) + Blue (0,0,255) at 0.5 = (127.5,0,127.5) -> #7F007F (int truncates)
+        assert result == "#7F007F"
+
+    def test_red_to_blue_interpolation(self):
+        """Interpolate from red to blue produces purple at midpoint."""
+        result = interpolate_color("#FF0000", "#0000FF", 0.5)
+        assert result == "#7F007F"
+
+    def test_black_to_white_interpolation(self):
+        """Interpolate from black to white produces gray at midpoint."""
+        result = interpolate_color("#000000", "#FFFFFF", 0.5)
+        assert result == "#7F7F7F"
+
+    def test_green_to_yellow_interpolation(self):
+        """Interpolate from green to yellow produces yellow-green at midpoint."""
+        result = interpolate_color("#00FF00", "#FFFF00", 0.5)
+        # (0,255,0) to (255,255,0) at 0.5 = (127.5,255,0) -> #7FFF00 (int truncates)
+        assert result == "#7FFF00"
+
+    def test_t_greater_than_one_clamped(self):
+        """t > 1.0 is clamped to 1.0, returning color2."""
+        result = interpolate_color("#FF0000", "#0000FF", 1.5)
+        assert result == "#0000FF"
+
+    def test_t_less_than_zero_clamped(self):
+        """t < 0.0 is clamped to 0.0, returning color1."""
+        result = interpolate_color("#FF0000", "#0000FF", -0.5)
+        assert result == "#FF0000"
+
+    def test_extreme_negative_t_clamped(self):
+        """Very negative t is clamped to 0.0."""
+        result = interpolate_color("#FF0000", "#0000FF", -100.0)
+        assert result == "#FF0000"
+
+    def test_extreme_positive_t_clamped(self):
+        """Very large t is clamped to 1.0."""
+        result = interpolate_color("#FF0000", "#0000FF", 100.0)
+        assert result == "#0000FF"
+
+    def test_same_colors_returns_same_color(self):
+        """Interpolating between identical colors returns that color."""
+        result = interpolate_color("#FF0000", "#FF0000", 0.5)
+        assert result == "#FF0000"
+
+    def test_hex_without_hash_prefix(self):
+        """Colors without '#' prefix work correctly."""
+        result = interpolate_color("FF0000", "0000FF", 0.5)
+        assert result == "#7F007F"
+
+    def test_lowercase_hex_input(self):
+        """Lowercase hex input produces uppercase hex output."""
+        result = interpolate_color("#ff0000", "#0000ff", 0.5)
+        assert result == "#7F007F"
+
+    def test_output_is_uppercase(self):
+        """Output hex string is always uppercase."""
+        result = interpolate_color("#ff0000", "#0000ff", 0.5)
+        assert result.isupper()
+
+    def test_various_t_values(self):
+        """Various t values produce correct interpolated colors."""
+        # Test at t=0.25: 25% of the way from red to blue
+        # Red (255,0,0) to Blue (0,0,255): r=255-63.75=191.25->191 (0xBF), g=0,
+        # b=0+63.75=63.75->63 (0x3F)
+        result = interpolate_color("#FF0000", "#0000FF", 0.25)
+        assert result == "#BF003F"
+
+        # Test at t=0.75: 75% of the way from red to blue
+        # r=255-191.25=63.75->63 (0x3F), g=0, b=0+191.25=191.25->191 (0xBF)
+        result = interpolate_color("#FF0000", "#0000FF", 0.75)
+        assert result == "#3F00BF"
+
+    def test_all_primary_color_combinations(self):
+        """All combinations of primary colors interpolate correctly."""
+        # Red to Green
+        result = interpolate_color("#FF0000", "#00FF00", 0.5)
+        # (255,0,0) to (0,255,0) at 0.5 = (127.5,127.5,0) -> #7F7F00
+        assert result == "#7F7F00"
+
+        # Red to Blue
+        result = interpolate_color("#FF0000", "#0000FF", 0.5)
+        assert result == "#7F007F"
+
+        # Green to Blue
+        result = interpolate_color("#00FF00", "#0000FF", 0.5)
+        # (0,255,0) to (0,0,255) at 0.5 = (0,127.5,127.5) -> #007F7F
+        assert result == "#007F7F"

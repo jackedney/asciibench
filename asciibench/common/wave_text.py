@@ -119,3 +119,42 @@ def fill_progress(model_name: str, width: int, progress: float) -> str:
 
     # Truncate to exact target length
     return full_text[:target_length]
+
+
+def interpolate_color(color1: str, color2: str, t: float) -> str:
+    """Interpolate between two hex colors.
+
+    Linearly interpolates between color1 and color2 based on parameter t.
+    At t=0.0, returns color1. At t=1.0, returns color2. Values outside
+    [0.0, 1.0] are clamped to the nearest bound.
+
+    Args:
+        color1: Starting hex color string (e.g., '#FF0000').
+        color2: Ending hex color string (e.g., '#0000FF').
+        t: Interpolation parameter (0.0 = color1, 1.0 = color2).
+
+    Returns:
+        Hex color string representing the interpolated color.
+
+    Example:
+        interpolate_color('#FF0000', '#0000FF', 0.5) returns '#800080' (purple).
+    """
+    # Clamp t to [0.0, 1.0]
+    t = max(0.0, min(1.0, t))
+
+    # Parse hex colors (remove '#' if present)
+    r1 = int(color1.lstrip("#")[0:2], 16)
+    g1 = int(color1.lstrip("#")[2:4], 16)
+    b1 = int(color1.lstrip("#")[4:6], 16)
+
+    r2 = int(color2.lstrip("#")[0:2], 16)
+    g2 = int(color2.lstrip("#")[2:4], 16)
+    b2 = int(color2.lstrip("#")[4:6], 16)
+
+    # Linear interpolation
+    r = int(r1 + (r2 - r1) * t)
+    g = int(g1 + (g2 - g1) * t)
+    b = int(b1 + (b2 - b1) * t)
+
+    # Format back to hex
+    return f"#{r:02X}{g:02X}{b:02X}"
