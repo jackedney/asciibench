@@ -732,11 +732,7 @@ def generate_html() -> None:
             badge_text = "Valid" if result.is_valid else "Invalid"
             escaped_output = html.escape(result.ascii_output)
             cost_str = f"${result.cost:.6f}" if result.cost is not None else "$0.00"
-            tokens_str = (
-                f"{result.output_tokens}"
-                if result.output_tokens is not None
-                else "N/A"
-            )
+            tokens_str = f"{result.output_tokens}" if result.output_tokens is not None else "N/A"
             data_valid = "true" if result.is_valid else "false"
 
             html_content += f"""
@@ -898,14 +894,14 @@ def main() -> None:
 
                 if result.is_valid:
                     completed_count += 1
-                    if result.cost is not None:
-                        running_cost += result.cost
+                    cost = result.cost if result.cost is not None else 0.0
+                    running_cost += cost
                     # Show success flash and continue to next model
-                    loader.complete(success=True)
+                    loader.complete(success=True, cost=cost)
                 else:
                     failed_count += 1
                     # Show failure flash and continue to next model
-                    loader.complete(success=False)
+                    loader.complete(success=False, cost=0.0)
 
                 # Update stats display
                 show_stats(completed_count, failed_count, running_cost)

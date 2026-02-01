@@ -152,19 +152,26 @@ def main() -> None:
     success_count = 0
     failure_count = 0
     running_cost = 0.0
+    current_model_cost = 0.0
 
     def _loader_progress_callback(
         model_id: str, prompt_text: str, attempt: int, remaining: int
     ) -> None:
         """Progress callback using RuneScape loader."""
-        nonlocal current_model_id, current_prompt_text, samples_for_current_model, loader
+        nonlocal \
+            current_model_id, \
+            current_prompt_text, \
+            samples_for_current_model, \
+            loader, \
+            current_model_cost
 
         # Detect model change
         if model_id != current_model_id:
             # Complete previous loader if exists
             if loader is not None:
-                loader.complete(success=True)
+                loader.complete(success=True, cost=current_model_cost)
                 loader.stop()
+                current_model_cost = 0.0
 
             # Reset for new model
             current_model_id = model_id
@@ -189,12 +196,13 @@ def main() -> None:
 
     def _stats_callback(is_valid: bool, cost: float | None) -> None:
         """Stats callback called after each sample generation."""
-        nonlocal success_count, failure_count, running_cost
+        nonlocal success_count, failure_count, running_cost, current_model_cost
 
+        actual_cost = cost if cost is not None else 0.0
         if is_valid:
             success_count += 1
-            if cost is not None:
-                running_cost += cost
+            running_cost += actual_cost
+            current_model_cost += actual_cost
         else:
             failure_count += 1
 
@@ -211,20 +219,20 @@ def main() -> None:
 
         # Complete the final loader
         if loader is not None:
-            loader.complete(success=True)
+            loader.complete(success=True, cost=current_model_cost)
             loader.stop()
 
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
         if loader is not None:
-            loader.complete(success=False)
+            loader.complete(success=False, cost=current_model_cost)
             loader.stop()
         console.print("\n[warning]Generation interrupted by user.[/warning]")
         sys.exit(0)
     except Exception as e:
         # Handle other errors
         if loader is not None:
-            loader.complete(success=False)
+            loader.complete(success=False, cost=current_model_cost)
             loader.stop()
         console.print(f"\n[error]Error during generation: {e}[/error]")
         sys.exit(1)
