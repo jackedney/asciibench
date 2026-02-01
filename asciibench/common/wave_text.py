@@ -214,3 +214,44 @@ def render_gradient_text(text: str, frame: int, filled_ratio: float) -> Text:
             result.append(char, style="dim")
 
     return result
+
+
+def render_cycling_text(text: str, frame: int, shift_interval: int = 2) -> Text:
+    """Render text with Runescape-style discrete color cycling animation.
+
+    Each character gets a color from the rainbow sequence. The color pattern
+    shifts every shift_interval frames (not every frame), creating a classic
+    discrete cycling effect. Colors jump discretely between characters with
+    no interpolation.
+
+    Args:
+        text: The text to render with color cycling effect.
+        frame: Animation frame number (affects color shift timing).
+        shift_interval: Number of frames between color shifts (default 2).
+
+    Returns:
+        Rich Text object with rainbow-styled characters. Empty Text if input is empty.
+
+    Example:
+        At frame 0: char 0 is red, char 1 is orange
+        At frame 2: char 0 is orange, char 1 is yellow (with shift_interval=2)
+    """
+    if not text:
+        return Text()
+
+    result = Text()
+    num_colors = len(RAINBOW_COLORS)
+
+    # Calculate discrete shift based on shift_interval
+    # The color pattern only shifts every shift_interval frames
+    shift = frame // shift_interval
+
+    for i, char in enumerate(text):
+        # Calculate color index with discrete shift
+        # Colors jump discretely between characters (no interpolation)
+        color_index = (i + shift) % num_colors
+        color = RAINBOW_COLORS[color_index]
+
+        result.append(char, style=color)
+
+    return result

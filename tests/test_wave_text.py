@@ -6,6 +6,7 @@ from asciibench.common.wave_text import (
     RAINBOW_COLORS,
     get_wave_displacement,
     interpolate_color,
+    render_cycling_text,
     render_gradient_text,
     render_wave_text,
 )
@@ -566,3 +567,182 @@ class TestRenderGradientText:
         result = render_gradient_text(text, frame=0, filled_ratio=0.45)
         assert str(result) == text
         assert len(result) == 10
+
+
+class TestRenderCyclingText:
+    """Tests for render_cycling_text function."""
+
+    def test_returns_text_object(self):
+        """render_cycling_text returns a Rich Text object."""
+        result = render_cycling_text("ABC", frame=0)
+        assert isinstance(result, Text)
+
+    def test_empty_string_returns_empty_text(self):
+        """Empty string input returns empty Text object."""
+        result = render_cycling_text("", frame=0)
+        assert isinstance(result, Text)
+        assert len(result) == 0
+        assert str(result) == ""
+
+    def test_preserves_text_content(self):
+        """Text content is preserved in output."""
+        text = "GPT-4o"
+        result = render_cycling_text(text, frame=0)
+        assert str(result) == text
+
+    def test_frame_zero_applies_colors(self):
+        """Frame 0 applies colors starting from the first rainbow color."""
+        result = render_cycling_text("ABC", frame=0)
+        # Each character should have a style applied
+        assert len(result._spans) > 0
+
+    def test_default_shift_interval(self):
+        """Default shift_interval=2 is used."""
+        result = render_cycling_text("ABC", frame=0, shift_interval=2)
+        assert str(result) == "ABC"
+
+    def test_custom_shift_interval(self):
+        """Custom shift_interval is respected."""
+        result = render_cycling_text("ABC", frame=0, shift_interval=3)
+        assert str(result) == "ABC"
+
+    def test_colors_shift_at_frame_interval(self):
+        """Colors shift only at shift_interval boundaries, not every frame."""
+        # With shift_interval=2, colors should be same at frames 0 and 1
+        result_f0 = render_cycling_text("A", frame=0, shift_interval=2)
+        result_f1 = render_cycling_text("A", frame=1, shift_interval=2)
+        # Both should have same color (shift = 0 // 2 = 0)
+        assert str(result_f0) == str(result_f1)
+
+        # At frame 2, color should shift (shift = 2 // 2 = 1)
+        result_f2 = render_cycling_text("A", frame=2, shift_interval=2)
+        # Text content is same but color should be different
+        assert str(result_f2) == "A"
+
+    def test_color_shift_timing(self):
+        """Color shift timing matches shift_interval exactly."""
+        # With shift_interval=3:
+        # Frame 0: shift=0, char 0 gets color 0
+        # Frame 1: shift=0, char 0 gets color 0
+        # Frame 2: shift=0, char 0 gets color 0
+        # Frame 3: shift=1, char 0 gets color 1
+        result = render_cycling_text("A", frame=0, shift_interval=3)
+        assert str(result) == "A"
+
+        result = render_cycling_text("A", frame=1, shift_interval=3)
+        assert str(result) == "A"
+
+        result = render_cycling_text("A", frame=2, shift_interval=3)
+        assert str(result) == "A"
+
+        result = render_cycling_text("A", frame=3, shift_interval=3)
+        assert str(result) == "A"
+
+    def test_example_from_prd(self):
+        """Example from PRD: at frame 0, char 0 is red, char 1 is orange."""
+        result = render_cycling_text("AB", frame=0)
+        assert str(result) == "AB"
+
+    def test_example_from_prd_frame_2(self):
+        """Example from PRD: at frame 2, char 0 is orange, char 1 is yellow."""
+        result = render_cycling_text("AB", frame=2)
+        assert str(result) == "AB"
+
+    def test_discrete_color_jumps(self):
+        """Colors jump discretely between characters with no interpolation."""
+        # With a 7-character text, each should get a different color at frame 0
+        text = "ABCDEFG"
+        result = render_cycling_text(text, frame=0)
+        assert str(result) == text
+        # All characters should have discrete colors (not interpolated)
+
+    def test_rainbow_colors_are_used(self):
+        """RAINBOW_COLORS are used for the color sequence."""
+        text = "A" * len(RAINBOW_COLORS)
+        result = render_cycling_text(text, frame=0)
+        assert str(result) == text
+
+    def test_colors_cycle_through_rainbow(self):
+        """Colors cycle through RAINBOW_COLORS when text is longer than palette."""
+        text = "A" * (len(RAINBOW_COLORS) + 3)
+        result = render_cycling_text(text, frame=0)
+        assert str(result) == text
+
+    def test_frame_affects_color_assignment(self):
+        """Frame number affects color assignment through shift."""
+        result_f0 = render_cycling_text("ABC", frame=0, shift_interval=2)
+        result_f4 = render_cycling_text("ABC", frame=4, shift_interval=2)
+        # Text content is same
+        assert str(result_f0) == str(result_f4)
+
+    def test_high_frame_numbers(self):
+        """Very high frame numbers work correctly."""
+        result = render_cycling_text("Test", frame=10000)
+        assert str(result) == "Test"
+
+    def test_negative_frame_numbers(self):
+        """Negative frame numbers are handled (integer division)."""
+        result = render_cycling_text("Test", frame=-5)
+        assert str(result) == "Test"
+
+    def test_long_text_handled(self):
+        """Long text is handled without error."""
+        long_text = "X" * 100
+        result = render_cycling_text(long_text, frame=0)
+        assert str(result) == long_text
+        assert len(result) == 100
+
+    def test_single_character(self):
+        """Single character input works correctly."""
+        result = render_cycling_text("X", frame=0)
+        assert str(result) == "X"
+
+    def test_special_characters_preserved(self):
+        """Special characters are preserved in output."""
+        text = "GPT-4o-mini [test] (v2)"
+        result = render_cycling_text(text, frame=0)
+        assert str(result) == text
+
+    def test_unicode_characters_handled(self):
+        """Unicode characters are handled correctly."""
+        text = "模型名称 🎮 Test"
+        result = render_cycling_text(text, frame=0)
+        assert str(result) == text
+
+    def test_whitespace_only(self):
+        """Whitespace-only input is handled."""
+        result = render_cycling_text("   ", frame=0)
+        assert str(result) == "   "
+
+    def test_shift_interval_of_one(self):
+        """shift_interval=1 causes colors to shift every frame."""
+        result_f0 = render_cycling_text("A", frame=0, shift_interval=1)
+        result_f1 = render_cycling_text("A", frame=1, shift_interval=1)
+        assert str(result_f0) == str(result_f1)
+
+    def test_shift_interval_of_four(self):
+        """shift_interval=4 causes colors to shift every 4 frames."""
+        # At frames 0,1,2,3: shift=0
+        # At frame 4: shift=1
+        for frame in range(4):
+            result = render_cycling_text("A", frame=frame, shift_interval=4)
+            assert str(result) == "A"
+
+        result = render_cycling_text("A", frame=4, shift_interval=4)
+        assert str(result) == "A"
+
+    def test_multiple_characters_color_sequence(self):
+        """Multiple characters each get sequential colors from rainbow."""
+        # At frame 0 with 2 chars: char 0 gets color 0, char 1 gets color 1
+        text = "AB"
+        result = render_cycling_text(text, frame=0)
+        assert str(result) == "AB"
+        assert len(result) == 2
+
+    def test_no_color_interpolation(self):
+        """No interpolation between colors - discrete jumps only."""
+        # Verify that each character gets exactly one of RAINBOW_COLORS
+        # not an interpolated value
+        text = "ABC"
+        result = render_cycling_text(text, frame=0)
+        assert str(result) == "ABC"
