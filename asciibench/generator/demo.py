@@ -106,8 +106,9 @@ def load_demo_results() -> list[DemoResult]:
             data = json.load(f)
         return [DemoResult(**item) for item in data]
     except (json.JSONDecodeError, ValueError) as e:
-        print(f"Warning: Corrupted results.json: {e}")
-        print("Starting with empty results.")
+        console = get_console()
+        console.print(f"[warning]Warning: Corrupted results.json: {e}[/warning]")
+        console.print("[info]Starting with empty results.[/info]")
         return []
 
 

@@ -18,7 +18,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from asciibench.common.config import Settings
-from asciibench.common.display import get_console, success_badge
+from asciibench.common.display import get_console, get_stderr_console, success_badge
 from asciibench.common.loader import RuneScapeLoader
 from asciibench.common.models import ArtSample
 from asciibench.common.simple_display import create_loader, show_banner, show_prompt
@@ -60,8 +60,11 @@ def _print_progress(model_id: str, prompt_text: str, attempt: int, remaining: in
         attempt: Current attempt number
         remaining: Number of samples remaining to process
     """
+    console = get_console()
     prompt_display = prompt_text[:50] + "..." if len(prompt_text) > 50 else prompt_text
-    print(f"[{remaining} remaining] {model_id} | Attempt {attempt} | {prompt_display}")
+    console.print(
+        f"[info][{remaining} remaining] {model_id} | Attempt {attempt} | {prompt_display}[/info]"
+    )
 
 
 def main() -> None:
@@ -90,12 +93,12 @@ def main() -> None:
 
     # Check for API key
     if not settings.openrouter_api_key:
-        print(
-            "Error: Missing OpenRouter API key.\n\n"
+        console = get_stderr_console()
+        console.print(
+            "[error]Error: Missing OpenRouter API key.\n\n"
             "Please set the OPENROUTER_API_KEY environment variable or add it to your .env file:\n"
             "  OPENROUTER_API_KEY=your-api-key-here\n\n"
-            "You can get an API key from: https://openrouter.ai/keys",
-            file=sys.stderr,
+            "You can get an API key from: https://openrouter.ai/keys[/error]"
         )
         sys.exit(1)
 

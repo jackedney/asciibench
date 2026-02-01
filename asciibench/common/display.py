@@ -24,6 +24,7 @@ _neobrutalist_theme = Theme(
 
 
 _console: Console | None = None
+_stderr_console: Console | None = None
 
 
 def get_theme() -> Theme:
@@ -41,6 +42,20 @@ def get_console(force_terminal: bool | None = None) -> Console:
         )
 
     return _console
+
+
+def get_stderr_console(force_terminal: bool | None = None) -> Console:
+    global _stderr_console
+
+    if _stderr_console is None or force_terminal is not None:
+        _stderr_console = Console(
+            theme=_neobrutalist_theme,
+            force_terminal=force_terminal,
+            legacy_windows=False,
+            stderr=True,
+        )
+
+    return _stderr_console
 
 
 def print_banner() -> None:
