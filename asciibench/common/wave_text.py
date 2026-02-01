@@ -255,3 +255,43 @@ def render_cycling_text(text: str, frame: int, shift_interval: int = 2) -> Text:
         result.append(char, style=color)
 
     return result
+
+
+def render_status_line(success_count: int, failure_count: int, total_cost: float) -> Text:
+    """Render a status line showing running totals for success, failure, and cost.
+
+    The status line displays the number of successful and failed operations,
+    along with the total accumulated cost. Success count is styled green,
+    failure count is styled red, and cost uses default styling.
+
+    Args:
+        success_count: Number of successful operations.
+        failure_count: Number of failed operations.
+        total_cost: Total accumulated cost.
+
+    Returns:
+        Rich Text object with styled status line. Format: '✓ {success} | ✗ {failed} | ${cost:.4f}'
+
+    Example:
+        render_status_line(5, 2, 0.0123) returns '✓ 5 | ✗ 2 | $0.0123'
+    """
+    result = Text()
+
+    # Success checkmark and count (green)
+    result.append("✓ ", style="green")
+    result.append(str(success_count), style="green")
+
+    # Separator
+    result.append(" | ")
+
+    # Failure cross and count (red)
+    result.append("✗ ", style="red")
+    result.append(str(failure_count), style="red")
+
+    # Separator
+    result.append(" | ")
+
+    # Cost (default style)
+    result.append(f"${total_cost:.4f}")
+
+    return result

@@ -8,6 +8,7 @@ from asciibench.common.wave_text import (
     interpolate_color,
     render_cycling_text,
     render_gradient_text,
+    render_status_line,
     render_wave_text,
 )
 
@@ -746,3 +747,135 @@ class TestRenderCyclingText:
         text = "ABC"
         result = render_cycling_text(text, frame=0)
         assert str(result) == "ABC"
+
+
+class TestRenderStatusLine:
+    """Tests for render_status_line function."""
+
+    def test_returns_text_object(self):
+        """render_status_line returns a Rich Text object."""
+        result = render_status_line(5, 2, 0.0123)
+        assert isinstance(result, Text)
+
+    def test_format_example_from_prd(self):
+        """Example from PRD: render_status_line(5, 2, 0.0123) returns '✓ 5 | ✗ 2 | $0.0123'."""
+        result = render_status_line(5, 2, 0.0123)
+        assert str(result) == "✓ 5 | ✗ 2 | $0.0123"
+
+    def test_all_zeros(self):
+        """Negative case: all zeros renders '✓ 0 | ✗ 0 | $0.0000'."""
+        result = render_status_line(0, 0, 0.0)
+        assert str(result) == "✓ 0 | ✗ 0 | $0.0000"
+
+    def test_success_count_styled_green(self):
+        """Success count is styled green."""
+        result = render_status_line(5, 2, 0.0123)
+        # Check that spans contain green styling
+        has_green_style = False
+        for span in result._spans:
+            if "green" in str(span.style):
+                has_green_style = True
+                break
+        assert has_green_style
+
+    def test_failure_count_styled_red(self):
+        """Failure count is styled red."""
+        result = render_status_line(5, 2, 0.0123)
+        # Check that spans contain red styling
+        has_red_style = False
+        for span in result._spans:
+            if "red" in str(span.style):
+                has_red_style = True
+                break
+        assert has_red_style
+
+    def test_cost_formatted_to_four_decimal_places(self):
+        """Cost is formatted to 4 decimal places."""
+        result = render_status_line(0, 0, 0.12345)
+        # Should be rounded to 4 decimal places
+        assert "$0.1235" in str(result)
+
+    def test_cost_less_than_zero_01(self):
+        """Cost less than 0.01 is formatted correctly."""
+        result = render_status_line(0, 0, 0.005)
+        assert str(result) == "✓ 0 | ✗ 0 | $0.0050"
+
+    def test_cost_with_many_decimals(self):
+        """Cost with many decimal places is formatted to 4 places."""
+        result = render_status_line(0, 0, 0.123456789)
+        assert str(result) == "✓ 0 | ✗ 0 | $0.1235"
+
+    def test_high_success_count(self):
+        """High success count is handled correctly."""
+        result = render_status_line(1000, 0, 0.0)
+        assert str(result) == "✓ 1000 | ✗ 0 | $0.0000"
+
+    def test_high_failure_count(self):
+        """High failure count is handled correctly."""
+        result = render_status_line(0, 1000, 0.0)
+        assert str(result) == "✓ 0 | ✗ 1000 | $0.0000"
+
+    def test_both_counts_equal(self):
+        """Both success and failure counts equal."""
+        result = render_status_line(10, 10, 0.5)
+        assert str(result) == "✓ 10 | ✗ 10 | $0.5000"
+
+    def test_negative_cost_handled(self):
+        """Negative cost is formatted correctly."""
+        result = render_status_line(5, 2, -0.0123)
+        assert str(result) == "✓ 5 | ✗ 2 | $-0.0123"
+
+    def test_large_cost(self):
+        """Large cost is formatted correctly."""
+        result = render_status_line(0, 0, 123.456)
+        assert str(result) == "✓ 0 | ✗ 0 | $123.4560"
+
+    def test_zero_cost(self):
+        """Zero cost is formatted correctly."""
+        result = render_status_line(5, 2, 0.0)
+        assert str(result) == "✓ 5 | ✗ 2 | $0.0000"
+
+    def test_only_successes(self):
+        """Only successes (no failures)."""
+        result = render_status_line(10, 0, 0.1)
+        assert str(result) == "✓ 10 | ✗ 0 | $0.1000"
+
+    def test_only_failures(self):
+        """Only failures (no successes)."""
+        result = render_status_line(0, 10, 0.1)
+        assert str(result) == "✓ 0 | ✗ 10 | $0.1000"
+
+    def test_checkmark_symbol(self):
+        """Checkmark symbol is present in output."""
+        result = render_status_line(5, 2, 0.0123)
+        assert "✓" in str(result)
+
+    def test_cross_symbol(self):
+        """Cross symbol is present in output."""
+        result = render_status_line(5, 2, 0.0123)
+        assert "✗" in str(result)
+
+    def test_dollar_sign(self):
+        """Dollar sign is present before cost."""
+        result = render_status_line(5, 2, 0.0123)
+        assert "$" in str(result)
+
+    def test_separator_pipes(self):
+        """Pipe separators are present in output."""
+        result = render_status_line(5, 2, 0.0123)
+        assert str(result).count("|") == 2
+
+    def test_cost_very_small(self):
+        """Very small cost is formatted correctly."""
+        result = render_status_line(0, 0, 0.00001)
+        assert "$0.0000" in str(result)
+
+    def test_cost_exactly_four_decimals(self):
+        """Cost with exactly 4 decimal places is preserved."""
+        result = render_status_line(0, 0, 0.1234)
+        assert str(result) == "✓ 0 | ✗ 0 | $0.1234"
+
+    def test_integer_values(self):
+        """Integer values for counts and cost work correctly."""
+        result = render_status_line(1, 1, 1)
+        assert str(result) == "✓ 1 | ✗ 1 | $1.0000"
