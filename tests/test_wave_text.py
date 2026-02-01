@@ -171,9 +171,9 @@ class TestGetWaveDisplacement:
 class TestRainbowColors:
     """Tests for rainbow color configuration."""
 
-    def test_rainbow_has_seven_colors(self):
-        """Rainbow palette has exactly 7 colors."""
-        assert len(RAINBOW_COLORS) == 7
+    def test_rainbow_has_twelve_colors(self):
+        """Rainbow palette has 12 colors (expanded for smooth red-to-violet transition)."""
+        assert len(RAINBOW_COLORS) == 12
 
     def test_rainbow_colors_are_hex(self):
         """All rainbow colors are valid hex color codes."""
@@ -184,7 +184,7 @@ class TestRainbowColors:
             int(color[1:], 16)
 
     def test_rainbow_order(self):
-        """Rainbow colors are in correct order."""
+        """Rainbow colors are in correct order with smooth red-to-violet transition."""
         expected = [
             "#FF0000",  # red
             "#FF7F00",  # orange
@@ -192,7 +192,12 @@ class TestRainbowColors:
             "#00FF00",  # green
             "#00FFFF",  # cyan
             "#0000FF",  # blue
-            "#8B00FF",  # purple
+            "#4000FF",  # blue-magenta
+            "#8000FF",  # blue-magenta (intermediate)
+            "#FF00FF",  # magenta
+            "#FF00BF",  # magenta-violet
+            "#FF007F",  # magenta-violet (intermediate)
+            "#9400D3",  # violet
         ]
         assert RAINBOW_COLORS == expected
 

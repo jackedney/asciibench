@@ -4,7 +4,9 @@ import math
 
 from rich.text import Text
 
-# Rainbow color sequence: red -> orange -> yellow -> green -> cyan -> blue -> purple
+# Rainbow color sequence with smooth red-to-violet transition:
+# red -> orange -> yellow -> green -> cyan -> blue -> blue-magenta ->
+# magenta -> magenta-violet -> violet
 RAINBOW_COLORS = [
     "#FF0000",  # red
     "#FF7F00",  # orange
@@ -12,7 +14,12 @@ RAINBOW_COLORS = [
     "#00FF00",  # green
     "#00FFFF",  # cyan
     "#0000FF",  # blue
-    "#8B00FF",  # purple
+    "#4000FF",  # blue-magenta
+    "#8000FF",  # blue-magenta (intermediate)
+    "#FF00FF",  # magenta
+    "#FF00BF",  # magenta-violet
+    "#FF007F",  # magenta-violet (intermediate)
+    "#9400D3",  # violet
 ]
 
 
