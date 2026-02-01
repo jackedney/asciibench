@@ -269,11 +269,12 @@ class RuneScapeLoader:
             # Piped mode: print new lines
             print(progress_text, flush=True)
 
-    def complete(self, success: bool) -> None:
-        """Flash the bar to indicate completion status.
+    def complete(self, success: bool, cost: float = 0.0) -> None:
+        """Flash the bar to indicate completion status and update counters.
 
         Shows a brief color flash (green for success, red for failure) for ~300ms,
-        then clears and prepares the loader for the next model.
+        then clears and prepares the loader for the next model. Increments the
+        success/failure counters and total cost based on the result.
 
         In fallback mode, prints a completion message instead of flashing.
 
@@ -282,11 +283,20 @@ class RuneScapeLoader:
 
         Args:
             success: True for green (success) flash, False for red (failure) flash.
+            cost: Cost to add to total_cost (default 0.0).
 
         Example:
-            >>> loader.complete(success=True)  # Shows green flash
-            >>> loader.complete(success=False)  # Shows red flash
+            >>> loader.complete(success=True, cost=0.005)  # Shows green flash, adds cost
+            >>> loader.complete(success=False, cost=0.0)  # Shows red flash, no cost
         """
+        # Increment counters before flash
+        with self._lock:
+            if success:
+                self._success_count += 1
+            else:
+                self._failure_count += 1
+            self._total_cost += cost
+
         # Handle fallback mode separately
         if self._use_fallback:
             with self._lock:

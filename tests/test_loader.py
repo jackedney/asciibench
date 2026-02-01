@@ -922,6 +922,220 @@ class TestRuneScapeLoaderFourLayerLayout:
         assert loader._failure_count == 0
         assert loader._total_cost == 0.0
 
+
+class TestRuneScapeLoaderCompleteCounters:
+    """Tests for complete() counter increments (US-007)."""
+
+    def test_complete_success_increments_success_count(self):
+        """complete(success=True) increments success_count by 1."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        assert loader._success_count == 0
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True)
+
+        assert loader._success_count == 1
+        assert loader._failure_count == 0
+
+    def test_complete_failure_increments_failure_count(self):
+        """complete(success=False) increments failure_count by 1."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        assert loader._failure_count == 0
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=False)
+
+        assert loader._success_count == 0
+        assert loader._failure_count == 1
+
+    def test_complete_with_cost_increments_total_cost(self):
+        """complete(success=True, cost=0.005) increments total_cost by cost."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        assert loader._total_cost == 0.0
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True, cost=0.005)
+
+        assert loader._total_cost == 0.005
+
+    def test_complete_success_with_cost(self):
+        """Example: after complete(True, 0.005), success_count increases by 1, total_cost increases by 0.005."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        initial_success = loader._success_count
+        initial_cost = loader._total_cost
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True, cost=0.005)
+
+        assert loader._success_count == initial_success + 1
+        assert loader._total_cost == initial_cost + 0.005
+
+    def test_complete_failure_no_cost(self):
+        """Negative case: complete(False, 0.0) increments failure_count, cost unchanged."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        initial_failure = loader._failure_count
+        initial_cost = loader._total_cost
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=False, cost=0.0)
+
+        assert loader._failure_count == initial_failure + 1
+        assert loader._total_cost == initial_cost
+
+    def test_complete_multiple_successes_accumulate(self):
+        """Multiple complete(success=True) calls accumulate success_count."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True)
+            loader.complete(success=True)
+            loader.complete(success=True)
+
+        assert loader._success_count == 3
+        assert loader._failure_count == 0
+
+    def test_complete_multiple_failures_accumulate(self):
+        """Multiple complete(success=False) calls accumulate failure_count."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=False)
+            loader.complete(success=False)
+
+        assert loader._success_count == 0
+        assert loader._failure_count == 2
+
+    def test_complete_mixed_results_accumulate_correctly(self):
+        """Mixed success/failure calls accumulate counters correctly."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True, cost=0.001)
+            loader.complete(success=False, cost=0.0)
+            loader.complete(success=True, cost=0.002)
+            loader.complete(success=False, cost=0.0)
+
+        assert loader._success_count == 2
+        assert loader._failure_count == 2
+        assert loader._total_cost == 0.003
+
+    def test_complete_preserves_counters_after_reset(self):
+        """After flash and reset, counters remain updated for next model."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(100)
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True, cost=0.005)
+
+        # Progress is reset
+        assert loader.progress == 0.0
+        assert loader.is_complete is False
+
+        # But counters are preserved
+        assert loader._success_count == 1
+        assert loader._total_cost == 0.005
+
+    def test_complete_cost_default_zero(self):
+        """complete(success) without cost parameter defaults cost to 0.0."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        initial_cost = loader._total_cost
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True)
+
+        assert loader._total_cost == initial_cost
+
+    def test_complete_fallback_mode_increments_counters(self):
+        """In fallback mode, complete() still increments counters."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=100, console=console)
+        loader.start()
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True, cost=0.005)
+
+        loader.stop()
+
+        assert loader._success_count == 1
+        assert loader._total_cost == 0.005
+
+    def test_complete_flash_behavior_preserved_success(self):
+        """Flash behavior preserved: green for success, ~300ms duration."""
+        # Force terminal mode to use the flash code path (not fallback)
+        env = os.environ.copy()
+        env.pop("NO_COLOR", None)
+        with patch.dict(os.environ, env, clear=True):
+            console = Console(force_terminal=True)
+            loader = RuneScapeLoader("Model", total_steps=100, console=console)
+            loader.update(100)
+
+            flash_duration_ms = None
+
+            def capture_flash_duration(duration):
+                nonlocal flash_duration_ms
+                flash_duration_ms = duration
+
+            with patch("asciibench.common.loader.time.sleep", side_effect=capture_flash_duration):
+                loader.complete(success=True)
+
+            # Verify flash duration is correct
+            assert flash_duration_ms == FLASH_DURATION_MS / 1000.0
+
+            # Verify counters were incremented
+            assert loader._success_count == 1
+
+    def test_complete_flash_behavior_preserved_failure(self):
+        """Flash behavior preserved: red for failure, ~300ms duration."""
+        # Force terminal mode to use the flash code path (not fallback)
+        env = os.environ.copy()
+        env.pop("NO_COLOR", None)
+        with patch.dict(os.environ, env, clear=True):
+            console = Console(force_terminal=True)
+            loader = RuneScapeLoader("Model", total_steps=100, console=console)
+            loader.update(100)
+
+            flash_duration_ms = None
+            captured_color = []
+
+            def capture_flash(duration):
+                nonlocal flash_duration_ms
+                flash_duration_ms = duration
+                with loader._lock:
+                    if loader._flashing:
+                        captured_color.append(loader._flash_color)
+
+            with patch("asciibench.common.loader.time.sleep", side_effect=capture_flash):
+                loader.complete(success=False)
+
+            # Verify flash duration is correct
+            assert flash_duration_ms == FLASH_DURATION_MS / 1000.0
+
+            # Verify red color was used during flash
+            assert FAILURE_COLOR in captured_color
+
+            # Verify counters were incremented
+            assert loader._failure_count == 1
+
+    def test_counters_appear_in_status_line(self):
+        """Counters appear in status line after complete()."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True, cost=0.005)
+            loader.complete(success=False, cost=0.0)
+
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+
+            # Status line should show the updated totals
+            lines = result_str.split("\n")
+            status_line = lines[0]
+
+            assert "✓ 1" in status_line
+            assert "✗ 1" in status_line
+            assert "$0.0050" in status_line
+
     def test_loader_has_domino_state(self):
         """Loader has domino_state attribute."""
         loader = RuneScapeLoader("Model", total_steps=100)
