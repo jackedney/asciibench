@@ -681,7 +681,7 @@ class TestDetectTerminalCapabilities:
 
 
 class TestFormatSimpleProgress:
-    """Tests for simple text progress formatting (US-008)."""
+    """Tests for simple text progress formatting (US-008, US-009)."""
 
     def test_zero_progress(self):
         """0% progress shows empty bar."""
@@ -737,6 +737,50 @@ class TestFormatSimpleProgress:
         assert "  0%" in result_0
         assert " 50%" in result_50
         assert "100%" in result_100
+
+    def test_includes_status_totals(self):
+        """Fallback format includes status totals (US-009)."""
+        result = format_simple_progress(
+            "Model", 0.5, success_count=5, failure_count=2, total_cost=0.01
+        )
+        assert "✓ 5" in result
+        assert "✗ 2" in result
+        assert "$0.0100" in result
+
+    def test_status_totals_default_zero(self):
+        """Status totals default to zero when not provided (US-009)."""
+        result = format_simple_progress("Model", 0.5)
+        assert "✓ 0" in result
+        assert "✗ 0" in result
+        assert "$0.0000" in result
+
+    def test_fallback_format_structure(self):
+        """Fallback format structure includes model, bar, %, and status totals (US-009)."""
+        result = format_simple_progress("GPT-4o", 0.5, 5, 2, 0.0123)
+        # Check structure
+        assert result.startswith("Model: GPT-4o [")
+        assert "]" in result
+        assert " 50%" in result
+        assert "|" in result
+        assert "✓ 5" in result
+        assert "✗ 2" in result
+        assert "$0.0123" in result
+
+    def test_status_totals_with_multiple_operations(self):
+        """Status totals accumulate correctly (US-009)."""
+        result = format_simple_progress(
+            "Model", 1.0, success_count=10, failure_count=3, total_cost=0.0456
+        )
+        assert "✓ 10" in result
+        assert "✗ 3" in result
+        assert "$0.0456" in result
+
+    def test_status_totals_cost_formatting(self):
+        """Cost is formatted to 4 decimal places (US-009)."""
+        result = format_simple_progress(
+            "Model", 0.5, success_count=1, failure_count=0, total_cost=0.001234
+        )
+        assert "$0.0012" in result  # Rounded to 4 decimals
 
 
 class TestRuneScapeLoaderFallbackMode:
@@ -797,6 +841,10 @@ class TestRuneScapeLoaderFallbackMode:
         captured = capsys.readouterr()
         assert "GPT-4o" in captured.out
         assert "50%" in captured.out
+        # US-009: Should include status totals
+        assert "✓ 0" in captured.out
+        assert "✗ 0" in captured.out
+        assert "$0.0000" in captured.out
 
     def test_fallback_complete_prints_status(self, capsys):
         """In fallback mode, complete() prints completion status."""
@@ -804,10 +852,14 @@ class TestRuneScapeLoaderFallbackMode:
         loader = RuneScapeLoader("GPT-4o", total_steps=100, console=console)
         loader.start()
         loader.update(100)
-        loader.complete(success=True)
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True)
         loader.stop()
         captured = capsys.readouterr()
         assert "DONE" in captured.out
+        # US-009: Should include status totals with updated counters
+        assert "✓ 1" in captured.out
+        assert "✗ 0" in captured.out
 
     def test_fallback_complete_failure_prints_failed(self, capsys):
         """In fallback mode, failure shows FAILED status."""
@@ -815,10 +867,14 @@ class TestRuneScapeLoaderFallbackMode:
         loader = RuneScapeLoader("GPT-4o", total_steps=100, console=console)
         loader.start()
         loader.update(50)
-        loader.complete(success=False)
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=False)
         loader.stop()
         captured = capsys.readouterr()
         assert "FAILED" in captured.out
+        # US-009: Should include status totals with updated counters
+        assert "✓ 0" in captured.out
+        assert "✗ 1" in captured.out
 
     def test_fallback_progress_percentage_correct(self, capsys):
         """Fallback mode shows correct progress percentage."""
@@ -857,11 +913,16 @@ class TestRuneScapeLoaderFallbackExamples:
         loader.update(75)
         loader.stop()
         captured = capsys.readouterr()
-        # Should have simple format: 'Model: Claude-3 [=====>    ] 75%'
+        # Should have simple format: 'Model: Claude-3 [=====>    ] 75% | ✓ 0 ✗ 0 $0.0000'
         assert "Model: Claude-3" in captured.out
         assert "[" in captured.out
         assert "]" in captured.out
         assert "75%" in captured.out
+        # US-009: Should include status totals
+        assert "|" in captured.out
+        assert "✓ 0" in captured.out
+        assert "✗ 0" in captured.out
+        assert "$0.0000" in captured.out
 
     def test_negative_case_fallback_shows_correct_percentage(self, capsys):
         """Negative case: fallback mode still shows progress percentage correctly."""
@@ -876,6 +937,32 @@ class TestRuneScapeLoaderFallbackExamples:
         captured = capsys.readouterr()
         # Should show correct percentages
         assert "0%" in captured.out or "50%" in captured.out or "100%" in captured.out
+
+    def test_negative_case_piped_no_ansi_codes(self, capsys):
+        """Negative case: piped output works without ANSI codes (US-009)."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=100, console=console)
+        loader.start()
+
+        # Update progress and complete
+        loader.update(50)
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True, cost=0.01)
+
+        loader.stop()
+        captured = capsys.readouterr()
+
+        # Should not contain ANSI escape codes
+        # ANSI codes typically start with \x1b or \033
+        assert "\x1b" not in captured.out
+        assert "\033" not in captured.out
+
+        # Should still contain expected content
+        assert "Model: Model" in captured.out
+        assert "50%" in captured.out or "100%" in captured.out
+        assert "✓ 1" in captured.out
+        assert "$0.0100" in captured.out
+        assert "DONE" in captured.out
 
 
 class TestRuneScapeLoaderFallbackProgressTracking:
@@ -907,6 +994,43 @@ class TestRuneScapeLoaderFallbackProgressTracking:
         captured = capsys.readouterr()
         assert "Model1" in captured.out
         assert "Model2" in captured.out
+
+    def test_fallback_includes_status_totals(self, capsys):
+        """Fallback mode includes status totals in output (US-009)."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=100, console=console)
+        loader.start()
+
+        # Update progress and complete some operations
+        loader.update(50)
+        with patch("asciibench.common.loader.time.sleep"):
+            loader.complete(success=True, cost=0.01)
+            loader.complete(success=False, cost=0.0)
+
+        loader.stop()
+        captured = capsys.readouterr()
+        # Should include status totals
+        assert "✓ 1" in captured.out
+        assert "✗ 1" in captured.out
+        assert "$0.0100" in captured.out
+
+    def test_fallback_format_single_line(self, capsys):
+        """Fallback format is single-line output (US-009)."""
+        console = Console(force_terminal=False)
+        loader = RuneScapeLoader("Model", total_steps=100, console=console)
+        loader.start()
+        loader.update(50)
+        loader.stop()
+        captured = capsys.readouterr()
+        lines = [line for line in captured.out.strip().split("\n") if line]
+        # Each output should be a single line
+        for line in lines:
+            assert "Model: Model [" in line
+            assert "%" in line
+            assert "|" in line
+            assert "✓" in line
+            assert "✗" in line
+            assert "$" in line
 
 
 class TestRuneScapeLoaderFourLayerLayout:
@@ -959,7 +1083,7 @@ class TestRuneScapeLoaderCompleteCounters:
         assert loader._total_cost == 0.005
 
     def test_complete_success_with_cost(self):
-        """Example: after complete(True, 0.005), success_count increases by 1, total_cost increases by 0.005."""
+        """Example: after complete(True, 0.005), success and total_cost increase correctly."""
         loader = RuneScapeLoader("Model", total_steps=100)
         initial_success = loader._success_count
         initial_cost = loader._total_cost

@@ -75,27 +75,36 @@ def detect_terminal_capabilities(console: Console | None = None) -> dict[str, bo
 
 
 def format_simple_progress(
-    model_name: str, progress: float, width: int = FALLBACK_BAR_WIDTH
+    model_name: str,
+    progress: float,
+    success_count: int = 0,
+    failure_count: int = 0,
+    total_cost: float = 0.0,
+    width: int = FALLBACK_BAR_WIDTH,
 ) -> str:
-    """Format a simple text-based progress bar.
+    """Format a simple text-based progress bar with status totals.
 
-    Creates a simple progress display like: 'Model: GPT-4o [=====>    ] 50%'
+    Creates a simple progress display like:
+    'Model: GPT-4o [=====>    ] 50% | ✓ 5 ✗ 2 $0.01'
 
     Args:
         model_name: The model name to display.
         progress: Progress value from 0.0 to 1.0.
+        success_count: Number of successful operations (default 0).
+        failure_count: Number of failed operations (default 0).
+        total_cost: Total accumulated cost (default 0.0).
         width: Width of the progress bar (default 20).
 
     Returns:
-        Formatted progress string.
+        Formatted progress string with status totals.
 
     Example:
-        >>> format_simple_progress('GPT-4o', 0.5)
-        'Model: GPT-4o [==========>          ]  50%'
+        >>> format_simple_progress('GPT-4o', 0.5, 5, 2, 0.01)
+        'Model: GPT-4o [==========>          ]  50% | ✓ 5 ✗ 2 $0.0100'
         >>> format_simple_progress('GPT-4o', 0.0)
-        'Model: GPT-4o [                    ]   0%'
+        'Model: GPT-4o [                    ]   0% | ✓ 0 ✗ 0 $0.0000'
         >>> format_simple_progress('GPT-4o', 1.0)
-        'Model: GPT-4o [====================] 100%'
+        'Model: GPT-4o [====================] 100% | ✓ 0 ✗ 0 $0.0000'
     """
     # Clamp progress to valid range
     progress = max(0.0, min(1.0, progress))
@@ -115,7 +124,10 @@ def format_simple_progress(
     # Format percentage with consistent width
     percent = int(progress * 100)
 
-    return f"Model: {model_name} [{bar}] {percent:3d}%"
+    # Format status totals
+    status_totals = f" | ✓ {success_count} ✗ {failure_count} ${total_cost:.4f}"
+
+    return f"Model: {model_name} [{bar}] {percent:3d}%{status_totals}"
 
 
 class RuneScapeLoader:
@@ -260,7 +272,16 @@ class RuneScapeLoader:
                 return
 
         self._last_printed_progress = progress
-        progress_text = format_simple_progress(model_name, progress)
+
+        # Get current status totals
+        with self._lock:
+            success_count = self._success_count
+            failure_count = self._failure_count
+            total_cost = self._total_cost
+
+        progress_text = format_simple_progress(
+            model_name, progress, success_count, failure_count, total_cost
+        )
 
         if self._capabilities["is_terminal"]:
             # Terminal mode: use carriage return to update in place
@@ -307,7 +328,14 @@ class RuneScapeLoader:
 
             if self._running:
                 status = "DONE" if success else "FAILED"
-                progress_text = format_simple_progress(model_name, 1.0)
+                with self._lock:
+                    success_count = self._success_count
+                    failure_count = self._failure_count
+                    total_cost = self._total_cost
+
+                progress_text = format_simple_progress(
+                    model_name, 1.0, success_count, failure_count, total_cost
+                )
                 if self._capabilities["is_terminal"]:
                     # Clear the line and print final status
                     print(f"\r{progress_text} [{status}]")
