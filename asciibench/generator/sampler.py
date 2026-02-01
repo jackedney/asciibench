@@ -320,6 +320,7 @@ async def generate_samples_async(
         client = OpenRouterClient(
             api_key=settings.openrouter_api_key,
             base_url=settings.base_url,
+            timeout=settings.openrouter_timeout_seconds,
         )
 
     # Load existing samples for idempotency check

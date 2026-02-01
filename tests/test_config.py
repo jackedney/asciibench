@@ -47,9 +47,93 @@ def test_settings_missing_env_file_loads_defaults():
         settings = TestSettings()
         assert settings.openrouter_api_key == ""
         assert settings.base_url == "https://openrouter.ai/api/v1"
+        assert settings.openrouter_timeout_seconds == 120
+        assert settings.timeout_seconds == 120
     finally:
         if original_env is not None:
             os.environ["OPENROUTER_API_KEY"] = original_env
+
+
+def test_settings_timeout_seconds_default():
+    """Test that timeout_seconds defaults to 120."""
+    settings = Settings()
+    assert settings.openrouter_timeout_seconds == 120
+    assert settings.timeout_seconds == 120
+
+
+def test_settings_timeout_seconds_from_env():
+    """Test that timeout_seconds can be loaded from env file."""
+    import os
+
+    env_file = Path(__file__).parent.parent / "test_env_timeout.env"
+    env_file.write_text("OPENROUTER_API_KEY=test_key\nOPENROUTER_TIMEOUT_SECONDS=60")
+
+    class TestSettings(Settings):
+        model_config = SettingsConfigDict(
+            env_file=env_file, env_file_encoding="utf-8", extra="ignore"
+        )
+
+    original_env = os.environ.pop("OPENROUTER_TIMEOUT_SECONDS", None)
+
+    try:
+        settings = TestSettings()
+        assert settings.openrouter_timeout_seconds == 60
+        assert settings.timeout_seconds == 60
+    finally:
+        if original_env is not None:
+            os.environ["OPENROUTER_TIMEOUT_SECONDS"] = original_env
+        if env_file.exists():
+            env_file.unlink()
+
+
+def test_settings_timeout_seconds_negative_uses_default():
+    """Test that negative timeout_seconds uses default 120."""
+    import os
+
+    env_file = Path(__file__).parent.parent / "test_env_negative.env"
+    env_file.write_text("OPENROUTER_API_KEY=test_key\nOPENROUTER_TIMEOUT_SECONDS=-10")
+
+    class TestSettings(Settings):
+        model_config = SettingsConfigDict(
+            env_file=env_file, env_file_encoding="utf-8", extra="ignore"
+        )
+
+    original_env = os.environ.pop("OPENROUTER_TIMEOUT_SECONDS", None)
+
+    try:
+        settings = TestSettings()
+        assert settings.openrouter_timeout_seconds == 120
+        assert settings.timeout_seconds == 120
+    finally:
+        if original_env is not None:
+            os.environ["OPENROUTER_TIMEOUT_SECONDS"] = original_env
+        if env_file.exists():
+            env_file.unlink()
+
+
+def test_settings_timeout_seconds_non_numeric_uses_default():
+    """Test that non-numeric timeout_seconds uses default 120."""
+    import os
+
+    env_file = Path(__file__).parent.parent / "test_env_invalid.env"
+    env_file.write_text("OPENROUTER_API_KEY=test_key\nOPENROUTER_TIMEOUT_SECONDS=abc")
+
+    class TestSettings(Settings):
+        model_config = SettingsConfigDict(
+            env_file=env_file, env_file_encoding="utf-8", extra="ignore"
+        )
+
+    original_env = os.environ.pop("OPENROUTER_TIMEOUT_SECONDS", None)
+
+    try:
+        settings = TestSettings()
+        assert settings.openrouter_timeout_seconds == 120
+        assert settings.timeout_seconds == 120
+    finally:
+        if original_env is not None:
+            os.environ["OPENROUTER_TIMEOUT_SECONDS"] = original_env
+        if env_file.exists():
+            env_file.unlink()
 
 
 def test_generation_config():

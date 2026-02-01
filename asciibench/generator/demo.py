@@ -191,7 +191,11 @@ def generate_demo_sample(
     config = load_generation_config()
     demo_prompt = "Draw a skeleton in ASCII art"
 
-    client = OpenRouterClient(api_key=settings.openrouter_api_key, base_url=settings.base_url)
+    client = OpenRouterClient(
+        api_key=settings.openrouter_api_key,
+        base_url=settings.base_url,
+        timeout=settings.openrouter_timeout_seconds,
+    )
 
     response_raw_output: str | None = None
     error_reason: str | None = None

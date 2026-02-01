@@ -1,5 +1,9 @@
-from pydantic import BaseModel, Field
+import logging
+
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class GenerationConfig(BaseModel):
@@ -16,6 +20,35 @@ class GenerationConfig(BaseModel):
 class Settings(BaseSettings):
     openrouter_api_key: str = ""
     base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_timeout_seconds: int = 120
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @property
+    def timeout_seconds(self) -> int:
+        """Alias for openrouter_timeout_seconds for backward compatibility."""
+        return self.openrouter_timeout_seconds
+
+    @field_validator("openrouter_timeout_seconds", mode="before")
+    @classmethod
+    def validate_openrouter_timeout_seconds(cls, v) -> int:
+        """Validate and return openrouter_timeout_seconds, using default if invalid."""
+        default_timeout = 120
+        logger.debug(f"validate_timeout_seconds called with v={v!r}, type={type(v)}")
+        if v is None:
+            logger.debug("v is None, returning default")
+            return default_timeout
+
+        try:
+            timeout = int(v)
+            if timeout <= 0:
+                logger.warning(
+                    f"Invalid timeout_seconds value: {v}. Using default: {default_timeout}s"
+                )
+                return default_timeout
+            logger.debug(f"Returning validated timeout: {timeout}")
+            return timeout
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid timeout_seconds value: {v}. Using default: {default_timeout}s")
+            return default_timeout
