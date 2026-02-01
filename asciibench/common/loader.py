@@ -10,7 +10,12 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from asciibench.common.wave_text import fill_progress, render_wave_text
+from asciibench.common.domino import DominoState, get_domino_frame
+from asciibench.common.wave_text import (
+    render_cycling_text,
+    render_gradient_text,
+    render_status_line,
+)
 
 # Color constants for completion effects
 SUCCESS_COLOR = "#00FF00"  # Green
@@ -163,6 +168,15 @@ class RuneScapeLoader:
         self._flashing = False  # Guards against stacking flash effects
         self._flash_color: str | None = None  # Current flash color if flashing
         self._lock = threading.Lock()
+
+        # Running totals for status line
+        self._success_count = 0
+        self._failure_count = 0
+        self._total_cost = 0.0
+
+        # Domino state for ambient animation
+        self._domino_state = DominoState("left_to_right", 0, 0, 40)
+        self._domino_width = 40  # Width of domino row
 
         # Detect terminal capabilities for fallback mode
         self._capabilities = detect_terminal_capabilities(self._console)
@@ -330,7 +344,7 @@ class RuneScapeLoader:
             return 80  # Fallback width
 
     def _render_frame(self) -> Text:
-        """Render the current animation frame.
+        """Render the current animation frame with 4-layer layout.
 
         Returns:
             Rich Text object with the current loader state.
@@ -341,24 +355,57 @@ class RuneScapeLoader:
             frame = self._frame
             flashing = self._flashing
             flash_color = self._flash_color
+            success_count = self._success_count
+            failure_count = self._failure_count
+            total_cost = self._total_cost
+            domino_state = self._domino_state
 
         width = self._get_terminal_width()
 
-        # If flashing, render entire bar in flash color
+        # If flashing, render entire display in flash color
         if flashing and flash_color is not None:
-            filled_text = fill_progress(model_name, width, 1.0)  # Full width
-            if not filled_text:
-                return Text("")
-            return Text(filled_text, style=flash_color)
+            result = Text()
+            result.append("━" * width, style=flash_color)
+            return result
 
-        # Get the filled text based on progress
-        filled_text = fill_progress(model_name, width, progress)
+        # Layer 1: Status line
+        status_line = render_status_line(success_count, failure_count, total_cost)
 
-        if not filled_text:
-            return Text("")
+        # Layer 2: Centered model name with color cycling
+        model_name_text = render_cycling_text(model_name, frame, shift_interval=2)
+        # Calculate centering - pad with spaces on left
+        model_name_len = len(model_name)
+        left_pad = (width - model_name_len) // 2
+        if left_pad > 0:
+            model_name_text = Text(" " * left_pad) + model_name_text
 
-        # Apply wave animation to the filled text
-        return render_wave_text(filled_text, frame)
+        # Layer 3: Progress bar with gradient
+        # Use ━ (filled) and ─ (empty) for progress bar
+        bar_width = min(80, width - 4)  # Limit bar width to 80 or available width
+        filled_count = int(bar_width * progress)
+        empty_count = bar_width - filled_count
+        progress_bar_text = "━" * filled_count + "─" * empty_count
+        progress_bar = render_gradient_text(progress_bar_text, frame, filled_ratio=progress)
+
+        # Layer 4: Domino row (matches progress bar width)
+        domino_str, next_domino_state = get_domino_frame(domino_state)
+        domino_row = Text(domino_str)
+
+        # Update domino state for next frame
+        with self._lock:
+            self._domino_state = next_domino_state
+
+        # Combine all 4 layers with newlines
+        result = Text()
+        result.append(status_line)
+        result.append("\n")
+        result.append(model_name_text)
+        result.append("\n")
+        result.append(progress_bar)
+        result.append("\n")
+        result.append(domino_row)
+
+        return result
 
     def _animation_loop(self) -> None:
         """Background thread that updates the animation frames."""

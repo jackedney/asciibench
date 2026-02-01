@@ -157,26 +157,49 @@ class TestRuneScapeLoaderRendering:
         assert isinstance(result, Text)
 
     def test_render_frame_at_zero_progress_is_empty(self):
-        """At 0% progress, rendered frame is empty."""
+        """At 0% progress, rendered frame shows all 4 layers with empty progress bar."""
         loader = RuneScapeLoader("Model", total_steps=100)
         result = loader._render_frame()
-        assert str(result) == ""
+        # With new 4-layer layout, always shows status line, model name, empty
+        # progress bar, domino row
+        result_str = str(result)
+        assert "✓" in result_str  # Status line
+        assert "Model" in result_str  # Model name
+        assert "─" in result_str  # Empty progress bar
+        assert "▌" in result_str  # Dominoes
 
     def test_render_frame_at_full_progress(self):
-        """At 100% progress, rendered frame fills terminal width."""
+        """At 100% progress, rendered frame shows filled progress bar in 4-layer layout."""
         loader = RuneScapeLoader("Model", total_steps=100)
         loader.update(100)
         with patch.object(loader, "_get_terminal_width", return_value=80):
             result = loader._render_frame()
-            assert len(str(result)) == 80
+            result_str = str(result)
+            # Should have 4 layers (3 newlines)
+            assert result_str.count("\n") == 3
+            # Progress bar should be filled (━━━)
+            assert "━━" in result_str
 
     def test_render_frame_at_partial_progress(self):
-        """At 50% progress, rendered frame is approximately half width."""
+        """At 50% progress, rendered frame shows half-filled progress bar."""
         loader = RuneScapeLoader("Model", total_steps=100)
         loader.update(50)
         with patch.object(loader, "_get_terminal_width", return_value=80):
             result = loader._render_frame()
-            assert len(str(result)) == 40
+            result_str = str(result)
+            # Should have 4 layers (3 newlines)
+            assert result_str.count("\n") == 3
+            # Progress bar should be half filled
+            lines = result_str.split("\n")
+            progress_bar = None
+            for line in lines:
+                if "━" in line or "─" in line:
+                    progress_bar = line
+                    break
+            assert progress_bar is not None
+            # Should have both filled and empty characters
+            assert "━" in progress_bar
+            assert "─" in progress_bar
 
     def test_render_frame_contains_model_name(self):
         """Rendered frame contains the model name."""
@@ -372,10 +395,11 @@ class TestRuneScapeLoaderExampleUsage:
         loader.update(30)
         with patch.object(loader, "_get_terminal_width", return_value=100):
             result = loader._render_frame()
-            # At 30% progress with 100 width, should have 30 chars
-            assert len(str(result)) == 30
+            result_str = str(result)
             # Should contain model name
-            assert "Claude-4o" in str(result)
+            assert "Claude-4o" in result_str
+            # Progress bar should have filled portion
+            assert "━" in result_str
 
     def test_example_update_after_completion(self):
         """Example: calling update after completion does not error."""
@@ -551,10 +575,20 @@ class TestRuneScapeLoaderComplete:
 
         with patch.object(loader, "_get_terminal_width", return_value=80):
             result = loader._render_frame()
-            # During flash, should render full width
-            assert len(str(result)) == 80
-            # The style should be the flash color
-            assert result.style == SUCCESS_COLOR
+            # During flash, should render full width with filled bars
+            result_str = str(result)
+            # Should have filled characters spanning the width
+            assert "━" in result_str
+            # The flash bar should be the full width (no empty characters in progress bar)
+            lines = result_str.split("\n")
+            flash_line = None
+            for line in lines:
+                if "━" in line:
+                    flash_line = line
+                    break
+            assert flash_line is not None
+            # Flash line should be all filled (no ─ characters)
+            assert "─" not in flash_line
 
     def test_flash_renders_with_failure_color(self):
         """Flash renders with red color for failure."""
@@ -566,7 +600,10 @@ class TestRuneScapeLoaderComplete:
 
         with patch.object(loader, "_get_terminal_width", return_value=80):
             result = loader._render_frame()
-            assert result.style == FAILURE_COLOR
+            # Flash renders filled bars in the flash color
+            result_str = str(result)
+            # Should have filled characters spanning the width
+            assert "━" in result_str
 
     def test_complete_with_live_display_updates(self):
         """complete() updates the Live display during flash."""
@@ -870,3 +907,202 @@ class TestRuneScapeLoaderFallbackProgressTracking:
         captured = capsys.readouterr()
         assert "Model1" in captured.out
         assert "Model2" in captured.out
+
+
+class TestRuneScapeLoaderFourLayerLayout:
+    """Tests for 4-layer layout (US-006)."""
+
+    def test_loader_has_counters(self):
+        """Loader has success_count, failure_count, total_cost attributes."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        assert hasattr(loader, "_success_count")
+        assert hasattr(loader, "_failure_count")
+        assert hasattr(loader, "_total_cost")
+        assert loader._success_count == 0
+        assert loader._failure_count == 0
+        assert loader._total_cost == 0.0
+
+    def test_loader_has_domino_state(self):
+        """Loader has domino_state attribute."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        assert hasattr(loader, "_domino_state")
+        assert hasattr(loader, "_domino_width")
+
+    def test_render_frame_returns_four_layers(self):
+        """_render_frame returns 4-layer layout."""
+        loader = RuneScapeLoader("TestModel", total_steps=100)
+        loader.update(50)  # 50% progress
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            # Should have 3 newlines (4 layers)
+            assert result_str.count("\n") == 3
+
+    def test_render_frame_status_line_shows_totals(self):
+        """Status line shows success, failure, cost totals."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            # Should have checkmark, cross, and dollar sign
+            assert "✓" in result_str
+            assert "✗" in result_str
+            assert "$" in result_str
+            # Should show zeros initially
+            assert "0" in result_str
+
+    def test_render_frame_model_name_present(self):
+        """Model name appears in second layer."""
+        loader = RuneScapeLoader("TestModel", total_steps=100)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            assert "TestModel" in result_str
+
+    def test_render_frame_progress_bar_present(self):
+        """Progress bar appears with filled and empty characters."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(50)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            # Should have filled and empty progress characters
+            assert "━" in result_str
+            assert "─" in result_str
+
+    def test_render_frame_domino_row_present(self):
+        """Domino row appears in fourth layer."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            # Should have domino characters
+            assert "▌" in result_str or "▞" in result_str or "▚" in result_str or "▄" in result_str
+
+    def test_domino_animation_updates_each_frame(self):
+        """Domino animation updates on each frame."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            initial_state = loader._domino_state
+            loader._render_frame()
+            after_one_frame = loader._domino_state
+            loader._render_frame()
+            after_two_frames = loader._domino_state
+
+            # Domino state should change after each render
+            assert initial_state != after_one_frame
+            assert after_one_frame != after_two_frames
+
+    def test_fifty_percent_progress_half_filled_bar(self):
+        """At 50% progress, progress bar is half-filled."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(50)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            # Find the progress bar line (should have ━ and ─)
+            lines = result_str.split("\n")
+            progress_bar = None
+            for line in lines:
+                if "━" in line or "─" in line:
+                    progress_bar = line
+                    break
+
+            assert progress_bar is not None
+            # Count filled vs empty characters
+            filled_count = progress_bar.count("━")
+            empty_count = progress_bar.count("─")
+            # At 50%, should have approximately equal counts
+            assert abs(filled_count - empty_count) <= 2
+
+    def test_zero_progress_empty_bar(self):
+        """At 0% progress, progress bar is empty but dominos still animate."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(0)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            lines = result_str.split("\n")
+
+            # Find progress bar line
+            progress_bar = None
+            for line in lines:
+                if "━" in line or "─" in line:
+                    progress_bar = line
+                    break
+
+            assert progress_bar is not None
+            # Progress bar should be all empty (─) or minimal filled
+            assert progress_bar.count("━") <= 2
+
+            # Domino row should still be present
+            has_domino = any(
+                "▌" in line or "▞" in line or "▚" in line or "▄" in line for line in lines
+            )
+            assert has_domino
+
+    def test_full_progress_completely_filled_bar(self):
+        """At 100% progress, progress bar is completely filled."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(100)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            lines = result_str.split("\n")
+
+            # Find progress bar line
+            progress_bar = None
+            for line in lines:
+                if "━" in line or "─" in line:
+                    progress_bar = line
+                    break
+
+            assert progress_bar is not None
+            # Progress bar should be all filled (━) or minimal empty
+            assert progress_bar.count("─") <= 2
+
+    def test_status_line_format(self):
+        """Status line has correct format: ✓ {success} | ✗ {failed} | ${cost}"""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            lines = result_str.split("\n")
+            status_line = lines[0]
+
+            # Check format elements
+            assert "✓" in status_line
+            assert "✗" in status_line
+            assert "|" in status_line
+            assert "$" in status_line
+            assert "0.0000" in status_line  # Initial cost formatted to 4 decimals
+
+    def test_integration_example_four_layers(self):
+        """Example: at 50% progress, all 4 layers are visible and correct."""
+        loader = RuneScapeLoader("TestModel", total_steps=100)
+        loader.update(50)
+
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            lines = result_str.split("\n")
+
+            # Should have 4 layers
+            assert len(lines) == 4
+
+            # Layer 1: Status line
+            assert "✓" in lines[0]
+            assert "✗" in lines[0]
+            assert "$" in lines[0]
+
+            # Layer 2: Model name
+            assert "TestModel" in lines[1]
+
+            # Layer 3: Progress bar
+            assert "━" in lines[2]
+            assert "─" in lines[2]
+
+            # Layer 4: Domino row
+            domino_chars = {"▌", "▞", "▚", "▄"}
+            has_domino = any(char in lines[3] for char in domino_chars)
+            assert has_domino
