@@ -13,6 +13,7 @@ Dependencies:
 
 import asyncio
 import time
+import traceback
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,7 +22,14 @@ from asciibench.common.config import GenerationConfig, Settings
 from asciibench.common.logging import get_logger
 from asciibench.common.models import ArtSample, Model, Prompt
 from asciibench.common.persistence import append_jsonl, read_jsonl
-from asciibench.generator.client import OpenRouterClient, OpenRouterClientError
+from asciibench.generator.client import (
+    AuthenticationError,
+    ModelError,
+    OpenRouterClient,
+    OpenRouterClientError,
+    RateLimitError,
+    TransientError,
+)
 from asciibench.generator.sanitizer import extract_ascii_from_markdown
 
 logger = get_logger("generator.sampler")
@@ -171,7 +179,7 @@ async def _generate_single_sample(
             output_tokens=response.completion_tokens,
             cost=response.cost,
         )
-    except (OpenRouterClientError, Exception) as e:
+    except RateLimitError as e:
         sample = ArtSample(
             model_id=task.model.id,
             prompt_text=task.prompt.text,
@@ -183,7 +191,122 @@ async def _generate_single_sample(
             output_tokens=None,
             cost=None,
         )
-        error_message = f"{type(e).__name__}: {e}"
+        logger.error(
+            "Rate limited after retries",
+            {
+                "model": task.model.id,
+                "attempt": task.attempt,
+                "error": str(e),
+            },
+        )
+        error_message = f"RateLimitError: {e}"
+    except AuthenticationError as e:
+        sample = ArtSample(
+            model_id=task.model.id,
+            prompt_text=task.prompt.text,
+            category=task.prompt.category,
+            attempt_number=task.attempt,
+            raw_output="",
+            sanitized_output="",
+            is_valid=False,
+            output_tokens=None,
+            cost=None,
+        )
+        logger.error(
+            "Authentication failed",
+            {
+                "model": task.model.id,
+                "attempt": task.attempt,
+                "error": str(e),
+            },
+        )
+        error_message = f"AuthenticationError: {e}"
+    except TransientError as e:
+        sample = ArtSample(
+            model_id=task.model.id,
+            prompt_text=task.prompt.text,
+            category=task.prompt.category,
+            attempt_number=task.attempt,
+            raw_output="",
+            sanitized_output="",
+            is_valid=False,
+            output_tokens=None,
+            cost=None,
+        )
+        logger.error(
+            "Transient error encountered",
+            {
+                "model": task.model.id,
+                "attempt": task.attempt,
+                "error": str(e),
+            },
+        )
+        error_message = f"TransientError: {e}"
+    except ModelError as e:
+        sample = ArtSample(
+            model_id=task.model.id,
+            prompt_text=task.prompt.text,
+            category=task.prompt.category,
+            attempt_number=task.attempt,
+            raw_output="",
+            sanitized_output="",
+            is_valid=False,
+            output_tokens=None,
+            cost=None,
+        )
+        logger.error(
+            "Model error encountered",
+            {
+                "model": task.model.id,
+                "attempt": task.attempt,
+                "error": str(e),
+            },
+        )
+        error_message = f"ModelError: {e}"
+    except OpenRouterClientError as e:
+        sample = ArtSample(
+            model_id=task.model.id,
+            prompt_text=task.prompt.text,
+            category=task.prompt.category,
+            attempt_number=task.attempt,
+            raw_output="",
+            sanitized_output="",
+            is_valid=False,
+            output_tokens=None,
+            cost=None,
+        )
+        logger.error(
+            "OpenRouter client error",
+            {
+                "model": task.model.id,
+                "attempt": task.attempt,
+                "error": str(e),
+            },
+        )
+        error_message = f"OpenRouterClientError: {e}"
+    except Exception as e:
+        sample = ArtSample(
+            model_id=task.model.id,
+            prompt_text=task.prompt.text,
+            category=task.prompt.category,
+            attempt_number=task.attempt,
+            raw_output="",
+            sanitized_output="",
+            is_valid=False,
+            output_tokens=None,
+            cost=None,
+        )
+        logger.error(
+            "Unexpected exception",
+            {
+                "model": task.model.id,
+                "attempt": task.attempt,
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            },
+        )
+        error_message = f"Unexpected {type(e).__name__}: {e}"
 
     end_time = time.perf_counter()
     duration_ms = (end_time - start_time) * 1000
