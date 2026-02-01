@@ -3,7 +3,15 @@
 import json
 from pathlib import Path
 
-from asciibench.common.logging import JSONLogger, get_logger
+from asciibench.common.logging import (
+    JSONLogger,
+    generate_id,
+    get_logger,
+    get_request_id,
+    get_run_id,
+    set_request_id,
+    set_run_id,
+)
 
 
 class TestJSONLogger:
@@ -294,6 +302,202 @@ class TestGetLogger:
         assert logger1 is not logger2
         assert logger1.name == "module1"
         assert logger2.name == "module2"
+
+
+class TestIDGeneration:
+    """Tests for ID generation functions."""
+
+    def test_generate_id_returns_string(self) -> None:
+        """generate_id returns a string."""
+        id_str = generate_id()
+        assert isinstance(id_str, str)
+        assert len(id_str) > 0
+
+    def test_generate_id_unique(self) -> None:
+        """generate_id returns unique IDs."""
+        id1 = generate_id()
+        id2 = generate_id()
+        assert id1 != id2
+
+    def test_generate_id_is_uuid_or_timestamp(self) -> None:
+        """generate_id returns UUID or timestamp-based ID."""
+        id_str = generate_id()
+        # Either a UUID with dashes or a timestamp with T or -
+        assert "-" in id_str or "T" in id_str
+
+
+class TestRunIDContext:
+    """Tests for run_id context management."""
+
+    def test_set_and_get_run_id(self) -> None:
+        """set_run_id and get_run_id work correctly."""
+        set_run_id("test-run-123")
+        assert get_run_id() == "test-run-123"
+
+    def test_get_run_id_none_by_default(self) -> None:
+        """get_run_id returns None when not set."""
+        set_run_id(None)
+        assert get_run_id() is None
+
+    def test_clear_run_id(self) -> None:
+        """set_run_id(None) clears the run_id."""
+        set_run_id("test-run")
+        assert get_run_id() == "test-run"
+        set_run_id(None)
+        assert get_run_id() is None
+
+
+class TestRequestIDContext:
+    """Tests for request_id context management."""
+
+    def test_set_and_get_request_id(self) -> None:
+        """set_request_id and get_request_id work correctly."""
+        set_request_id("test-req-456")
+        assert get_request_id() == "test-req-456"
+
+    def test_get_request_id_none_by_default(self) -> None:
+        """get_request_id returns None when not set."""
+        set_request_id(None)
+        assert get_request_id() is None
+
+    def test_clear_request_id(self) -> None:
+        """set_request_id(None) clears the request_id."""
+        set_request_id("test-req")
+        assert get_request_id() == "test-req"
+        set_request_id(None)
+        assert get_request_id() is None
+
+
+class TestLoggingWithIDs:
+    """Tests for logging with run_id and request_id."""
+
+    def test_log_includes_run_id_when_set(self, tmp_path: Path) -> None:
+        """Log entry includes run_id when set."""
+        log_path = tmp_path / "logs.jsonl"
+        logger = JSONLogger("test", log_path)
+
+        set_run_id("run-123")
+        logger.info("Test message")
+        set_run_id(None)
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert "run_id" in entry
+        assert entry["run_id"] == "run-123"
+
+    def test_log_includes_request_id_when_set(self, tmp_path: Path) -> None:
+        """Log entry includes request_id when set."""
+        log_path = tmp_path / "logs.jsonl"
+        logger = JSONLogger("test", log_path)
+
+        set_request_id("req-456")
+        logger.info("Test message")
+        set_request_id(None)
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert "request_id" in entry
+        assert entry["request_id"] == "req-456"
+
+    def test_log_includes_both_ids_when_set(self, tmp_path: Path) -> None:
+        """Log entry includes both run_id and request_id when set."""
+        log_path = tmp_path / "logs.jsonl"
+        logger = JSONLogger("test", log_path)
+
+        set_run_id("run-123")
+        set_request_id("req-456")
+        logger.info("Test message")
+        set_run_id(None)
+        set_request_id(None)
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert entry["run_id"] == "run-123"
+        assert entry["request_id"] == "req-456"
+
+    def test_log_omits_run_id_when_not_set(self, tmp_path: Path) -> None:
+        """Log entry omits run_id when not set."""
+        log_path = tmp_path / "logs.jsonl"
+        logger = JSONLogger("test", log_path)
+
+        set_run_id(None)
+        logger.info("Test message")
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert "run_id" not in entry
+
+    def test_log_omits_request_id_when_not_set(self, tmp_path: Path) -> None:
+        """Log entry omits request_id when not set."""
+        log_path = tmp_path / "logs.jsonl"
+        logger = JSONLogger("test", log_path)
+
+        set_request_id(None)
+        logger.info("Test message")
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert "request_id" not in entry
+
+    def test_multiple_logs_same_run_id(self, tmp_path: Path) -> None:
+        """Multiple logs share the same run_id when not changed."""
+        log_path = tmp_path / "logs.jsonl"
+        logger = JSONLogger("test", log_path)
+
+        set_run_id("run-123")
+        logger.info("First message")
+        logger.info("Second message")
+        logger.info("Third message")
+        set_run_id(None)
+
+        content = log_path.read_text()
+        lines = content.strip().split("\n")
+
+        entry1 = json.loads(lines[0])
+        entry2 = json.loads(lines[1])
+        entry3 = json.loads(lines[2])
+
+        assert entry1["run_id"] == "run-123"
+        assert entry2["run_id"] == "run-123"
+        assert entry3["run_id"] == "run-123"
+
+    def test_multiple_logs_different_request_ids(self, tmp_path: Path) -> None:
+        """Logs can have different request_ids."""
+        log_path = tmp_path / "logs.jsonl"
+        logger = JSONLogger("test", log_path)
+
+        set_run_id("run-123")
+
+        set_request_id("req-1")
+        logger.info("First request")
+
+        set_request_id("req-2")
+        logger.info("Second request")
+
+        set_request_id("req-3")
+        logger.info("Third request")
+
+        set_run_id(None)
+        set_request_id(None)
+
+        content = log_path.read_text()
+        lines = content.strip().split("\n")
+
+        entry1 = json.loads(lines[0])
+        entry2 = json.loads(lines[1])
+        entry3 = json.loads(lines[2])
+
+        assert entry1["run_id"] == "run-123"
+        assert entry2["run_id"] == "run-123"
+        assert entry3["run_id"] == "run-123"
+        assert entry1["request_id"] == "req-1"
+        assert entry2["request_id"] == "req-2"
+        assert entry3["request_id"] == "req-3"
 
 
 class TestIntegration:

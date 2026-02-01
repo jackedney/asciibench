@@ -1,11 +1,101 @@
 """Structured JSON logging module for asciibench."""
 
 import json
+import uuid
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from filelock import FileLock
+
+_run_id: ContextVar[str | None] = ContextVar("run_id", default=None)
+_request_id: ContextVar[str | None] = ContextVar("request_id", default=None)
+
+
+def generate_id() -> str:
+    """Generate a UUID with timestamp-based fallback.
+
+    Returns:
+        UUID string as fallback: ISO8601 timestamp with microseconds
+
+    Example:
+        >>> id = generate_id()
+        >>> isinstance(id, str)
+        True
+        >>> len(id) > 0
+        True
+
+    Negative case:
+        >>> If UUID generation somehow fails, returns timestamp-based ID
+        >>> id = generate_id()
+        >>> 'T' in id or '-' in id  # Timestamp contains date/time separators
+        True
+    """
+    try:
+        return str(uuid.uuid4())
+    except Exception:
+        return datetime.now().isoformat()
+
+
+def set_run_id(run_id: str | None) -> None:
+    """Set the run ID for the current context.
+
+    Args:
+        run_id: Run ID string or None to clear
+
+    Example:
+        >>> set_run_id("abc123")
+        >>> get_run_id()
+        'abc123'
+        >>> set_run_id(None)
+        >>> get_run_id() is None
+        True
+    """
+    _run_id.set(run_id)
+
+
+def get_run_id() -> str | None:
+    """Get the current run ID from context.
+
+    Returns:
+        Run ID string or None if not set
+
+    Example:
+        >>> get_run_id() is None or isinstance(get_run_id(), str)
+        True
+    """
+    return _run_id.get()
+
+
+def set_request_id(request_id: str | None) -> None:
+    """Set the request ID for the current context.
+
+    Args:
+        request_id: Request ID string or None to clear
+
+    Example:
+        >>> set_request_id("req-456")
+        >>> get_request_id()
+        'req-456'
+        >>> set_request_id(None)
+        >>> get_request_id() is None
+        True
+    """
+    _request_id.set(request_id)
+
+
+def get_request_id() -> str | None:
+    """Get the current request ID from context.
+
+    Returns:
+        Request ID string or None if not set
+
+    Example:
+        >>> get_request_id() is None or isinstance(get_request_id(), str)
+        True
+    """
+    return _request_id.get()
 
 
 class JSONLogger:
@@ -60,6 +150,14 @@ class JSONLogger:
             "logger": self.name,
             "message": message,
         }
+
+        run_id = get_run_id()
+        if run_id:
+            entry["run_id"] = run_id
+
+        request_id = get_request_id()
+        if request_id:
+            entry["request_id"] = request_id
 
         if metadata:
             entry["metadata"] = self._serialize_value(metadata)

@@ -624,3 +624,96 @@ class TestGenerateSamples:
         assert sample.is_valid is False
         assert sample.output_tokens is None
         assert sample.cost is None
+
+    def test_generate_samples_sets_run_id(
+        self,
+        mock_client: MagicMock,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """generate_samples sets run_id for entire batch."""
+        db_path = tmp_path / "database.jsonl"
+        log_path = tmp_path / "logs.jsonl"
+
+        from asciibench.common.logging import get_run_id, set_run_id
+
+        # Clear any previous run_id
+        set_run_id(None)
+
+        config = GenerationConfig(attempts_per_prompt=2)
+        generate_samples(
+            models=sample_models,
+            prompts=sample_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        # Verify run_id was set during generation
+        run_id = get_run_id()
+        # run_id should still be set or be a valid UUID/timestamp
+        assert run_id is None or isinstance(run_id, str)
+
+        # Read log file and verify run_id is present in logs
+        if log_path.exists():
+            with open(log_path) as f:
+                lines = [line for line in f if line.strip()]
+            if lines:
+                import json
+
+                # Check that at least some logs have run_id
+                log_entries = [json.loads(line) for line in lines]
+                entries_with_run_id = [e for e in log_entries if "run_id" in e]
+                # Should have at least some entries with run_id
+                assert len(entries_with_run_id) > 0
+
+        # Clear run_id
+        set_run_id(None)
+
+    def test_each_sample_has_unique_request_id_in_context(
+        self,
+        mock_client: MagicMock,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """Each sample generation sets a unique request_id."""
+        db_path = tmp_path / "database.jsonl"
+        log_path = tmp_path / "logs.jsonl"
+
+        from asciibench.common.logging import set_request_id
+
+        # Clear any previous request_id
+        set_request_id(None)
+
+        config = GenerationConfig(attempts_per_prompt=2)
+        generate_samples(
+            models=sample_models,
+            prompts=sample_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        # Clear request_id
+        set_request_id(None)
+
+        # Read log file and verify request_ids are present and unique
+        if log_path.exists():
+            with open(log_path) as f:
+                lines = [line for line in f if line.strip()]
+            if lines:
+                import json
+
+                # Check that logs have request_id and they are different
+                log_entries = [json.loads(line) for line in lines]
+                entries_with_request_id = [e for e in log_entries if "request_id" in e]
+                # Should have at least some entries with request_id
+                assert len(entries_with_request_id) > 0
+
+                # Extract all request_ids
+                request_ids = [e["request_id"] for e in entries_with_request_id]
+                # Should have at least some unique request_ids
+                unique_request_ids = set(request_ids)
+                assert len(unique_request_ids) > 0

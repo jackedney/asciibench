@@ -19,7 +19,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from asciibench.common.config import GenerationConfig, Settings
-from asciibench.common.logging import get_logger
+from asciibench.common.logging import (
+    generate_id,
+    get_logger,
+    set_request_id,
+    set_run_id,
+)
 from asciibench.common.models import ArtSample, Model, Prompt
 from asciibench.common.persistence import append_jsonl, read_jsonl
 from asciibench.generator.client import (
@@ -155,6 +160,10 @@ async def _generate_single_sample(
     Returns:
         Tuple of (ArtSample, duration_ms, error_message)
     """
+    # Generate and set request_id for this sample generation
+    request_id = generate_id()
+    set_request_id(request_id)
+
     start_time = time.perf_counter()
     error_message = None
 
@@ -359,6 +368,10 @@ async def _generate_batch_for_model(
             remaining = total_combinations - samples_processed_ref[0] + 1
             progress_callback(task.model.id, task.prompt.text, task.attempt, remaining)
 
+        # Generate and set request_id for this sample (also set in _generate_single_sample)
+        request_id = generate_id()
+        set_request_id(request_id)
+
         sample, duration_ms, error_message = await _generate_single_sample(client, task, config)
 
         # Log metrics for this sample
@@ -435,6 +448,10 @@ async def generate_samples_async(
         ValueError: If neither client nor settings are provided
     """
     database_path = Path(database_path)
+
+    # Generate and set run_id for this generation batch
+    run_id = generate_id()
+    set_run_id(run_id)
 
     # Initialize client if not provided
     if client is None:
