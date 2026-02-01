@@ -15,7 +15,6 @@ import re
 
 import pytest
 
-
 # Mark for API tests only
 requires_api_key = pytest.mark.skipif(
     not os.getenv("OPENROUTER_API_KEY"),
@@ -94,7 +93,7 @@ class TestSingleModelWhitespaceDiagnosis:
             print("=" * 60)
             for i, line in enumerate(lines[:5]):  # First 5 lines
                 leading_spaces = len(line) - len(line.lstrip(" "))
-                print(f"Line {i}: {leading_spaces} leading spaces | repr: {repr(line)}")
+                print(f"Line {i}: {leading_spaces} leading spaces | repr: {line!r}")
 
             # The actual assertion - document what's happening
             first_line = lines[0]
@@ -190,7 +189,7 @@ class TestCodeBlockPatternMatching:
 
         assert match is not None, "Pattern should match"
         captured = match.group(1)
-        print(f"\nCaptured content: {repr(captured)}")
+        print(f"\nCaptured content: {captured!r}")
 
         # The captured content should include leading spaces
-        assert captured.startswith("      HEAD"), f"Should capture leading spaces: {repr(captured)}"
+        assert captured.startswith("      HEAD"), f"Should capture leading spaces: {captured!r}"

@@ -61,7 +61,7 @@ class TestWhitespaceFromSavedData:
             # Truncate first line for display
             first_line_display = first_line[:30] + "..." if len(first_line) > 30 else first_line
 
-            print(f"{model_name:<40} | {first_line_spaces:>15} | {max_spaces:>10} | {repr(first_line_display)}")
+            print(f"{model_name:<40} | {first_line_spaces:>15} | {max_spaces:>10} | {first_line_display!r}")
 
             # Track models with the problem
             if first_line_spaces == 0 and max_spaces > 0:
@@ -121,7 +121,7 @@ class TestWhitespaceFromSavedData:
         for i, line in enumerate(lines[:15]):
             spaces = len(line) - len(line.lstrip(" "))
             display = line[:45] + "..." if len(line) > 45 else line
-            print(f"{i:>4} | {spaces:>6} | {repr(display)}")
+            print(f"{i:>4} | {spaces:>6} | {display!r}")
 
         print("\n" + "=" * 80)
         print("RAW ASCII OUTPUT (repr - showing exact characters):")
@@ -159,8 +159,8 @@ class TestWhitespaceFromSavedData:
                 raw_first_line = raw_content.split("\n")[0] if raw_content else ""
                 extracted_first_line = ascii_output.split("\n")[0] if ascii_output else ""
 
-                print(f"  Raw code block first line: {repr(raw_first_line[:50])}")
-                print(f"  Extracted first line:      {repr(extracted_first_line[:50])}")
+                print(f"  Raw code block first line: {raw_first_line[:50]!r}")
+                print(f"  Extracted first line:      {extracted_first_line[:50]!r}")
 
                 if raw_first_line != extracted_first_line:
                     print("  >>> DIFFERENCE FOUND - extraction is changing the content!")

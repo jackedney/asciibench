@@ -10,7 +10,6 @@ from rich.console import Console
 from rich.live import Live
 from rich.text import Text
 
-from asciibench.common.domino import DominoState, get_domino_frame
 from asciibench.common.wave_text import (
     render_cycling_text,
     render_gradient_text,
@@ -185,10 +184,6 @@ class RuneScapeLoader:
         self._success_count = 0
         self._failure_count = 0
         self._total_cost = 0.0
-
-        # Domino state for ambient animation
-        self._domino_state = DominoState("left_to_right", 0, 0, 40)
-        self._domino_width = 40  # Width of domino row
 
         # Detect terminal capabilities for fallback mode
         self._capabilities = detect_terminal_capabilities(self._console)
@@ -396,7 +391,6 @@ class RuneScapeLoader:
             success_count = self._success_count
             failure_count = self._failure_count
             total_cost = self._total_cost
-            domino_state = self._domino_state
 
         width = self._get_terminal_width()
 
@@ -425,23 +419,13 @@ class RuneScapeLoader:
         progress_bar_text = "━" * filled_count + "─" * empty_count
         progress_bar = render_gradient_text(progress_bar_text, frame, filled_ratio=progress)
 
-        # Layer 4: Domino row (matches progress bar width)
-        domino_str, next_domino_state = get_domino_frame(domino_state)
-        domino_row = Text(domino_str)
-
-        # Update domino state for next frame
-        with self._lock:
-            self._domino_state = next_domino_state
-
-        # Combine all 4 layers with newlines
+        # Combine all 3 layers with newlines
         result = Text()
         result.append(status_line)
         result.append("\n")
         result.append(model_name_text)
         result.append("\n")
         result.append(progress_bar)
-        result.append("\n")
-        result.append(domino_row)
 
         return result
 

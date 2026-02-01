@@ -47,10 +47,10 @@ def test_single_model_whitespace():
 
     for i, line in enumerate(lines[:10]):
         spaces = len(line) - len(line.lstrip(" "))
-        print(f"{i:>4} | {spaces:>6} | {repr(line[:40])}")
+        print(f"{i:>4} | {spaces:>6} | {line[:40]!r}")
 
     first_line_spaces = len(lines[0]) - len(lines[0].lstrip(" "))
     print(f"\nFirst line spaces: {first_line_spaces}")
 
-    assert first_line_spaces > 0, f"First line should have leading spaces, got: {repr(lines[0])}"
+    assert first_line_spaces > 0, f"First line should have leading spaces, got: {lines[0]!r}"
     print("\n>>> PASS: First line has leading spaces")

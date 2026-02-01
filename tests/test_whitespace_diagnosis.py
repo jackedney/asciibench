@@ -4,7 +4,6 @@ This module provides tests to help diagnose where leading whitespace
 is being lost in the ASCII art pipeline.
 """
 
-import pytest
 
 from asciibench.generator.sanitizer import extract_ascii_from_markdown
 
@@ -81,7 +80,7 @@ This skeleton features a simple head with eyes and a nose."""
 
         # First line should have 6 leading spaces
         assert lines[0] == "      ___", f"First line should be '      ___', got '{lines[0]}'"
-        assert lines[0].startswith("      "), f"First line should start with spaces"
+        assert lines[0].startswith("      "), "First line should start with spaces"
 
     def test_whitespace_only_first_line_treated_as_blank(self):
         """Line with only whitespace should be treated as blank and removed."""
