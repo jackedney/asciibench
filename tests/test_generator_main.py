@@ -92,7 +92,7 @@ class TestMain:
         assert "OPENROUTER_API_KEY" in captured.err
         assert "openrouter.ai" in captured.err
 
-    def test_main_shows_banner_and_loading_message(
+    def test_main_shows_banner_and_config_summary(
         self,
         mock_settings: MagicMock,
         mock_config: GenerationConfig,
@@ -101,7 +101,7 @@ class TestMain:
         capsys: pytest.CaptureFixture[str],
         tmp_path: Path,
     ) -> None:
-        """Main shows banner and loading message."""
+        """Main shows banner and configuration summary."""
         with (
             patch("asciibench.generator.main.Settings", return_value=mock_settings),
             patch(
@@ -117,7 +117,9 @@ class TestMain:
         captured = capsys.readouterr()
         # Check for banner (contains ASCII art with these patterns)
         assert "___" in captured.out  # Part of the ASCII art banner
-        assert "Loading configuration" in captured.out
+        # Check for config summary (like demo.py)
+        assert "models loaded from" in captured.out
+        assert "models.yaml" in captured.out
 
     def test_main_calls_generate_samples_with_correct_args(
         self,

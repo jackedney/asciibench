@@ -81,8 +81,6 @@ def main() -> None:
     # Show ASCII banner at startup
     show_banner()
 
-    console.print("\n[info]Loading configuration...[/info]\n")
-
     # Load settings from .env
     try:
         settings = Settings()
@@ -140,6 +138,25 @@ def main() -> None:
         )
         return
 
+    # Display loaded configuration like demo.py
+    console.print()
+    console.print(
+        f"  [dim]•[/dim] [bold cyan]{len(models)}[/bold cyan] "
+        f"[dim]models loaded from[/dim] [white]models.yaml[/white]"
+    )
+    console.print(
+        f"  [dim]•[/dim] [bold cyan]{len(prompts)}[/bold cyan] "
+        f"[dim]prompts loaded from[/dim] [white]prompts.yaml[/white]"
+    )
+    console.print(
+        f"  [dim]•[/dim] [bold yellow]{total_expected}[/bold yellow] "
+        f"[dim]total samples to generate[/dim]"
+    )
+    console.print()
+
+    # Build model_id -> model.name mapping for display
+    model_names = {m.id: m.name for m in models}
+
     # Track state for the RuneScape loader
     current_model_id: str | None = None
     current_prompt_text: str | None = None
@@ -181,8 +198,9 @@ def main() -> None:
             show_prompt(prompt_text)
             current_prompt_text = prompt_text
 
-            # Create and start new loader for this model
-            loader = create_loader(model_id, total_samples_per_model)
+            # Create and start new loader for this model (use model name for display)
+            display_name = model_names.get(model_id, model_id)
+            loader = create_loader(display_name, total_samples_per_model)
             loader.start()
 
         # Update progress
