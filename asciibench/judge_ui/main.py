@@ -1,5 +1,4 @@
 import random
-from collections import Counter
 from pathlib import Path
 from typing import Literal
 
@@ -79,41 +78,6 @@ class ProgressResponse(BaseModel):
     unique_pairs_judged: int
     total_possible_pairs: int
     by_category: dict[str, CategoryProgress]
-
-
-# Backward compatibility wrappers for tests
-def _make_sorted_pair(a: str, b: str) -> tuple[str, str]:
-    """Create a sorted pair of strings for consistent ordering."""
-    return matchup_service._make_sorted_pair(a, b)
-
-
-def _get_pair_comparison_counts(votes: list[Vote]) -> Counter[tuple[str, str]]:
-    """Count comparisons for each ordered pair of samples."""
-    return matchup_service._get_pair_comparison_counts(votes)
-
-
-def _get_model_pair_comparison_counts(
-    votes: list[Vote], samples: list[ArtSample]
-) -> Counter[tuple[str, str]]:
-    """Count comparisons between each pair of models."""
-    return matchup_service._get_model_pair_comparison_counts(votes, samples)
-
-
-def _select_matchup(
-    valid_samples: list[ArtSample], votes: list[Vote]
-) -> tuple[ArtSample, ArtSample]:
-    """Select two samples for a matchup."""
-    return matchup_service._select_matchup(valid_samples, votes)
-
-
-def _calculate_total_possible_pairs(valid_samples: list[ArtSample]) -> int:
-    """Calculate total possible unique matchups between samples."""
-    return matchup_service._calculate_total_possible_pairs(valid_samples)
-
-
-def _get_unique_model_pairs_judged(votes: list[Vote], samples: list[ArtSample]) -> int:
-    """Count unique model pairs that have been compared."""
-    return matchup_service.get_unique_model_pairs_judged(votes, samples)
 
 
 def _calculate_progress_by_category(
