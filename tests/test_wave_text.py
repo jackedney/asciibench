@@ -6,6 +6,7 @@ from asciibench.common.wave_text import (
     RAINBOW_COLORS,
     get_wave_displacement,
     interpolate_color,
+    render_gradient_text,
     render_wave_text,
 )
 
@@ -419,3 +420,149 @@ class TestInterpolateColor:
         result = interpolate_color("#00FF00", "#0000FF", 0.5)
         # (0,255,0) to (0,0,255) at 0.5 = (0,127.5,127.5) -> #007F7F
         assert result == "#007F7F"
+
+
+class TestRenderGradientText:
+    """Tests for render_gradient_text function."""
+
+    def test_returns_text_object(self):
+        """render_gradient_text returns a Rich Text object."""
+        result = render_gradient_text("ABC", frame=0, filled_ratio=1.0)
+        assert isinstance(result, Text)
+
+    def test_empty_string_returns_empty_text(self):
+        """Empty string input returns empty Text object."""
+        result = render_gradient_text("", frame=0, filled_ratio=1.0)
+        assert isinstance(result, Text)
+        assert len(result) == 0
+        assert str(result) == ""
+
+    def test_preserves_text_content(self):
+        """Text content is preserved in output."""
+        text = "━━━━━───"
+        result = render_gradient_text(text, frame=0, filled_ratio=0.5)
+        assert str(result) == text
+
+    def test_full_ratio_applies_gradient_to_all(self):
+        """filled_ratio=1.0 applies gradient to all characters."""
+        text = "ABC"
+        result = render_gradient_text(text, frame=0, filled_ratio=1.0)
+        assert str(result) == text
+        # All characters should have styles applied (not dim)
+        assert len(result._spans) > 0
+
+    def test_zero_ratio_applies_dim_to_all(self):
+        """filled_ratio=0.0 applies dim style to all characters."""
+        text = "ABC"
+        result = render_gradient_text(text, frame=0, filled_ratio=0.0)
+        assert str(result) == text
+        # All characters should be dim
+        assert len(result._spans) > 0
+
+    def test_half_ratio_applies_gradient_to_half(self):
+        """filled_ratio=0.5 applies gradient to first half of characters."""
+        text = "━━━━━───"  # 8 characters
+        result = render_gradient_text(text, frame=0, filled_ratio=0.5)
+        # First 4 chars should have gradient, last 4 should be dim
+        assert str(result) == text
+        assert len(result._spans) > 0
+
+    def test_ratio_clamped_to_one(self):
+        """filled_ratio > 1.0 is clamped to 1.0."""
+        text = "ABC"
+        result = render_gradient_text(text, frame=0, filled_ratio=1.5)
+        assert str(result) == text
+        # Should have gradients on all characters
+        assert len(result._spans) > 0
+
+    def test_ratio_clamped_to_zero(self):
+        """filled_ratio < 0.0 is clamped to 0.0."""
+        text = "ABC"
+        result = render_gradient_text(text, frame=0, filled_ratio=-0.5)
+        assert str(result) == text
+        # Should all be dim
+        assert len(result._spans) > 0
+
+    def test_frame_zero_works(self):
+        """Frame 0 produces valid output."""
+        result = render_gradient_text("TEST", frame=0, filled_ratio=1.0)
+        assert str(result) == "TEST"
+        assert len(result) == 4
+
+    def test_frame_changes_gradient(self):
+        """Different frame numbers produce different color arrangements."""
+        result_frame0 = render_gradient_text("ABC", frame=0, filled_ratio=1.0)
+        result_frame1 = render_gradient_text("ABC", frame=1, filled_ratio=1.0)
+        # Text content is the same
+        assert str(result_frame0) == str(result_frame1)
+        # But the styling should differ due to gradient shift
+        assert len(result_frame0._spans) > 0
+        assert len(result_frame1._spans) > 0
+
+    def test_gradient_uses_rainbow_colors(self):
+        """Gradient colors come from the rainbow palette."""
+        # Use text longer than the rainbow colors to verify cycling
+        text = "A" * (len(RAINBOW_COLORS) + 3)
+        result = render_gradient_text(text, frame=0, filled_ratio=1.0)
+        assert str(result) == text
+        assert len(result) == len(text)
+
+    def test_long_text_handled(self):
+        """Long text is handled without error."""
+        long_text = "X" * 100
+        result = render_gradient_text(long_text, frame=0, filled_ratio=0.75)
+        assert str(result) == long_text
+        assert len(result) == 100
+
+    def test_single_character(self):
+        """Single character input works correctly."""
+        result = render_gradient_text("X", frame=0, filled_ratio=1.0)
+        assert str(result) == "X"
+
+    def test_special_characters_preserved(self):
+        """Special characters are preserved in output."""
+        text = "━━━───"
+        result = render_gradient_text(text, frame=0, filled_ratio=0.5)
+        assert str(result) == text
+
+    def test_high_frame_numbers(self):
+        """Very high frame numbers work correctly."""
+        result = render_gradient_text("Test", frame=10000, filled_ratio=1.0)
+        assert str(result) == "Test"
+
+    def test_negative_frame_numbers(self):
+        """Negative frame numbers work correctly."""
+        result = render_gradient_text("Test", frame=-5, filled_ratio=1.0)
+        assert str(result) == "Test"
+
+    def test_progress_bar_example(self):
+        """Example from PRD: '━━━━━───' with 0.5 filled."""
+        text = "━━━━━───"
+        result = render_gradient_text(text, frame=0, filled_ratio=0.5)
+        # First 4 chars should have gradient (8 * 0.5 = 4, truncated)
+        assert str(result) == text
+        assert len(result._spans) > 0
+
+    def test_various_filled_ratios(self):
+        """Various filled_ratio values work correctly."""
+        text = "━━━━━━━━"  # 8 characters
+
+        # 25% filled
+        result = render_gradient_text(text, frame=0, filled_ratio=0.25)
+        assert str(result) == text
+
+        # 50% filled
+        result = render_gradient_text(text, frame=0, filled_ratio=0.5)
+        assert str(result) == text
+
+        # 75% filled
+        result = render_gradient_text(text, frame=0, filled_ratio=0.75)
+        assert str(result) == text
+
+    def test_fractional_filled_ratio(self):
+        """Fractional filled_ratio values are handled."""
+        # With 10 characters and filled_ratio=0.45, should fill 4 chars
+        text = "━━━━━━━━━━"  # 10 characters
+        result = render_gradient_text(text, frame=0, filled_ratio=0.45)
+        assert str(result) == text
+        assert len(result) == 10

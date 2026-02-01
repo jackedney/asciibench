@@ -158,3 +158,59 @@ def interpolate_color(color1: str, color2: str, t: float) -> str:
 
     # Format back to hex
     return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def render_gradient_text(text: str, frame: int, filled_ratio: float) -> Text:
+    """Render text with a rainbow gradient that flows and shifts based on frame.
+
+    Only the filled portion of the text (based on filled_ratio) displays the
+    gradient colors. The remaining portion uses a dim/empty style for unfilled
+    characters.
+
+    Args:
+        text: The text to render with gradient effect.
+        frame: Animation frame number (affects gradient position/shift).
+        filled_ratio: Ratio of text to fill with gradient (0.0 to 1.0).
+
+    Returns:
+        Rich Text object with gradient-styled characters for filled portion
+        and dim style for unfilled portion. Empty Text if input is empty.
+
+    Example:
+        render_gradient_text('━━━━━───', 0, 0.5) shows gradient on first 4 chars.
+    """
+    if not text:
+        return Text()
+
+    # Clamp filled_ratio to [0.0, 1.0]
+    filled_ratio = max(0.0, min(1.0, filled_ratio))
+
+    result = Text()
+    num_chars = len(text)
+    filled_chars = int(num_chars * filled_ratio)
+
+    for i, char in enumerate(text):
+        if i < filled_chars:
+            # Calculate gradient color for this character
+            # Gradient position is based on character index and frame offset
+            # This creates a flowing effect across the text
+            gradient_pos = (i + frame * 0.5) % num_chars / num_chars
+
+            # Find which two rainbow colors we're between
+            num_colors = len(RAINBOW_COLORS)
+            color_index = gradient_pos * (num_colors - 1)
+            color_idx_floor = int(color_index)
+            color_idx_ceil = min(color_idx_floor + 1, num_colors - 1)
+            t = color_index - color_idx_floor
+
+            # Interpolate between the two adjacent rainbow colors
+            color1 = RAINBOW_COLORS[color_idx_floor]
+            color2 = RAINBOW_COLORS[color_idx_ceil]
+            gradient_color = interpolate_color(color1, color2, t)
+
+            result.append(char, style=gradient_color)
+        else:
+            # Unfilled portion gets dim style
+            result.append(char, style="dim")
+
+    return result
