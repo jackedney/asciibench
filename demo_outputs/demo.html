@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCIIBench Demo - Skeleton ASCII Art</title>
+    <style>
+        :root {
+            --bg-primary: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-code: #1e293b;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --border-color: #e2e8f0;
+            --accent-green: #10b981;
+            --accent-green-bg: #d1fae5;
+            --accent-green-text: #065f46;
+            --accent-red: #ef4444;
+            --accent-red-bg: #fee2e2;
+            --accent-red-text: #991b1b;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+            --transition: all 0.2s ease;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                "Helvetica Neue", Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+            line-height: 1.6;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 32px;
+            padding: 40px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
+        }
+
+        h1 {
+            color: #fff;
+            margin: 0 0 8px 0;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+
+        .subtitle {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 1rem;
+            margin: 0;
+        }
+
+        .stats-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 24px;
+            padding: 20px;
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color);
+        }
+
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-primary);
+            border-radius: var(--radius-sm);
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .stat-icon {
+            font-size: 1.1rem;
+        }
+
+        .stat-value {
+            font-weight: 700;
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+        }
+
+        .stat.valid .stat-value { color: var(--accent-green); }
+        .stat.invalid .stat-value { color: var(--accent-red); }
+        .stat.cost .stat-value { color: var(--accent-purple); }
+
+        .progress-container {
+            width: 100%;
+            margin-top: 12px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--accent-red-bg);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-green) 0%, #34d399 100%);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .filter-controls {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .filter-btn {
+            padding: 10px 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            transition: var(--transition);
+        }
+
+        .filter-btn:hover {
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        .filter-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: #fff;
+        }
+
+        .models-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 60px 24px;
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            border: 2px dashed var(--border-color);
+        }
+
+        .model-section {
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            padding: 24px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color);
+            transition: var(--transition);
+        }
+
+        .model-section:hover {
+            box-shadow: var(--shadow-md);
+            transform: translateY(-2px);
+        }
+
+        .model-section.invalid {
+            border-left: 4px solid var(--accent-red);
+        }
+
+        .model-section.valid-model {
+            border-left: 4px solid var(--accent-green);
+        }
+
+        .model-section.hidden {
+            display: none;
+        }
+
+        .model-header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .model-name {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .model-id {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+        }
+
+        .model-meta {
+            display: flex;
+            gap: 16px;
+            margin-left: auto;
+            align-items: center;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+        }
+
+        .valid-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .valid-badge.valid {
+            background: var(--accent-green-bg);
+            color: var(--accent-green-text);
+        }
+
+        .valid-badge.invalid {
+            background: var(--accent-red-bg);
+            color: var(--accent-red-text);
+        }
+
+        pre {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: var(--bg-code);
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: var(--radius-sm);
+            overflow-x: auto;
+            white-space: pre;
+            font-size: 13px;
+            line-height: 1.4;
+            margin: 0;
+        }
+
+        .invalid pre {
+            background: #7f1d1d;
+            color: #fecaca;
+        }
+
+        .timestamp {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            margin-top: 12px;
+            text-align: right;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 16px;
+            }
+
+            header {
+                padding: 24px 16px;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .stats-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .stat {
+                justify-content: space-between;
+            }
+
+            .model-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .model-meta {
+                margin-left: 0;
+                flex-wrap: wrap;
+            }
+
+            .filter-controls {
+                flex-wrap: wrap;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>ASCIIBench Demo</h1>
+        <p class="subtitle">Skeleton ASCII Art Generation</p>
+    </header>
+
+    <div class="stats-bar">
+        <div class="stat">
+            <span class="stat-icon">📊</span>
+            <span>Total:</span>
+            <span class="stat-value">17</span>
+        </div>
+        <div class="stat valid">
+            <span class="stat-icon">✓</span>
+            <span>Valid:</span>
+            <span class="stat-value">17</span>
+        </div>
+        <div class="stat invalid">
+            <span class="stat-icon">✗</span>
+            <span>Invalid:</span>
+            <span class="stat-value">0</span>
+        </div>
+        <div class="stat cost">
+            <span class="stat-icon">💰</span>
+            <span>Total Cost:</span>
+            <span class="stat-value">$0.0429</span>
+        </div>
+        <div class="progress-container">
+            <div class="progress-label">
+                <span>Success Rate</span>
+                <span>100.0%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: 100.0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="filter-controls">
+        <button class="filter-btn active" onclick="filterModels('all')">All (17)</button>
+        <button class="filter-btn" onclick="filterModels('valid')">Valid (17)</button>
+        <button class="filter-btn" onclick="filterModels('invalid')">Invalid (0)</button>
+    </div>
+
+    <div class="models-container">
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">Kimi K2.5</h2>
+                <span class="model-id">moonshotai/kimi-k2.5</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.002032</span>
+                    <span class="meta-item">🔤 677 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>   _____
+  /     \
+ | o   o |
+ |   &gt;   |
+ |  ===  |
+  \_____/
+     |
+    /|\
+   / | \
+     |
+    / \
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:25:25</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">Claude 4.5 Sonnet</h2>
+                <span class="model-id">anthropic/claude-sonnet-4.5</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.002139</span>
+                    <span class="meta-item">🔤 89 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>    .-.
+   (o.o)
+    |=|
+   __|__
+  /|   |\
+ (_|   |_)
+   |   |
+   |   |
+  _|   |_
+ (_|   |_)
+  /     \
+ /       \
+|         |
+|         |
+d         b
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:25:28</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">Gemini 3 Flash Preview</h2>
+                <span class="model-id">google/gemini-3-flash-preview</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.000331</span>
+                    <span class="meta-item">🔤 69 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>      .-.
+     (o.o)
+      |=|
+     __|__
+   /|  .  |\
+  / | :.: | \
+    | :.: |
+    &#x27;--_--&#x27;
+      | |
+      | |
+      | |
+    _/_|_\_
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:25:30</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">DeepSeek V3.2</h2>
+                <span class="model-id">deepseek/deepseek-v3.2</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.000335</span>
+                    <span class="meta-item">🔤 102 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>       _______
+      /       \
+     |         |
+     |         |
+     |         |
+      \_______/
+        |   |
+        |   |
+       /     \
+      /       \
+     /         \
+    |           |
+    |           |
+    |           |
+     \         /
+      \_______/
+        |   |
+        |   |
+        |   |
+       /     \
+      /       \
+     /         \
+    |           |
+    |           |
+     \_________/
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:25:41</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">Claude 4.5 Opus</h2>
+                <span class="model-id">anthropic/claude-opus-4.5</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.004140</span>
+                    <span class="meta-item">🔤 112 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>      .-&quot;-.
+     /     \
+    | () () |
+    |   ^   |
+    |  &#x27;-&#x27;  |
+     \_____/
+        |
+   /----|----\
+  /     |     \
+ |      |      |
+        |
+      /-+-\
+     /  |  \
+    |   |   |
+   /    |    \
+  /     |     \
+ |      |      |
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:25:46</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">Grok 4.1 Fast</h2>
+                <span class="model-id">x-ai/grok-4.1-fast</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.000367</span>
+                    <span class="meta-item">🔤 624 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>     .-&quot;&quot;&quot;-.
+   .&#x27;       `.
+  /   O   O   \
+ :     ---     :
+  \           /
+   `._     _.&#x27;
+      |||||
+     / | \
+    |  |  |
+    |  |  |
+     \ | /
+      \|/
+     / \
+    /   \
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:25:55</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">gpt-oss-120b</h2>
+                <span class="model-id">openai/gpt-oss-120b</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.000471</span>
+                    <span class="meta-item">🔤 483 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre> 
+.-.
+  (o o)
+  | O |
+  |   |
+  |___|
+   /|\
+  / | \
+   / \
+  /   \
+ /_____\
+   | |
+   | |
+  /   \
+ /_____\
+   / \
+  /   \
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:25:56</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">MiniMax M2.1</h2>
+                <span class="model-id">minimax/minimax-m2.1</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.000255</span>
+                    <span class="meta-item">🔤 150 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>    .---.
+   /     \
+  |  o o  |
+  |   ^   |
+   \_____/
+     |
+  .--|--.
+ /|  |  |\
+ | |  |  | |
+ |_|__|__|_|
+   |  |  
+   |  |  
+  /   \  
+ /     \ 
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:25:58</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">Gemini 3 Pro Preview</h2>
+                <span class="model-id">google/gemini-3-pro-preview</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.007000</span>
+                    <span class="meta-item">🔤 542 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>      .-.
+     (o.o)
+      |=|
+     __|__
+   //.=|=.\\
+  // .=|=. \\
+  \\ .=|=. //
+   \\(_=_)//
+    (:| |:)
+     || ||
+     || ||
+     || ||
+    ==&#x27; &#x27;==
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:26:11</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">GLM 4.7</h2>
+                <span class="model-id">z-ai/glm-4.7</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.001548</span>
+                    <span class="meta-item">🔤 638 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>    .---.
+   / o o \
+  |   ^   |
+   \  -  /
+    \___/
+     |
+   / | \
+  |  |  |
+   \ | /
+    | |
+   /   \
+  /     \
+ |       |
+  \_____/
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:26:27</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">GPT-5.2</h2>
+                <span class="model-id">openai/gpt-5.2</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.001762</span>
+                    <span class="meta-item">🔤 95 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>//== Skeleton ==\
+     .-.
+    (o o)
+    | O |
+    |   |
+    &#x27;~~~&#x27;
+   .-=-.
+  /  |  \
+ |   |   |
+ |  / \  |
+  \_|||_/
+    |||
+   /|||\
+  /_|||_\
+    |||
+   / | \
+  /  |  \
+     |
+    / \
+   /___\
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:26:30</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">GPT-5 Mini</h2>
+                <span class="model-id">openai/gpt-5-mini</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.002068</span>
+                    <span class="meta-item">🔤 1003 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>   .-&quot;&quot;&quot;&quot;-.
+  /  .--.  \
+ /  /    \  \
+|  | (  ) |  |
+|  |  ~~  |  |
+ \  &#x27;----&#x27;  /
+  &#x27;-.____.-&#x27;
+     ||||
+     ||||
+   .-====-.
+  /  ||||  \
+ |   ||||   |
+ |  / || \  |
+  \/_ || _\/
+     ||||
+     ||||
+     /  \
+    /____\
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:26:46</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">GPT-4.1 Mini</h2>
+                <span class="model-id">openai/gpt-4.1-mini</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.000186</span>
+                    <span class="meta-item">🔤 54 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>   .-.
+  (o o)
+  | O \
+   \   \
+    `~~~&#x27;
+   /| |\
+  /_| |_\
+    | |
+    | |
+   _| |_
+  (     )
+   `---&#x27;
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:26:48</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">Mistral Large 3 2512</h2>
+                <span class="model-id">mistralai/mistral-large-2512</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.000210</span>
+                    <span class="meta-item">🔤 54 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>   _____
+  /     \
+ | () () |
+  \  ^  /
+   |||||
+   || |||
+  / | | \
+ /  | |  \
+    | |
+    | |
+   /   \
+  /     \
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:26:49</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">Qwen3 VL 8B Thinking</h2>
+                <span class="model-id">qwen/qwen3-vl-8b-thinking</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.019320</span>
+                    <span class="meta-item">🔤 9177 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>     .-&quot;&quot;-.
+    /      \
+   |        |
+   |        |
+    \      /
+     &#x27;-..-&#x27;
+       |    |
+       |    |
+       |    |
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:29:07</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">Llama 4 Macerick</h2>
+                <span class="model-id">meta-llama/llama-4-maverick</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.000072</span>
+                    <span class="meta-item">🔤 38 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre> /_/\
+( o.o )
+ &gt; ^ &lt;
+______
+|       |
+|  O   O  |
+|   ^   |
+|  ---  |
+|_______|
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:29:08</div>
+        </div>
+
+        <div class="model-section valid-model" data-valid="true">
+            <div class="model-header">
+                <h2 class="model-name">ByteDance Seed 1.6</h2>
+                <span class="model-id">bytedance-seed/seed-1.6</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 $0.000664</span>
+                    <span class="meta-item">🔤 289 tokens</span>
+                    <span class="valid-badge valid">✓ Valid</span>
+                </div>
+            </div>
+            <pre>  (o_o)
+  &gt;^&lt;
+  |
+ / \
+| |
+ \ /
+  |
+ / \
+/   \
+|   |
+</pre>
+            <div class="timestamp">Generated: 2026-02-01 15:29:15</div>
+        </div>
+
+    </div>
+
+    <script>
+        function filterModels(status) {
+            const sections = document.querySelectorAll('.model-section');
+            const buttons = document.querySelectorAll('.filter-btn');
+
+            buttons.forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            sections.forEach(section => {
+                const isValid = section.dataset.valid === 'true';
+                if (status === 'all') {
+                    section.classList.remove('hidden');
+                } else if (status === 'valid') {
+                    section.classList.toggle('hidden', !isValid);
+                } else if (status === 'invalid') {
+                    section.classList.toggle('hidden', isValid);
+                }
+            });
+        }
+    </script>
+</body>
+</html>

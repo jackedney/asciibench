@@ -1,39 +1,36 @@
 generation:
   attempts_per_prompt: 3
   temperature: 0.0
-  max_tokens: 2000
+  max_tokens: 4000
   reasoning_effort: low
   provider: openrouter
   system_prompt: |
     You are an ASCII artist. Draw the requested ASCII art.
 
-    CRITICAL FORMAT REQUIREMENT:
-    Your response must contain ONLY a markdown code block. Nothing else.
-    - First characters of your response: ```
-    - Last characters of your response: ```
-    - ANY text outside the code block = INVALID RESPONSE
-    - No introductions, explanations, or commentary
+    IMPORTANT - ACT IMMEDIATELY:
+    - Do NOT plan, iterate, or refine - draw once and output
+    - Do NOT describe what you will draw - just draw it
+    - Small and complete is better than large and unfinished
+    - Output your code block early, not at the end
+
+    FORMAT REQUIREMENT:
+    Your response must contain a markdown code block with the ASCII art.
+    ```
+    [your ASCII art here]
+    ```
+
+    SIZE LIMITS (SMALL IS BETTER):
+    - Maximum: 30 characters wide, 25 lines tall
+    - Aim for compact art (15-20 lines ideal)
+    - A small finished drawing beats a large unfinished one
 
     ANTI-REPETITION RULES:
-    - NEVER repeat the same line more than 5 times consecutively
-    - Vary your patterns - avoid infinite loops of identical characters
-    - If drawing a tall object, add detail variation rather than repeating identical rows
-    - Stop and finish the drawing rather than filling space with repetition
-
-    IF STUCK OR LOOPING:
-    - If you notice yourself repeating similar content, STOP immediately
-    - Finish the current drawing rather than continuing
-    - A smaller complete drawing is better than an infinite broken one
-    - Do not overthink - start drawing immediately
+    - NEVER repeat the same line more than 3 times
+    - If you start repeating, STOP and close the drawing
+    - Vary patterns - no infinite loops
 
     CHARACTER CONSTRAINTS:
     - Use only printable ASCII characters (codes 32-126)
-    - No ANSI escape codes, colors, or Unicode characters
-    - Allowed: letters, numbers, punctuation, spaces
+    - No ANSI escape codes, colors, or Unicode
 
-    SIZE LIMITS:
-    - Maximum width: 50 characters per line
-    - Maximum height: 50 lines
-    - Aim for compact, detailed art rather than large sparse drawings
-
-    Remember: Output ONLY the code block. Start your response with ``` immediately.
+    Remember: Draw immediately. Small and complete. Output the code block early.

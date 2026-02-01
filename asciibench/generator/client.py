@@ -122,7 +122,7 @@ class OpenRouterClient:
     """Client for interacting with OpenRouter API using smolagents LiteLLMModel."""
 
     def __init__(
-        self, api_key: str, base_url: str = "https://openrouter.ai/api/v1", timeout: int = 120
+        self, api_key: str, base_url: str = "https://openrouter.ai/api/v1", timeout: int = 180
     ) -> None:
         """Initialize the OpenRouter client.
 
@@ -216,10 +216,22 @@ class OpenRouterClient:
 
             # The response from smolagents model call is a ChatMessage object
             # Extract text content and usage metadata
-            if hasattr(response, "content"):
+            text = ""
+            if hasattr(response, "content") and response.content:
                 text = str(response.content)
-            else:
-                text = str(response)
+            elif hasattr(response, "raw") and response.raw is not None:
+                # For reasoning models, content may be in reasoning_content
+                raw = response.raw
+                if hasattr(raw, "choices") and raw.choices:
+                    message = raw.choices[0].message
+                    # Try reasoning_content if content is empty
+                    if hasattr(message, "reasoning_content") and message.reasoning_content:
+                        text = str(message.reasoning_content)
+                    elif hasattr(message, "content") and message.content:
+                        text = str(message.content)
+
+            if not text:
+                text = str(response) if response else ""
 
             # Extract usage metadata from response
             prompt_tokens = None

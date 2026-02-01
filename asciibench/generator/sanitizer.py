@@ -41,7 +41,8 @@ def extract_ascii_from_markdown(markdown: str) -> str:
     """
     # Match everything between ``` delimiters
     # Allow optional language specifier after opening backticks
-    pattern = r"```(?:[a-z]*\s*)?(.*?)```"
+    # Use \n? to only consume the newline after language specifier, not leading spaces
+    pattern = r"```(?:[a-z]*\n)?(.*?)```"
 
     match = re.search(pattern, markdown, re.DOTALL)
 

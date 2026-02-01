@@ -400,13 +400,10 @@ class RuneScapeLoader:
             result.append("━" * width, style=flash_color)
             return result
 
-        # Layer 1: Status line
-        status_line = render_status_line(success_count, failure_count, total_cost)
-
-        # Layer 2: Left-justified model name with color cycling
+        # Left-justified model name with color cycling
         model_name_text = render_cycling_text(model_name, frame, shift_interval=2)
 
-        # Layer 3: Progress bar with gradient
+        # Progress bar with gradient
         # Use ━ (filled) and ─ (empty) for progress bar
         bar_width = min(80, width - 4)  # Limit bar width to 80 or available width
         filled_count = int(bar_width * progress)
@@ -414,13 +411,16 @@ class RuneScapeLoader:
         progress_bar_text = "━" * filled_count + "─" * empty_count
         progress_bar = render_gradient_text(progress_bar_text, frame, filled_ratio=progress)
 
-        # Combine all 3 layers with newlines
+        # Status line with success/failure counts and cost
+        status_line = render_status_line(success_count, failure_count, total_cost)
+
+        # Combine all layers: model name, progress bar, status
         result = Text()
-        result.append(status_line)
-        result.append("\n")
         result.append(model_name_text)
         result.append("\n")
         result.append(progress_bar)
+        result.append("\n")
+        result.append(status_line)
 
         return result
 

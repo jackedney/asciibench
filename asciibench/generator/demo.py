@@ -837,13 +837,15 @@ def main() -> None:
         )
         return
 
-    console.print(f"\n[info]Loaded {len(models)} models from models.yaml[/info]")
+    console.print()
+    console.print(f"  [dim]•[/dim] [bold cyan]{len(models)}[/bold cyan] [dim]models loaded from[/dim] [white]models.yaml[/white]")
 
     results = load_demo_results()
     completed_ids = get_completed_model_ids()
     remaining_models = [m for m in models if m.id not in completed_ids]
 
-    console.print(f"[info]Remaining models to generate: {len(remaining_models)}[/info]\n")
+    console.print(f"  [dim]•[/dim] [bold yellow]{len(remaining_models)}[/bold yellow] [dim]remaining to generate[/dim]")
+    console.print()
 
     if not remaining_models:
         console.print(
@@ -866,9 +868,6 @@ def main() -> None:
     failed_count = 0
     running_cost = 0.0
 
-    # Display initial stats
-    show_stats(completed_count, failed_count, running_cost)
-    console.print()
 
     # Create loader for the generation process
     # Each model is one step in the loader
@@ -902,9 +901,6 @@ def main() -> None:
                     failed_count += 1
                     # Show failure flash and continue to next model
                     loader.complete(success=False, cost=0.0)
-
-                # Update stats display
-                show_stats(completed_count, failed_count, running_cost)
 
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
