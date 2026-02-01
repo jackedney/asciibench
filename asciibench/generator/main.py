@@ -181,10 +181,6 @@ def main() -> None:
             show_prompt(prompt_text)
             current_prompt_text = prompt_text
 
-            # Display stats above progress bar before each model batch starts
-            show_stats(success_count, failure_count, running_cost)
-            console.print()
-
             # Create and start new loader for this model
             loader = create_loader(model_id, total_samples_per_model)
             loader.start()

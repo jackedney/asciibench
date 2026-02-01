@@ -12,7 +12,11 @@ import asyncio
 import threading
 from typing import Any
 
+import litellm
 from smolagents import ChatMessage, LiteLLMModel
+
+# Suppress LiteLLM debug info (e.g., "Provider List: https://docs.litellm.ai/docs/providers")
+litellm.suppress_debug_info = True
 
 from asciibench.common.config import GenerationConfig
 from asciibench.common.models import OpenRouterResponse
