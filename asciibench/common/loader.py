@@ -403,13 +403,8 @@ class RuneScapeLoader:
         # Layer 1: Status line
         status_line = render_status_line(success_count, failure_count, total_cost)
 
-        # Layer 2: Centered model name with color cycling
+        # Layer 2: Left-justified model name with color cycling
         model_name_text = render_cycling_text(model_name, frame, shift_interval=2)
-        # Calculate centering - pad with spaces on left
-        model_name_len = len(model_name)
-        left_pad = (width - model_name_len) // 2
-        if left_pad > 0:
-            model_name_text = Text(" " * left_pad) + model_name_text
 
         # Layer 3: Progress bar with gradient
         # Use ━ (filled) and ─ (empty) for progress bar
