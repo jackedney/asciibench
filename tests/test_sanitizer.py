@@ -54,11 +54,12 @@ class TestExtractAsciiFromMarkdown:
         result = extract_ascii_from_markdown(markdown)
         assert result == "First block"
 
-    def test_strips_leading_trailing_whitespace(self):
-        """Strip leading and trailing whitespace from extracted content."""
+    def test_strips_leading_trailing_blank_lines(self):
+        """Strip leading and trailing blank lines but preserve line whitespace."""
         markdown = "```\n\n  content  \n\n```"
         result = extract_ascii_from_markdown(markdown)
-        assert result == "content"
+        # Empty lines at start/end are stripped, but whitespace on content lines is preserved
+        assert result == "  content  "
 
     def test_preserves_internal_whitespace(self):
         """Preserve internal whitespace and newlines in content."""
@@ -108,3 +109,36 @@ class TestExtractAsciiFromMarkdown:
         markdown = "```\n   \n  \n```"
         result = extract_ascii_from_markdown(markdown)
         assert result == ""
+
+    def test_preserves_ascii_art_alignment(self):
+        """Preserve leading whitespace on first line for ASCII art alignment."""
+        # This is critical for ASCII art that starts with leading spaces
+        markdown = "```\n      ___\n     /   \\\n    | o o |\n```"
+        result = extract_ascii_from_markdown(markdown)
+        # All leading spaces must be preserved for proper alignment
+        assert result == "      ___\n     /   \\\n    | o o |"
+        # Verify the first line starts with spaces
+        assert result.startswith("      ")
+
+    def test_tolerates_spaces_after_opening_backticks(self):
+        """Handle code blocks with spaces after opening backticks.
+
+        Some models (e.g., GPT-4.1 Mini) output ```  instead of ```.
+        The sanitizer should tolerate this whitespace variation.
+        """
+        # Two spaces after backticks
+        markdown = "```  \n/_/\\\n( o.o )\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "/_/\\\n( o.o )"
+
+    def test_tolerates_tabs_after_opening_backticks(self):
+        """Handle code blocks with tabs after opening backticks."""
+        markdown = "```\t\n/_/\\\n( o.o )\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "/_/\\\n( o.o )"
+
+    def test_tolerates_spaces_before_language_specifier(self):
+        """Handle code blocks with spaces between backticks and language."""
+        markdown = "```  text\n/_/\\\n( o.o )\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "/_/\\\n( o.o )"

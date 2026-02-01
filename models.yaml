@@ -31,22 +31,14 @@ models:
     name: GPT-4.1 Mini
   - id: z-ai/glm-4.5-air:free
     name: GLM 4.5 Air
-  - id: moonshotai/kimi-k2-thinking
-    name: Kimi K2 Thinking
   - id: meta-llama/llama-3.1-8b-instruct
     name: Llama 3.1 8B Instruct
   - id: mistralai/mistral-small-3.2-24b-instruct
     name: Mistral Small 3.2 24B
-  - id: google/gemini-2.5-flash-lite
-    name: Gemini 2.5 Flash Lite
-  - id: arcee-ai/trinity-large-preview:free
-    name: Trinity Large Preview
   - id: meta-llama/llama-3.3-70b-instruct
     name: Llama 3.3 70B Instruct
   - id: nvidia/nemotron-3-nano-30b-a3b:free
     name: Nemotron 3 Nano 30B A3B
   - id: qwen/qwen3-235b-a22b-2507
     name: Qwen3 235B A22B Instruct 2507
-  - id: microsoft/phi-4
-    name: Phi 4
 

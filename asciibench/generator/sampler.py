@@ -87,8 +87,8 @@ def _validate_output(raw_output: str, sanitized_output: str, max_tokens: int) ->
     # Invalid if no code block found (empty sanitized output)
     if not sanitized_output:
         return False
-    # Invalid if output exceeds max_tokens (rough estimate: 4 chars per token)
-    if len(raw_output) > max_tokens * 4:
+    # Invalid if output exceeds max_tokens (rough estimate: 3 chars per token for ASCII art)
+    if len(raw_output) > max_tokens * 3:
         return False
     return True
 

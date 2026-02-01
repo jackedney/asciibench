@@ -161,15 +161,31 @@ class OpenRouterClient:
             # Disable retries to prevent indefinite retrying on rate limits
             # Auto-prepend 'openrouter/' prefix for LiteLLM
             litellm_model_id = f"openrouter/{model_id}"
-            model = LiteLLMModelWithCost(
-                model_id=litellm_model_id,
-                api_base=self.base_url,
-                api_key=self.api_key,
-                temperature=config.temperature,
-                max_tokens=config.max_tokens,
-                client_kwargs={"max_retries": 0, "timeout": self.timeout},
-                retry=False,
-            )
+            # Build model kwargs
+            model_kwargs = {
+                "model_id": litellm_model_id,
+                "api_base": self.base_url,
+                "api_key": self.api_key,
+                "temperature": config.temperature,
+                "max_tokens": config.max_tokens,
+                "client_kwargs": {"max_retries": 0, "timeout": self.timeout},
+                "retry": False,
+            }
+
+            # Build extra_body for OpenRouter-specific parameters
+            extra_body = {}
+
+            # Add reasoning parameters if enabled (supported by o1, deepseek, kimi-k2)
+            if config.reasoning:
+                extra_body["reasoning"] = True
+                if config.include_reasoning:
+                    extra_body["include_reasoning"] = True
+
+            # Add extra_body to model kwargs if not empty
+            if extra_body:
+                model_kwargs["extra_body"] = extra_body
+
+            model = LiteLLMModelWithCost(**model_kwargs)
 
             # Build messages list
             messages: list[dict] = []

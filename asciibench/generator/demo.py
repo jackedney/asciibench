@@ -313,19 +313,27 @@ def generate_html() -> None:
     """Generate HTML output from results.json.
 
     Creates .demo_outputs/demo.html with all model outputs displayed
-    in a scrollable page with clean inline CSS styling.
+    in a scrollable page with modern styling and filter controls.
 
-    Each model section includes:
-    - h2 header with model name
-    - pre block with ASCII art (monospace font)
-    - timestamp showing generation time
-    - red border styling for invalid outputs
+    Features:
+    - Summary stats bar with total, valid, invalid counts and cost
+    - Filter buttons (All/Valid/Invalid) with minimal JavaScript
+    - Modern card design with hover effects
+    - Improved badge styling and typography
+    - Responsive layout for mobile
 
     Empty results show 'No results yet' message.
     """
     results = load_demo_results()
 
     DEMO_OUTPUTS_DIR.mkdir(exist_ok=True)
+
+    # Calculate stats for summary bar
+    total_count = len(results)
+    valid_count = sum(1 for r in results if r.is_valid)
+    invalid_count = total_count - valid_count
+    total_cost = sum(r.cost or 0 for r in results)
+    valid_pct = (valid_count / total_count * 100) if total_count > 0 else 0
 
     html_content = """<!DOCTYPE html>
 <html lang="en">
@@ -334,147 +342,445 @@ def generate_html() -> None:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ASCIIBench Demo - Skeleton ASCII Art</title>
     <style>
+        :root {
+            --bg-primary: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-code: #1e293b;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --border-color: #e2e8f0;
+            --accent-green: #10b981;
+            --accent-green-bg: #d1fae5;
+            --accent-green-text: #065f46;
+            --accent-red: #ef4444;
+            --accent-red-bg: #fee2e2;
+            --accent-red-text: #991b1b;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+            --transition: all 0.2s ease;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                Oxygen, Ubuntu, Cantarell, sans-serif;
+                "Helvetica Neue", Arial, sans-serif;
             max-width: 1200px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 24px;
             line-height: 1.6;
-            background-color: #f9fafb;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
         }
+
         header {
             text-align: center;
-            margin-bottom: 40px;
-            padding: 30px 0;
-            border-bottom: 2px solid #e5e7eb;
+            margin-bottom: 32px;
+            padding: 40px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
         }
+
         h1 {
-            color: #111827;
+            color: #fff;
+            margin: 0 0 8px 0;
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+
+        .subtitle {
+            color: rgba(255, 255, 255, 0.85);
+            font-size: 1rem;
             margin: 0;
         }
+
+        .stats-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 24px;
+            padding: 20px;
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color);
+        }
+
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-primary);
+            border-radius: var(--radius-sm);
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .stat-icon {
+            font-size: 1.1rem;
+        }
+
+        .stat-value {
+            font-weight: 700;
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+        }
+
+        .stat.valid .stat-value { color: var(--accent-green); }
+        .stat.invalid .stat-value { color: var(--accent-red); }
+        .stat.cost .stat-value { color: var(--accent-purple); }
+
+        .progress-container {
+            width: 100%;
+            margin-top: 12px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--accent-red-bg);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-green) 0%, #34d399 100%);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .filter-controls {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+
+        .filter-btn {
+            padding: 10px 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            transition: var(--transition);
+        }
+
+        .filter-btn:hover {
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        .filter-btn.active {
+            background: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: #fff;
+        }
+
+        .models-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
         .no-results {
             text-align: center;
-            padding: 60px 20px;
-            color: #6b7280;
-            font-size: 1.2em;
-            background-color: #fff;
-            border-radius: 8px;
-            margin: 40px 0;
+            padding: 60px 24px;
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            border: 2px dashed var(--border-color);
         }
+
         .model-section {
-            background-color: #fff;
-            border-radius: 8px;
-            padding: 25px;
-            margin-bottom: 25px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            background: var(--bg-card);
+            border-radius: var(--radius-md);
+            padding: 24px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color);
+            transition: var(--transition);
         }
+
+        .model-section:hover {
+            box-shadow: var(--shadow-md);
+            transform: translateY(-2px);
+        }
+
         .model-section.invalid {
-            border: 2px solid #ef4444;
+            border-left: 4px solid var(--accent-red);
         }
-        h2 {
-            color: #1f2937;
-            margin-top: 0;
-            margin-bottom: 15px;
-            font-size: 1.5em;
-            border-bottom: 1px solid #e5e7eb;
-            padding-bottom: 10px;
+
+        .model-section.valid-model {
+            border-left: 4px solid var(--accent-green);
         }
+
+        .model-section.hidden {
+            display: none;
+        }
+
+        .model-header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .model-name {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
         .model-id {
-            color: #6b7280;
-            font-size: 0.9em;
-            margin-left: 10px;
-            font-family: 'Courier New', monospace;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
         }
-        .cost-tokens {
-            color: #6b7280;
-            font-size: 0.9em;
-            margin-left: 10px;
-            font-family: 'Courier New', monospace;
+
+        .model-meta {
+            display: flex;
+            gap: 16px;
+            margin-left: auto;
+            align-items: center;
         }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+        }
+
+        .valid-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .valid-badge.valid {
+            background: var(--accent-green-bg);
+            color: var(--accent-green-text);
+        }
+
+        .valid-badge.invalid {
+            background: var(--accent-red-bg);
+            color: var(--accent-red-text);
+        }
+
         pre {
-            font-family: 'Courier New', Courier, monospace;
-            background-color: #f3f4f6;
+            font-family: 'SF Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: var(--bg-code);
+            color: #e2e8f0;
             padding: 20px;
-            border-radius: 6px;
+            border-radius: var(--radius-sm);
             overflow-x: auto;
             white-space: pre;
-            font-size: 14px;
-            line-height: 1.5;
-            border: 1px solid #e5e7eb;
+            font-size: 13px;
+            line-height: 1.4;
+            margin: 0;
         }
+
         .invalid pre {
-            background-color: #fef2f2;
-            border-color: #fca5a5;
+            background: #7f1d1d;
+            color: #fecaca;
         }
+
         .timestamp {
-            color: #9ca3af;
-            font-size: 0.85em;
-            margin-top: 15px;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            margin-top: 12px;
             text-align: right;
         }
-        .valid-badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            font-weight: 600;
-            margin-left: 10px;
-        }
-        .valid-badge.valid {
-            background-color: #d1fae5;
-            color: #065f46;
-        }
-        .valid-badge.invalid {
-            background-color: #fee2e2;
-            color: #991b1b;
-        }
-        .error-message {
-            color: #dc2626;
-            font-style: italic;
+
+        @media (max-width: 768px) {
+            body {
+                padding: 16px;
+            }
+
+            header {
+                padding: 24px 16px;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .stats-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .stat {
+                justify-content: space-between;
+            }
+
+            .model-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .model-meta {
+                margin-left: 0;
+                flex-wrap: wrap;
+            }
+
+            .filter-controls {
+                flex-wrap: wrap;
+            }
         }
     </style>
 </head>
 <body>
     <header>
-        <h1>ASCIIBench Demo - Skeleton ASCII Art</h1>
+        <h1>ASCIIBench Demo</h1>
+        <p class="subtitle">Skeleton ASCII Art Generation</p>
     </header>
+"""
+
+    if results:
+        html_content += f"""
+    <div class="stats-bar">
+        <div class="stat">
+            <span class="stat-icon">📊</span>
+            <span>Total:</span>
+            <span class="stat-value">{total_count}</span>
+        </div>
+        <div class="stat valid">
+            <span class="stat-icon">✓</span>
+            <span>Valid:</span>
+            <span class="stat-value">{valid_count}</span>
+        </div>
+        <div class="stat invalid">
+            <span class="stat-icon">✗</span>
+            <span>Invalid:</span>
+            <span class="stat-value">{invalid_count}</span>
+        </div>
+        <div class="stat cost">
+            <span class="stat-icon">💰</span>
+            <span>Total Cost:</span>
+            <span class="stat-value">${total_cost:.4f}</span>
+        </div>
+        <div class="progress-container">
+            <div class="progress-label">
+                <span>Success Rate</span>
+                <span>{valid_pct:.1f}%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: {valid_pct}%"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="filter-controls">
+        <button class="filter-btn active" onclick="filterModels('all')">All ({total_count})</button>
+        <button class="filter-btn" onclick="filterModels('valid')">Valid ({valid_count})</button>
+        <button class="filter-btn" onclick="filterModels('invalid')">Invalid ({invalid_count})</button>
+    </div>
+
+    <div class="models-container">
 """
 
     if not results:
         html_content += """
     <div class="no-results">
-        No results yet. Run 'task demo' to generate ASCII art samples.
+        No results yet. Run <code>task demo</code> to generate ASCII art samples.
     </div>
 """
     else:
         for result in results:
             timestamp_str = result.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            section_class = "invalid" if not result.is_valid else ""
+            valid_class = "valid-model" if result.is_valid else "invalid"
             badge_class = "valid" if result.is_valid else "invalid"
+            badge_icon = "✓" if result.is_valid else "✗"
             badge_text = "Valid" if result.is_valid else "Invalid"
             escaped_output = html.escape(result.ascii_output)
-            cost_str = f"${result.cost:.6f}" if result.cost is not None else "$0.000000"
+            cost_str = f"${result.cost:.6f}" if result.cost is not None else "$0.00"
             tokens_str = (
-                f"{result.output_tokens} tokens"
+                f"{result.output_tokens}"
                 if result.output_tokens is not None
-                else "N/A tokens"
+                else "N/A"
             )
+            data_valid = "true" if result.is_valid else "false"
 
             html_content += f"""
-    <div class="model-section {section_class}">
-        <h2>
-            {result.model_name}
-            <span class="model-id">({result.model_id})</span>
-            <span class="cost-tokens">({cost_str} | {tokens_str})</span>
-            <span class="valid-badge {badge_class}">{badge_text}</span>
-        </h2>
-        <pre>{escaped_output}</pre>
-        <div class="timestamp">Generated: {timestamp_str}</div>
+        <div class="model-section {valid_class}" data-valid="{data_valid}">
+            <div class="model-header">
+                <h2 class="model-name">{result.model_name}</h2>
+                <span class="model-id">{result.model_id}</span>
+                <div class="model-meta">
+                    <span class="meta-item">💰 {cost_str}</span>
+                    <span class="meta-item">🔤 {tokens_str} tokens</span>
+                    <span class="valid-badge {badge_class}">{badge_icon} {badge_text}</span>
+                </div>
+            </div>
+            <pre>{escaped_output}</pre>
+            <div class="timestamp">Generated: {timestamp_str}</div>
+        </div>
+"""
+
+    if results:
+        html_content += """
     </div>
 """
 
     html_content += """
+    <script>
+        function filterModels(status) {
+            const sections = document.querySelectorAll('.model-section');
+            const buttons = document.querySelectorAll('.filter-btn');
+
+            buttons.forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            sections.forEach(section => {
+                const isValid = section.dataset.valid === 'true';
+                if (status === 'all') {
+                    section.classList.remove('hidden');
+                } else if (status === 'valid') {
+                    section.classList.toggle('hidden', !isValid);
+                } else if (status === 'invalid') {
+                    section.classList.toggle('hidden', isValid);
+                }
+            });
+        }
+    </script>
 </body>
 </html>
 """

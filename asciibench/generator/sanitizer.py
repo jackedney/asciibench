@@ -14,7 +14,8 @@ def extract_ascii_from_markdown(markdown: str) -> str:
     """Extract ASCII art content from markdown code blocks.
 
     This function searches for code blocks in markdown format
-    (e.g., ```text...``` or ```...```) and extracts the content.
+    (e.g., ```text...``` or ```...```) and extracts the content exactly
+    as it appears between the backticks without any manipulation.
 
     Supported code block formats:
         - ```text...```
@@ -26,8 +27,8 @@ def extract_ascii_from_markdown(markdown: str) -> str:
         markdown: Markdown text potentially containing ASCII art in code blocks
 
     Returns:
-        Extracted ASCII art content with leading/trailing whitespace stripped,
-        or empty string if no code blocks found or code block is empty.
+        Extracted ASCII art content exactly as it appears between backticks,
+        or empty string if no code blocks found.
 
     Examples:
         >>> markdown = "```text\\n/\\_/\\\\n( o.o )\\n > ^ <\\n```"
@@ -38,17 +39,14 @@ def extract_ascii_from_markdown(markdown: str) -> str:
         >>> extract_ascii_from_markdown(markdown)
         ''
     """
-    # Match code blocks with specific language specifiers (text, ascii, plaintext)
-    # or no language specifier at all
-    # The pattern uses alternation to handle:
-    # 1. ``` followed by text/ascii/plaintext and then content
-    # 2. ``` followed immediately by newline (no language) and then content
-    pattern = r"```(?:(?:text|ascii|plaintext)\s*\n|\n)(.*?)```"
+    # Match everything between ``` delimiters
+    # Allow optional language specifier after opening backticks
+    pattern = r"```(?:[a-z]*\s*)?(.*?)```"
 
     match = re.search(pattern, markdown, re.DOTALL)
 
     if match:
-        content = match.group(1).strip()
-        return content
+        # Return content exactly as is, without any whitespace manipulation
+        return match.group(1)
 
     return ""

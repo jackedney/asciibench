@@ -570,7 +570,7 @@ class TestGenerateHtml:
 
         assert "ASCIIBench Demo - Skeleton ASCII Art" in html_content
         assert "No results yet" in html_content
-        assert "Run 'task demo' to generate ASCII art samples" in html_content
+        assert "task demo" in html_content
 
     def test_generate_html_with_single_result(self, tmp_path: Path) -> None:
         """Test HTML generation with a single valid result."""
@@ -711,7 +711,9 @@ class TestGenerateHtml:
 
         html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
 
-        assert "font-family: 'Courier New', Courier, monospace" in html_content
+        # Check for monospace font in pre element styling (now uses SF Mono stack)
+        assert "monospace" in html_content
+        assert "pre {" in html_content or "pre{" in html_content
 
     def test_generate_html_uses_utf8_encoding(self, tmp_path: Path) -> None:
         """Test HTML generation uses UTF-8 encoding."""
@@ -790,8 +792,9 @@ class TestGenerateHtml:
         html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
 
         assert "$0.001234" in html_content
-        assert "1234 tokens" in html_content
-        assert 'class="cost-tokens"' in html_content
+        assert "1234" in html_content
+        assert "tokens" in html_content
+        assert 'class="meta-item"' in html_content
 
     def test_generate_html_handles_missing_cost_and_tokens(self, tmp_path: Path) -> None:
         """Test HTML generation handles missing cost and tokens gracefully."""
@@ -817,9 +820,10 @@ class TestGenerateHtml:
         assert demo_module.DEMO_HTML_PATH.exists()
         html_content = demo_module.DEMO_HTML_PATH.read_text(encoding="utf-8")
 
-        assert "$0.000000" in html_content
-        assert "N/A tokens" in html_content
-        assert 'class="cost-tokens"' in html_content
+        assert "$0.00" in html_content
+        assert "N/A" in html_content
+        assert "tokens" in html_content
+        assert 'class="meta-item"' in html_content
 
 
 class TestShowStats:
