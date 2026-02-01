@@ -12,15 +12,19 @@ Dependencies:
 """
 
 import asyncio
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from asciibench.common.config import GenerationConfig, Settings
+from asciibench.common.logging import get_logger
 from asciibench.common.models import ArtSample, Model, Prompt
 from asciibench.common.persistence import append_jsonl, read_jsonl
 from asciibench.generator.client import OpenRouterClient, OpenRouterClientError
 from asciibench.generator.sanitizer import extract_ascii_from_markdown
+
+logger = get_logger("generator.sampler")
 
 # Type alias for progress callback: (model_id, prompt_text, attempt_number, total_remaining) -> None
 ProgressCallback = Callable[[str, str, int, int], None]
@@ -30,6 +34,41 @@ StatsCallback = Callable[[bool, float | None], None]
 
 # Default number of retries for invalid outputs or API errors
 DEFAULT_MAX_RETRIES = 3
+
+
+@dataclass
+class BatchMetrics:
+    """Tracks metrics for a batch of sample generations."""
+
+    total_samples: int = 0
+    successful: int = 0
+    failed: int = 0
+    total_duration_ms: float = 0.0
+    total_cost: float = 0.0
+
+    def record_sample(self, success: bool, duration_ms: float, cost: float | None) -> None:
+        """Record metrics for a single sample generation."""
+        self.total_samples += 1
+        if success:
+            self.successful += 1
+        else:
+            self.failed += 1
+        self.total_duration_ms += duration_ms
+        if cost is not None:
+            self.total_cost += cost
+
+    def log_summary(self) -> None:
+        """Log batch summary metrics."""
+        logger.info(
+            "Batch generation complete",
+            {
+                "total_samples": self.total_samples,
+                "successful": self.successful,
+                "failed": self.failed,
+                "total_duration_ms": round(self.total_duration_ms, 2),
+                "total_cost": round(self.total_cost, 6),
+            },
+        )
 
 
 @dataclass
@@ -97,7 +136,7 @@ async def _generate_single_sample(
     client: OpenRouterClient,
     task: SampleTask,
     config: GenerationConfig,
-) -> ArtSample:
+) -> tuple[ArtSample, float, str | None]:
     """Generate a single sample without retry logic.
 
     Args:
@@ -106,28 +145,50 @@ async def _generate_single_sample(
         config: Generation configuration
 
     Returns:
-        Generated ArtSample
+        Tuple of (ArtSample, duration_ms, error_message)
     """
-    response = await client.generate_async(
-        model_id=task.model.id,
-        prompt=task.prompt.text,
-        config=config,
-    )
-    raw_output = response.text
-    sanitized_output = extract_ascii_from_markdown(raw_output)
-    is_valid = _validate_output(raw_output, sanitized_output, config.max_tokens)
+    start_time = time.perf_counter()
+    error_message = None
 
-    return ArtSample(
-        model_id=task.model.id,
-        prompt_text=task.prompt.text,
-        category=task.prompt.category,
-        attempt_number=task.attempt,
-        raw_output=raw_output,
-        sanitized_output=sanitized_output,
-        is_valid=is_valid,
-        output_tokens=response.completion_tokens,
-        cost=response.cost,
-    )
+    try:
+        response = await client.generate_async(
+            model_id=task.model.id,
+            prompt=task.prompt.text,
+            config=config,
+        )
+        raw_output = response.text
+        sanitized_output = extract_ascii_from_markdown(raw_output)
+        is_valid = _validate_output(raw_output, sanitized_output, config.max_tokens)
+
+        sample = ArtSample(
+            model_id=task.model.id,
+            prompt_text=task.prompt.text,
+            category=task.prompt.category,
+            attempt_number=task.attempt,
+            raw_output=raw_output,
+            sanitized_output=sanitized_output,
+            is_valid=is_valid,
+            output_tokens=response.completion_tokens,
+            cost=response.cost,
+        )
+    except (OpenRouterClientError, Exception) as e:
+        sample = ArtSample(
+            model_id=task.model.id,
+            prompt_text=task.prompt.text,
+            category=task.prompt.category,
+            attempt_number=task.attempt,
+            raw_output="",
+            sanitized_output="",
+            is_valid=False,
+            output_tokens=None,
+            cost=None,
+        )
+        error_message = f"{type(e).__name__}: {e}"
+
+    end_time = time.perf_counter()
+    duration_ms = (end_time - start_time) * 1000
+
+    return sample, duration_ms, error_message
 
 
 async def _generate_batch_for_model(
@@ -141,6 +202,7 @@ async def _generate_batch_for_model(
     stats_callback: StatsCallback | None,
     total_combinations: int,
     samples_processed_ref: list[int],
+    metrics: BatchMetrics,
 ) -> list[ArtSample]:
     """Generate all samples for a single model concurrently.
 
@@ -155,6 +217,7 @@ async def _generate_batch_for_model(
         stats_callback: Optional stats callback called after each sample
         total_combinations: Total number of combinations for progress tracking
         samples_processed_ref: Mutable reference to track samples processed
+        metrics: BatchMetrics to track generation statistics
 
     Returns:
         List of newly generated samples
@@ -173,20 +236,23 @@ async def _generate_batch_for_model(
             remaining = total_combinations - samples_processed_ref[0] + 1
             progress_callback(task.model.id, task.prompt.text, task.attempt, remaining)
 
-        try:
-            sample = await _generate_single_sample(client, task, config)
-        except (OpenRouterClientError, Exception):
-            sample = ArtSample(
-                model_id=task.model.id,
-                prompt_text=task.prompt.text,
-                category=task.prompt.category,
-                attempt_number=task.attempt,
-                raw_output="",
-                sanitized_output="",
-                is_valid=False,
-                output_tokens=None,
-                cost=None,
-            )
+        sample, duration_ms, error_message = await _generate_single_sample(client, task, config)
+
+        # Log metrics for this sample
+        logger.info(
+            "Sample generated",
+            {
+                "model": task.model.id,
+                "prompt_id": f"{task.model.id}_{task.prompt.text}_{task.attempt}",
+                "duration_ms": round(duration_ms, 2),
+                "success": sample.is_valid,
+                "cost": sample.cost,
+                "error": error_message if error_message else None,
+            },
+        )
+
+        # Record batch metrics
+        metrics.record_sample(sample.is_valid, duration_ms, sample.cost)
 
         # Call stats callback after generation
         if stats_callback is not None:
@@ -261,6 +327,7 @@ async def generate_samples_async(
     existing_keys = _build_existing_sample_keys(existing_samples)
 
     newly_generated: list[ArtSample] = []
+    metrics = BatchMetrics()
 
     # Calculate total samples to generate for progress tracking
     total_combinations = len(models) * len(prompts) * config.attempts_per_prompt
@@ -287,9 +354,13 @@ async def generate_samples_async(
             stats_callback=stats_callback,
             total_combinations=total_combinations,
             samples_processed_ref=samples_processed_ref,
+            metrics=metrics,
         )
 
         newly_generated.extend(model_samples)
+
+    # Log batch summary
+    metrics.log_summary()
 
     return newly_generated
 

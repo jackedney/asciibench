@@ -9,7 +9,6 @@ to .demo_outputs/demo.html with incremental/resumable generation support.
 
 import html
 import json
-import logging
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +18,7 @@ from rich.text import Text
 
 from asciibench.common.config import Settings
 from asciibench.common.display import get_console
+from asciibench.common.logging import get_logger
 from asciibench.common.models import DemoResult, OpenRouterResponse
 from asciibench.common.simple_display import create_loader, show_banner, show_prompt
 from asciibench.common.yaml_config import load_generation_config, load_models
@@ -35,73 +35,43 @@ RESULTS_JSON_PATH = DEMO_OUTPUTS_DIR / "results.json"
 DEMO_HTML_PATH = DEMO_OUTPUTS_DIR / "demo.html"
 ERRORS_LOG_PATH = DEMO_OUTPUTS_DIR / "errors.log"
 
-
-def setup_error_logger() -> logging.Logger:
-    """Set up a dedicated logger for generation errors.
-
-    Creates .demo_outputs directory if needed and configures
-    file handler for errors.log with detailed formatting.
-
-    Returns:
-        Configured Logger instance for error logging
-    """
-    DEMO_OUTPUTS_DIR.mkdir(exist_ok=True)
-
-    logger = logging.getLogger("asciibench.demo.errors")
-    logger.setLevel(logging.ERROR)
-
-    # Avoid adding duplicate handlers on repeated calls
-    if not logger.handlers:
-        file_handler = logging.FileHandler(ERRORS_LOG_PATH, mode="a", encoding="utf-8")
-        file_handler.setLevel(logging.ERROR)
-        formatter = logging.Formatter(
-            "%(asctime)s | %(levelname)s | %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-
-    return logger
+logger = get_logger("generator.demo")
 
 
 def log_generation_error(
-    logger: logging.Logger,
     model_id: str,
     model_name: str,
     error_reason: str,
     raw_output: str | None = None,
     exception: Exception | None = None,
 ) -> None:
-    """Log a generation error with full context.
+    """Log a generation error with full context using structured logger.
 
     Args:
-        logger: The error logger instance
         model_id: Model identifier (e.g., 'openai/gpt-4o-mini')
         model_name: Human-readable model name
         error_reason: Brief description of why generation failed
         raw_output: The raw output received from the model (if any)
         exception: The exception that was raised (if any)
     """
-    separator = "=" * 80
-    log_lines = [
-        "",
-        separator,
-        f"MODEL: {model_name} ({model_id})",
-        f"REASON: {error_reason}",
-    ]
+    metadata = {
+        "model": model_name,
+        "model_id": model_id,
+        "error_reason": error_reason,
+    }
 
     if exception:
-        log_lines.append(f"EXCEPTION: {type(exception).__name__}: {exception}")
-        log_lines.append(f"TRACEBACK:\n{traceback.format_exc()}")
+        metadata["exception_type"] = type(exception).__name__
+        metadata["exception_message"] = str(exception)
+        metadata["traceback"] = traceback.format_exc()
 
     if raw_output:
         # Truncate very long outputs but keep enough for debugging
         truncated = raw_output[:2000] + "..." if len(raw_output) > 2000 else raw_output
-        log_lines.append(f"RAW OUTPUT ({len(raw_output)} chars):\n{truncated}")
+        metadata["raw_output_length"] = str(len(raw_output))
+        metadata["raw_output_preview"] = truncated
 
-    log_lines.append(separator)
-
-    logger.error("\n".join(log_lines))
+    logger.error("Demo generation failed", metadata)
 
 
 def load_demo_results() -> list[DemoResult]:
@@ -183,7 +153,6 @@ def get_completed_model_ids() -> set[str]:
 def generate_demo_sample(
     model_id: str,
     model_name: str,
-    logger: logging.Logger | None = None,
 ) -> DemoResult:
     """Generate a demo ASCII art sample from a single model.
 
@@ -193,7 +162,6 @@ def generate_demo_sample(
     Args:
         model_id: Model identifier (e.g., 'openai/gpt-4o-mini')
         model_name: Human-readable model name (e.g., 'GPT-4o Mini')
-        logger: Optional error logger for detailed failure tracking
 
     Returns:
         DemoResult with model info, ascii_output, is_valid, timestamp,
@@ -224,15 +192,15 @@ def generate_demo_sample(
 
     client = OpenRouterClient(api_key=settings.openrouter_api_key, base_url=settings.base_url)
 
-    raw_output: str | None = None
+    response_raw_output: str | None = None
     error_reason: str | None = None
     last_exception: Exception | None = None
     response: OpenRouterResponse | None = None
 
     try:
         response = client.generate(model_id, demo_prompt, config=config)
-        raw_output = response.text
-        ascii_output = extract_ascii_from_markdown(raw_output)
+        response_raw_output = response.text
+        ascii_output = extract_ascii_from_markdown(response_raw_output)
         is_valid = bool(ascii_output)
 
         if is_valid:
@@ -257,13 +225,12 @@ def generate_demo_sample(
         error_reason = f"Unexpected error: {type(e).__name__}"
         last_exception = e
 
-    if logger and error_reason:
+    if error_reason:
         log_generation_error(
-            logger,
-            model_id,
-            model_name,
-            error_reason,
-            raw_output=raw_output,
+            model_id=model_id,
+            model_name=model_name,
+            error_reason=error_reason,
+            raw_output=response_raw_output,
             exception=last_exception,
         )
 
@@ -278,7 +245,7 @@ def generate_demo_sample(
         is_valid=False,
         timestamp=datetime.now(),
         error_reason=error_reason,
-        raw_output=raw_output,
+        raw_output=response_raw_output,
         output_tokens=None,
         cost=None,
     )
@@ -802,9 +769,6 @@ def main() -> None:
     # Show ASCII banner at startup
     show_banner()
 
-    # Set up error logging
-    error_logger = setup_error_logger()
-
     # Load models
     try:
         models = load_models()
@@ -838,13 +802,17 @@ def main() -> None:
         return
 
     console.print()
-    console.print(f"  [dim]•[/dim] [bold cyan]{len(models)}[/bold cyan] [dim]models loaded from[/dim] [white]models.yaml[/white]")
+    console.print(
+        f"  [dim]•[/dim] [bold cyan]{len(models)}[/bold cyan] [dim]models loaded from[/dim] [white]models.yaml[/white]"
+    )
 
     results = load_demo_results()
     completed_ids = get_completed_model_ids()
     remaining_models = [m for m in models if m.id not in completed_ids]
 
-    console.print(f"  [dim]•[/dim] [bold yellow]{len(remaining_models)}[/bold yellow] [dim]remaining to generate[/dim]")
+    console.print(
+        f"  [dim]•[/dim] [bold yellow]{len(remaining_models)}[/bold yellow] [dim]remaining to generate[/dim]"
+    )
     console.print()
 
     if not remaining_models:
@@ -868,7 +836,6 @@ def main() -> None:
     failed_count = 0
     running_cost = 0.0
 
-
     # Create loader for the generation process
     # Each model is one step in the loader
     loader = create_loader(
@@ -886,7 +853,7 @@ def main() -> None:
                 # Each model is one full step in the total progress
                 loader.update(i)  # Show progress for current model being processed
 
-                result = generate_demo_sample(model.id, model.name, logger=error_logger)
+                result = generate_demo_sample(model.id, model.name)
 
                 results.append(result)
                 save_demo_results(results)
