@@ -280,10 +280,10 @@ class RuneScapeLoader:
 
         if self._capabilities["is_terminal"]:
             # Terminal mode: use carriage return to update in place
-            print(f"\r{progress_text}", end="", flush=True)
+            self._console.print(f"\r{progress_text}", end="")
         else:
             # Piped mode: print new lines
-            print(progress_text, flush=True)
+            self._console.print(progress_text)
 
     def complete(self, success: bool, cost: float = 0.0) -> None:
         """Flash the bar to indicate completion status and update counters.
@@ -333,9 +333,9 @@ class RuneScapeLoader:
                 )
                 if self._capabilities["is_terminal"]:
                     # Clear the line and print final status
-                    print(f"\r{progress_text} [{status}]")
+                    self._console.print(f"\r{progress_text} [{status}]")
                 else:
-                    print(f"{progress_text} [{status}]", flush=True)
+                    self._console.print(f"{progress_text} [{status}]")
             return
 
         with self._lock:
@@ -482,7 +482,7 @@ class RuneScapeLoader:
         # In fallback mode, ensure we end on a new line if we printed anything
         if self._use_fallback:
             if self._last_printed_progress is not None and self._capabilities["is_terminal"]:
-                print()  # End the line after carriage return updates
+                self._console.print()  # End the line after carriage return updates
             return
 
         # Wait for animation thread to finish
