@@ -205,3 +205,114 @@ class TestIntegration:
             assert state.metrics.successful == 10
 
         asyncio.run(run_test())
+
+
+class TestIncrementConcurrent:
+    """Test increment_concurrent method for tracking active tasks."""
+
+    def test_increment_concurrent_returns_one(self):
+        """Test first increment returns 1."""
+        state = SharedState()
+        result = asyncio.run(state.increment_concurrent())
+        assert result == 1
+        assert state.current_tasks == 1
+
+    def test_increment_concurrent_multiple_times(self):
+        """Test multiple increments accumulate correctly."""
+        state = SharedState()
+        for expected in range(1, 6):
+            result = asyncio.run(state.increment_concurrent())
+            assert result == expected
+        assert state.current_tasks == 5
+
+    def test_concurrent_increment_concurrent(self):
+        """Test 10 concurrent increments result in final count of 10."""
+        state = SharedState()
+
+        async def increment():
+            await state.increment_concurrent()
+
+        async def run_test():
+            await asyncio.gather(*[increment() for _ in range(10)])
+            assert state.current_tasks == 10
+
+        asyncio.run(run_test())
+
+
+class TestDecrementConcurrent:
+    """Test decrement_concurrent method for tracking active tasks."""
+
+    def test_decrement_concurrent_after_increment(self):
+        """Test decrement after increment returns correct value."""
+        state = SharedState()
+        asyncio.run(state.increment_concurrent())
+        asyncio.run(state.increment_concurrent())
+        result = asyncio.run(state.decrement_concurrent())
+        assert result == 1
+        assert state.current_tasks == 1
+
+    def test_decrement_concurrent_multiple_times(self):
+        """Test multiple decrements work correctly."""
+        state = SharedState()
+        asyncio.run(state.increment_concurrent())
+        asyncio.run(state.increment_concurrent())
+        asyncio.run(state.increment_concurrent())
+        asyncio.run(state.decrement_concurrent())
+        result = asyncio.run(state.decrement_concurrent())
+        assert result == 1
+        assert state.current_tasks == 1
+
+    def test_concurrent_decrement_concurrent(self):
+        """Test 10 concurrent decrements from 10 result in final count of 0."""
+        state = SharedState()
+        state.current_tasks = 10
+
+        async def decrement():
+            await state.decrement_concurrent()
+
+        async def run_test():
+            await asyncio.gather(*[decrement() for _ in range(10)])
+            assert state.current_tasks == 0
+
+        asyncio.run(run_test())
+
+
+class TestMaybeLogConcurrency:
+    """Test maybe_log_concurrency method for periodic logging."""
+
+    def test_no_log_when_zero_processed(self):
+        """Test no log when samples_processed is 0."""
+        state = SharedState(max_concurrent=10)
+        asyncio.run(state.maybe_log_concurrency())
+        assert state.samples_processed == 0
+
+    def test_no_log_when_not_multiple_of_ten(self):
+        """Test no log when samples_processed is not multiple of 10."""
+        state = SharedState(max_concurrent=10)
+        state.samples_processed = 5
+        asyncio.run(state.maybe_log_concurrency())
+        assert state.samples_processed == 5
+
+    def test_logs_every_ten_tasks(self):
+        """Test log occurs at 10, 20, 30 tasks."""
+        state = SharedState(max_concurrent=10)
+        state.current_tasks = 5
+
+        state.samples_processed = 10
+        asyncio.run(state.maybe_log_concurrency())
+
+        state.samples_processed = 20
+        asyncio.run(state.maybe_log_concurrency())
+
+        state.samples_processed = 30
+        asyncio.run(state.maybe_log_concurrency())
+
+        assert state.samples_processed == 30
+
+    def test_no_log_with_fewer_than_ten_total(self):
+        """Test negative case: with only 5 tasks total, no log appears."""
+        state = SharedState(max_concurrent=10)
+        state.current_tasks = 2
+        state.samples_processed = 5
+        asyncio.run(state.maybe_log_concurrency())
+        assert state.samples_processed == 5

@@ -60,12 +60,16 @@ class SharedState:
             for existing samples
         samples_processed: Count of samples that have been processed
         metrics: BatchMetrics instance for tracking generation statistics
+        current_tasks: Count of currently active concurrent tasks
+        max_concurrent: Maximum concurrent tasks limit from config
         _lock: asyncio.Lock for thread-safe operations
     """
 
     existing_keys: set[tuple[str, str, int]] = field(default_factory=set)
     samples_processed: int = 0
     metrics: BatchMetrics = field(default_factory=BatchMetrics)
+    current_tasks: int = 0
+    max_concurrent: int = 10
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def check_and_add_key(self, key: tuple[str, str, int]) -> bool:
@@ -114,3 +118,49 @@ class SharedState:
         """
         async with self._lock:
             self.metrics.record_sample(success, duration_ms, cost)
+
+    async def increment_concurrent(self) -> int:
+        """Atomically increment the current concurrent tasks counter.
+
+        This method is thread-safe and ensures that concurrent calls
+        to increment_concurrent will correctly track active tasks.
+
+        Returns:
+            The new value of current_tasks after incrementing
+        """
+        async with self._lock:
+            self.current_tasks += 1
+            return self.current_tasks
+
+    async def decrement_concurrent(self) -> int:
+        """Atomically decrement the current concurrent tasks counter.
+
+        This method is thread-safe and ensures that concurrent calls
+        to decrement_concurrent will correctly track active tasks.
+
+        Returns:
+            The new value of current_tasks after decrementing
+        """
+        async with self._lock:
+            self.current_tasks -= 1
+            return self.current_tasks
+
+    async def maybe_log_concurrency(self) -> None:
+        """Log concurrency metrics every 10 tasks processed.
+
+        This method checks if the samples_processed count is a multiple of 10
+        and logs concurrency metrics if so. Logging includes:
+        - current_concurrent: Number of currently active tasks
+        - max_concurrent: Maximum concurrent task limit
+        - tasks_completed: Total tasks processed so far
+        """
+        async with self._lock:
+            if self.samples_processed % 10 == 0 and self.samples_processed > 0:
+                logger.info(
+                    "Concurrency metrics",
+                    {
+                        "current_concurrent": self.current_tasks,
+                        "max_concurrent": self.max_concurrent,
+                        "tasks_completed": self.samples_processed,
+                    },
+                )

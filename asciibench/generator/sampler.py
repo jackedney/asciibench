@@ -322,48 +322,58 @@ async def _process_single_task(
     """
     # Use semaphore to limit concurrent executions
     async with semaphore:
-        # Build sample key for idempotency check
-        sample_key = (task.model.id, task.prompt.text, task.attempt)
+        # Increment concurrent task counter
+        await state.increment_concurrent()
 
-        # Atomically check if key already exists, add if not
-        key_added = await state.check_and_add_key(sample_key)
-        if not key_added:
-            # Sample already exists, skip generation
-            return None
+        try:
+            # Build sample key for idempotency check
+            sample_key = (task.model.id, task.prompt.text, task.attempt)
 
-        # Call progress callback before generation if provided
-        if progress_callback is not None:
-            processed = await state.increment_processed()
-            remaining = total_combinations - processed + 1
-            progress_callback(task.model.id, task.prompt.text, task.attempt, remaining)
+            # Atomically check if key already exists, add if not
+            key_added = await state.check_and_add_key(sample_key)
+            if not key_added:
+                # Sample already exists, skip generation
+                return None
 
-        # Generate the sample
-        sample, duration_ms, error_message = await _generate_single_sample(client, task, config)
+            # Call progress callback before generation if provided
+            if progress_callback is not None:
+                processed = await state.increment_processed()
+                remaining = total_combinations - processed + 1
+                progress_callback(task.model.id, task.prompt.text, task.attempt, remaining)
 
-        # Record sample in thread-safe metrics
-        await state.record_sample(sample.is_valid, duration_ms, sample.cost)
+                # Log concurrency metrics every 10 tasks
+                await state.maybe_log_concurrency()
 
-        # Log sample generation
-        logger.info(
-            "Sample generated",
-            {
-                "model": task.model.id,
-                "prompt_id": f"{task.model.id}_{task.prompt.text}_{task.attempt}",
-                "duration_ms": round(duration_ms, 2),
-                "success": sample.is_valid,
-                "cost": sample.cost,
-                "error": error_message if error_message else None,
-            },
-        )
+            # Generate the sample
+            sample, duration_ms, error_message = await _generate_single_sample(client, task, config)
 
-        # Call stats callback after generation if provided
-        if stats_callback is not None:
-            stats_callback(sample.is_valid, sample.cost)
+            # Record sample in thread-safe metrics
+            await state.record_sample(sample.is_valid, duration_ms, sample.cost)
 
-        # Persist immediately for resume capability
-        append_jsonl(database_path, sample)
+            # Log sample generation
+            logger.info(
+                "Sample generated",
+                {
+                    "model": task.model.id,
+                    "prompt_id": f"{task.model.id}_{task.prompt.text}_{task.attempt}",
+                    "duration_ms": round(duration_ms, 2),
+                    "success": sample.is_valid,
+                    "cost": sample.cost,
+                    "error": error_message if error_message else None,
+                },
+            )
 
-        return sample
+            # Call stats callback after generation if provided
+            if stats_callback is not None:
+                stats_callback(sample.is_valid, sample.cost)
+
+            # Persist immediately for resume capability
+            append_jsonl(database_path, sample)
+
+            return sample
+        finally:
+            # Decrement concurrent task counter
+            await state.decrement_concurrent()
 
 
 async def _generate_batch_for_model(
