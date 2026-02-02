@@ -718,3 +718,161 @@ class TestGenerateSamples:
                 # Should have at least some unique request_ids
                 unique_request_ids = set(request_ids)
                 assert len(unique_request_ids) > 0
+
+
+class TestSemaphoreConcurrencyLimit:
+    """Tests for semaphore-based concurrency limit."""
+
+    @pytest.fixture
+    def sample_models(self) -> list[Model]:
+        """Create sample model list."""
+        return [
+            Model(id="openai/gpt-4o", name="GPT-4o"),
+            Model(id="anthropic/claude-3-opus", name="Claude 3 Opus"),
+        ]
+
+    @pytest.fixture
+    def sample_prompts(self) -> list[Prompt]:
+        """Create sample prompt list."""
+        return [
+            Prompt(text="Draw a cat", category="single_animal", template_type="animal"),
+            Prompt(text="Draw a dog", category="single_animal", template_type="animal"),
+            Prompt(text="Draw a tree", category="single_object", template_type="object"),
+        ]
+
+    def test_concurrent_generation_respects_semaphore_limit(
+        self,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """Verify max concurrent calls never exceeds config limit."""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        db_path = tmp_path / "database.jsonl"
+
+        # Track concurrent calls
+        concurrent_calls = 0
+        max_concurrent_calls = 0
+        call_lock = asyncio.Lock()
+
+        async def delayed_generate(*args, **kwargs):
+            """Mock generate with delay to allow concurrency tracking."""
+            nonlocal concurrent_calls, max_concurrent_calls
+
+            async with call_lock:
+                concurrent_calls += 1
+                if concurrent_calls > max_concurrent_calls:
+                    max_concurrent_calls = concurrent_calls
+
+            # Simulate API delay
+            await asyncio.sleep(0.1)
+
+            async with call_lock:
+                concurrent_calls -= 1
+
+            return OpenRouterResponse(
+                text="```\n/\\_/\\\n( o.o )\n > ^ <\n```",
+                prompt_tokens=10,
+                completion_tokens=50,
+                total_tokens=60,
+                cost=0.0001,
+            )
+
+        mock_client = MagicMock(spec=OpenRouterClient)
+        mock_client.generate_async = AsyncMock(wraps=delayed_generate)
+
+        # Test with limit=2 and 10 tasks
+        config = GenerationConfig(
+            attempts_per_prompt=1,
+            max_concurrent_requests=2,
+        )
+
+        # Create 10 tasks (2 models x 3 prompts x 1 attempt = 6, but we can adjust)
+        # Let's create more prompts to get closer to 10 tasks
+        additional_prompts = [
+            *sample_prompts,
+            Prompt(text="Draw a bird", category="single_animal", template_type="animal"),
+            Prompt(text="Draw a fish", category="single_animal", template_type="animal"),
+            Prompt(text="Draw a house", category="single_object", template_type="object"),
+        ]
+
+        result = generate_samples(
+            models=sample_models,
+            prompts=additional_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        # Verify tasks completed
+        assert len(result) == len(sample_models) * len(additional_prompts) * 1
+
+        # Verify max concurrent calls never exceeded limit of 2
+        assert max_concurrent_calls <= 2
+        assert max_concurrent_calls == 2, "Should have reached the limit to test concurrency"
+
+    def test_sequential_mode_with_limit_one(
+        self,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """Setting limit=1 results in sequential execution."""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        db_path = tmp_path / "database.jsonl"
+
+        # Track concurrent calls
+        concurrent_calls = 0
+        max_concurrent_calls = 0
+        call_lock = asyncio.Lock()
+
+        async def delayed_generate(*args, **kwargs):
+            """Mock generate with delay to verify sequential execution."""
+            nonlocal concurrent_calls, max_concurrent_calls
+
+            async with call_lock:
+                concurrent_calls += 1
+                if concurrent_calls > max_concurrent_calls:
+                    max_concurrent_calls = concurrent_calls
+
+            # Simulate API delay
+            await asyncio.sleep(0.05)
+
+            async with call_lock:
+                concurrent_calls -= 1
+
+            return OpenRouterResponse(
+                text="```\n/\\_/\\\n( o.o )\n > ^ <\n```",
+                prompt_tokens=10,
+                completion_tokens=50,
+                total_tokens=60,
+                cost=0.0001,
+            )
+
+        mock_client = MagicMock(spec=OpenRouterClient)
+        mock_client.generate_async = AsyncMock(wraps=delayed_generate)
+
+        # Test with limit=1 (sequential execution)
+        config = GenerationConfig(
+            attempts_per_prompt=1,
+            max_concurrent_requests=1,
+        )
+
+        result = generate_samples(
+            models=sample_models,
+            prompts=sample_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        # Verify tasks completed
+        expected_tasks = len(sample_models) * len(sample_prompts) * 1
+        assert len(result) == expected_tasks
+
+        # Verify max concurrent calls was always 1 (sequential)
+        assert max_concurrent_calls <= 1
