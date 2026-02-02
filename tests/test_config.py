@@ -143,6 +143,7 @@ def test_generation_config():
     assert config.max_tokens == 1000
     assert config.provider == "openrouter"
     assert config.system_prompt == ""
+    assert config.max_concurrent_requests == 10
 
     config_custom = GenerationConfig(
         attempts_per_prompt=10,
@@ -156,6 +157,38 @@ def test_generation_config():
     assert config_custom.max_tokens == 2000
     assert config_custom.provider == "custom"
     assert config_custom.system_prompt == "You are a helpful assistant."
+
+
+def test_generation_config_max_concurrent_requests_default():
+    """Test that max_concurrent_requests defaults to 10."""
+    config = GenerationConfig()
+    assert config.max_concurrent_requests == 10
+
+
+def test_generation_config_max_concurrent_requests_custom():
+    """Test that max_concurrent_requests can be set to a custom value."""
+    config = GenerationConfig(max_concurrent_requests=5)
+    assert config.max_concurrent_requests == 5
+
+
+def test_generation_config_max_concurrent_requests_negative():
+    """Test that negative max_concurrent_requests raises validation error."""
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError) as exc_info:
+        GenerationConfig(max_concurrent_requests=-1)
+    assert "max_concurrent_requests must be greater than 0" in str(exc_info.value)
+
+
+def test_generation_config_max_concurrent_requests_zero():
+    """Test that max_concurrent_requests=0 raises validation error."""
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError) as exc_info:
+        GenerationConfig(max_concurrent_requests=0)
+    assert "max_concurrent_requests must be greater than 0" in str(exc_info.value)
 
 
 def test_load_models():

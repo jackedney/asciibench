@@ -15,6 +15,15 @@ class GenerationConfig(BaseModel):
     reasoning_effort: str | None = None  # For native OpenAI models
     reasoning: bool = False  # For OpenRouter reasoning models (o1, deepseek, kimi-k2)
     include_reasoning: bool = False  # Whether to include reasoning tokens in response
+    max_concurrent_requests: int = 10
+
+    @field_validator("max_concurrent_requests")
+    @classmethod
+    def validate_max_concurrent_requests(cls, v) -> int:
+        """Validate max_concurrent_requests is positive."""
+        if v <= 0:
+            raise ValueError("max_concurrent_requests must be greater than 0")
+        return v
 
 
 class Settings(BaseSettings):
