@@ -477,9 +477,9 @@ async def generate_samples_async(
     """Generate ASCII art samples from configured models and prompts asynchronously.
 
     This function coordinates the generation of multiple samples by:
-    1. Processing one model at a time
-    2. Running all prompts for that model concurrently
-    3. Checking for existing samples to support idempotent resume capability
+    1. Building all tasks upfront (all models x prompts x attempts)
+    2. Processing all tasks concurrently with semaphore-limited parallelism
+    3. Checking for existing samples via SharedState for idempotent resume
     4. Persisting each sample immediately for resume capability
 
     Args:
@@ -520,41 +520,64 @@ async def generate_samples_async(
     existing_samples = read_jsonl(database_path, ArtSample)
     existing_keys = _build_existing_sample_keys(existing_samples)
 
-    newly_generated: list[ArtSample] = []
-    metrics = BatchMetrics()
+    # Initialize SharedState with existing keys and concurrency limit
+    state = SharedState(
+        existing_keys=existing_keys,
+        max_concurrent=config.max_concurrent_requests,
+        metrics=BatchMetrics(),
+    )
+
+    # Create semaphore to limit concurrent requests
+    semaphore = asyncio.Semaphore(config.max_concurrent_requests)
 
     # Calculate total samples to generate for progress tracking
     total_combinations = len(models) * len(prompts) * config.attempts_per_prompt
-    samples_processed_ref = [0]  # Use list as mutable reference
 
-    # Process one model at a time, running all prompts concurrently for each model
-    for model in models:
-        # Build tasks for this model
-        tasks = [
-            SampleTask(model=model, prompt=prompt, attempt=attempt)
-            for prompt in prompts
-            for attempt in range(1, config.attempts_per_prompt + 1)
-        ]
+    # Build all tasks upfront (all models x prompts x attempts)
+    tasks = [
+        SampleTask(model=model, prompt=prompt, attempt=attempt)
+        for model in models
+        for prompt in prompts
+        for attempt in range(1, config.attempts_per_prompt + 1)
+    ]
 
-        # Generate all samples for this model concurrently
-        model_samples = await _generate_batch_for_model(
-            client=client,
-            model=model,
-            tasks=tasks,
-            config=config,
-            database_path=database_path,
-            existing_keys=existing_keys,
-            progress_callback=progress_callback,
-            stats_callback=stats_callback,
-            total_combinations=total_combinations,
-            samples_processed_ref=samples_processed_ref,
-            metrics=metrics,
-        )
+    # Process all tasks concurrently with semaphore limit
+    results = await asyncio.gather(
+        *[
+            _process_single_task(
+                client=client,
+                task=task,
+                config=config,
+                database_path=database_path,
+                state=state,
+                progress_callback=progress_callback,
+                stats_callback=stats_callback,
+                total_combinations=total_combinations,
+                semaphore=semaphore,
+            )
+            for task in tasks
+        ],
+        return_exceptions=True,
+    )
 
-        newly_generated.extend(model_samples)
+    # Filter results to remove None (skipped) and log exceptions
+    newly_generated: list[ArtSample] = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error(
+                "Task failed with exception",
+                {
+                    "task_index": i,
+                    "task": tasks[i],
+                    "error_type": type(result).__name__,
+                    "error": str(result),
+                },
+            )
+        elif isinstance(result, ArtSample):
+            newly_generated.append(result)
 
     # Log batch summary
-    metrics.log_summary()
+    state.metrics.log_summary()
 
     return newly_generated
 
