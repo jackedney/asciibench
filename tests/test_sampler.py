@@ -1086,3 +1086,110 @@ class TestConcurrentMetricsAccuracy:
         result_failed = sum(1 for s in result if not s.is_valid)
         assert result_successful == successful_samples
         assert result_failed == failed_samples
+
+
+class TestConcurrentPersistenceNoDuplicates:
+    """Tests for ensuring no duplicate entries in persistence under concurrent execution."""
+
+    @pytest.fixture
+    def sample_models(self) -> list[Model]:
+        """Create sample model list."""
+        return [
+            Model(id="openai/gpt-4o", name="GPT-4o"),
+            Model(id="anthropic/claude-3-opus", name="Claude 3 Opus"),
+            Model(id="google/gemini-pro", name="Gemini Pro"),
+            Model(id="meta/llama-3-70b", name="Llama 3 70B"),
+            Model(id="mistral/mistral-large", name="Mistral Large"),
+        ]
+
+    @pytest.fixture
+    def sample_prompts(self) -> list[Prompt]:
+        """Create sample prompt list."""
+        return [
+            Prompt(text="Draw a cat", category="single_animal", template_type="animal"),
+            Prompt(text="Draw a dog", category="single_animal", template_type="animal"),
+            Prompt(text="Draw a tree", category="single_object", template_type="object"),
+        ]
+
+    def test_concurrent_persistence_no_duplicates(
+        self,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """Verify no duplicate entries in JSONL file under concurrent execution."""
+        import json
+        from unittest.mock import AsyncMock
+
+        db_path = tmp_path / "database.jsonl"
+
+        # Mock client with successful response
+        mock_client = MagicMock(spec=OpenRouterClient)
+        mock_client.generate_async = AsyncMock(
+            return_value=OpenRouterResponse(
+                text="```\n/\\_/\\\n( o.o )\n > ^ <\n```",
+                prompt_tokens=10,
+                completion_tokens=50,
+                total_tokens=60,
+                cost=0.0001,
+            )
+        )
+
+        # Create config with attempts_per_prompt=3
+        # This gives: 5 models x 3 prompts x 3 attempts = 45 tasks
+        config = GenerationConfig(
+            attempts_per_prompt=3,
+            max_concurrent_requests=10,
+        )
+
+        # Run generation
+        result = generate_samples(
+            models=sample_models,
+            prompts=sample_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        # Verify all samples were generated
+        expected_tasks = len(sample_models) * len(sample_prompts) * 3
+        assert len(result) == expected_tasks, (
+            f"Expected {expected_tasks} samples, got {len(result)}"
+        )
+
+        # Verify API calls were made
+        assert mock_client.generate_async.call_count == expected_tasks
+
+        # Read database file
+        with open(db_path) as f:
+            lines = [line.strip() for line in f if line.strip()]
+
+        # Verify database has exactly 45 entries
+        assert len(lines) == expected_tasks, (
+            f"Expected {expected_tasks} entries in database, got {len(lines)}"
+        )
+
+        # Extract all (model_id, prompt_text, attempt_number) tuples
+        sample_keys = []
+        for line in lines:
+            sample = json.loads(line)
+            sample_keys.append(
+                (sample["model_id"], sample["prompt_text"], sample["attempt_number"])
+            )
+
+        # Verify no duplicates
+        unique_keys = set(sample_keys)
+        assert len(unique_keys) == len(sample_keys), "Found duplicate entries in database"
+
+        # Verify all expected combinations are present
+        expected_keys = set()
+        for model in sample_models:
+            for prompt in sample_prompts:
+                for attempt in range(1, 4):
+                    expected_keys.add((model.id, prompt.text, attempt))
+
+        assert unique_keys == expected_keys, "Database does not contain all expected combinations"
+
+        # Negative case: if there were duplicates, the assertion above would fail
+        # To verify this, we could artificially add a duplicate and check it fails
+        # But this is already covered by the assertion len(unique_keys) == len(sample_keys)
