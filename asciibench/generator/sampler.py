@@ -36,6 +36,7 @@ from asciibench.generator.client import (
     TransientError,
 )
 from asciibench.generator.sanitizer import extract_ascii_from_markdown
+from asciibench.generator.state import BatchMetrics, SharedState
 
 logger = get_logger("generator.sampler")
 
@@ -47,41 +48,6 @@ StatsCallback = Callable[[bool, float | None], None]
 
 # Default number of retries for invalid outputs or API errors
 DEFAULT_MAX_RETRIES = 3
-
-
-@dataclass
-class BatchMetrics:
-    """Tracks metrics for a batch of sample generations."""
-
-    total_samples: int = 0
-    successful: int = 0
-    failed: int = 0
-    total_duration_ms: float = 0.0
-    total_cost: float = 0.0
-
-    def record_sample(self, success: bool, duration_ms: float, cost: float | None) -> None:
-        """Record metrics for a single sample generation."""
-        self.total_samples += 1
-        if success:
-            self.successful += 1
-        else:
-            self.failed += 1
-        self.total_duration_ms += duration_ms
-        if cost is not None:
-            self.total_cost += cost
-
-    def log_summary(self) -> None:
-        """Log batch summary metrics."""
-        logger.info(
-            "Batch generation complete",
-            {
-                "total_samples": self.total_samples,
-                "successful": self.successful,
-                "failed": self.failed,
-                "total_duration_ms": round(self.total_duration_ms, 2),
-                "total_cost": round(self.total_cost, 6),
-            },
-        )
 
 
 @dataclass
@@ -321,6 +287,83 @@ async def _generate_single_sample(
     duration_ms = (end_time - start_time) * 1000
 
     return sample, duration_ms, error_message
+
+
+async def _process_single_task(
+    client: OpenRouterClient,
+    task: SampleTask,
+    config: GenerationConfig,
+    database_path: Path,
+    state: SharedState,
+    progress_callback: ProgressCallback | None,
+    stats_callback: StatsCallback | None,
+    total_combinations: int,
+    semaphore: asyncio.Semaphore,
+) -> ArtSample | None:
+    """Process a single sample generation task with semaphore-limited concurrency.
+
+    This function handles idempotency checks, generation, metrics recording,
+    and persistence for a single task, with concurrency controlled by the
+    provided semaphore.
+
+    Args:
+        client: OpenRouter client instance
+        task: Sample task with model, prompt, and attempt info
+        config: Generation configuration
+        database_path: Path to database file for persistence
+        state: SharedState for thread-safe idempotency and metrics
+        progress_callback: Optional progress callback before generation
+        stats_callback: Optional stats callback after generation
+        total_combinations: Total number of combinations for progress tracking
+        semaphore: Async semaphore to limit concurrent operations
+
+    Returns:
+        ArtSample if generated (including failed samples), None if skipped
+    """
+    # Use semaphore to limit concurrent executions
+    async with semaphore:
+        # Build sample key for idempotency check
+        sample_key = (task.model.id, task.prompt.text, task.attempt)
+
+        # Atomically check if key already exists, add if not
+        key_added = await state.check_and_add_key(sample_key)
+        if not key_added:
+            # Sample already exists, skip generation
+            return None
+
+        # Call progress callback before generation if provided
+        if progress_callback is not None:
+            processed = await state.increment_processed()
+            remaining = total_combinations - processed + 1
+            progress_callback(task.model.id, task.prompt.text, task.attempt, remaining)
+
+        # Generate the sample
+        sample, duration_ms, error_message = await _generate_single_sample(client, task, config)
+
+        # Record sample in thread-safe metrics
+        await state.record_sample(sample.is_valid, duration_ms, sample.cost)
+
+        # Log sample generation
+        logger.info(
+            "Sample generated",
+            {
+                "model": task.model.id,
+                "prompt_id": f"{task.model.id}_{task.prompt.text}_{task.attempt}",
+                "duration_ms": round(duration_ms, 2),
+                "success": sample.is_valid,
+                "cost": sample.cost,
+                "error": error_message if error_message else None,
+            },
+        )
+
+        # Call stats callback after generation if provided
+        if stats_callback is not None:
+            stats_callback(sample.is_valid, sample.cost)
+
+        # Persist immediately for resume capability
+        append_jsonl(database_path, sample)
+
+        return sample
 
 
 async def _generate_batch_for_model(

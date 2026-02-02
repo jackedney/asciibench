@@ -8,7 +8,44 @@ operations.
 import asyncio
 from dataclasses import dataclass, field
 
-from asciibench.generator.sampler import BatchMetrics
+from asciibench.common.logging import get_logger
+
+logger = get_logger("generator.state")
+
+
+@dataclass
+class BatchMetrics:
+    """Tracks metrics for a batch of sample generations."""
+
+    total_samples: int = 0
+    successful: int = 0
+    failed: int = 0
+    total_duration_ms: float = 0.0
+    total_cost: float = 0.0
+
+    def record_sample(self, success: bool, duration_ms: float, cost: float | None) -> None:
+        """Record metrics for a single sample generation."""
+        self.total_samples += 1
+        if success:
+            self.successful += 1
+        else:
+            self.failed += 1
+        self.total_duration_ms += duration_ms
+        if cost is not None:
+            self.total_cost += cost
+
+    def log_summary(self) -> None:
+        """Log batch summary metrics."""
+        logger.info(
+            "Batch generation complete",
+            {
+                "total_samples": self.total_samples,
+                "successful": self.successful,
+                "failed": self.failed,
+                "total_duration_ms": round(self.total_duration_ms, 2),
+                "total_cost": round(self.total_cost, 6),
+            },
+        )
 
 
 @dataclass
