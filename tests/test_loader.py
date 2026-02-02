@@ -1251,9 +1251,9 @@ class TestRuneScapeLoaderCompleteCounters:
             result = loader._render_frame()
             result_str = str(result)
 
-            # Status line should show the updated totals
+            # Status line should show the updated totals (last line)
             lines = result_str.split("\n")
-            status_line = lines[0]
+            status_line = lines[-1]
 
             assert "✓ 1" in status_line
             assert "✗ 1" in status_line
@@ -1370,7 +1370,7 @@ class TestRuneScapeLoaderCompleteCounters:
             result = loader._render_frame()
             result_str = str(result)
             lines = result_str.split("\n")
-            status_line = lines[0]
+            status_line = lines[-1]  # Status line is now the last line
 
             # Check format elements
             assert "✓" in status_line
@@ -1389,17 +1389,139 @@ class TestRuneScapeLoaderCompleteCounters:
             result_str = str(result)
             lines = result_str.split("\n")
 
-            # Should have 3 layers
+            # Should have 3 layers (no prompt set)
             assert len(lines) == 3
 
-            # Layer 1: Status line
-            assert "✓" in lines[0]
-            assert "✗" in lines[0]
-            assert "$" in lines[0]
+            # Layer 1: Model name
+            assert "TestModel" in lines[0]
 
-            # Layer 2: Model name
-            assert "TestModel" in lines[1]
+            # Layer 2: Progress bar
+            assert "━" in lines[1]
+            assert "─" in lines[1]
 
-            # Layer 3: Progress bar
-            assert "━" in lines[2]
-            assert "─" in lines[2]
+            # Layer 3: Status line
+            assert "✓" in lines[2]
+            assert "✗" in lines[2]
+            assert "$" in lines[2]
+
+
+class TestRuneScapeLoaderSetModelName:
+    """Tests for set_model_name method (updates name without resetting progress)."""
+
+    def test_set_model_name_updates_name(self):
+        """set_model_name updates the model name."""
+        loader = RuneScapeLoader("OldModel", total_steps=100)
+        loader.set_model_name("NewModel")
+        assert loader._model_name == "NewModel"
+
+    def test_set_model_name_preserves_progress(self):
+        """set_model_name does not reset progress."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.update(50)
+        loader.set_model_name("NewModel")
+        assert loader._current_step == 50
+        assert loader.progress == 0.5
+
+    def test_set_model_name_preserves_counters(self):
+        """set_model_name does not reset success/failure counters."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.record_result(success=True, cost=0.01)
+        loader.record_result(success=False)
+        loader.set_model_name("NewModel")
+        assert loader._success_count == 1
+        assert loader._failure_count == 1
+        assert loader._total_cost == 0.01
+
+
+class TestRuneScapeLoaderSetPrompt:
+    """Tests for set_prompt method."""
+
+    def test_set_prompt_updates_internal_state(self):
+        """set_prompt updates _current_prompt."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.set_prompt("Draw a cat")
+        assert loader._current_prompt == "Draw a cat"
+
+    def test_set_prompt_truncates_long_prompts(self):
+        """Long prompts are truncated to 80 chars + ellipsis."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        long_prompt = "x" * 100
+        loader.set_prompt(long_prompt)
+        assert len(loader._current_prompt) == 83  # 80 + "..."
+        assert loader._current_prompt.endswith("...")
+
+    def test_set_prompt_appears_in_render(self):
+        """Prompt appears in rendered frame when set."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.set_prompt("Draw a butterfly")
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            assert "Draw a butterfly" in result_str
+            assert "Prompt:" in result_str
+
+    def test_no_prompt_has_three_lines(self):
+        """Without prompt, render has 3 lines."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            lines = result_str.split("\n")
+            assert len(lines) == 3
+
+    def test_with_prompt_has_four_lines(self):
+        """With prompt set, render has 4 lines."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.set_prompt("Test prompt")
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            lines = result_str.split("\n")
+            assert len(lines) == 4
+
+
+class TestRuneScapeLoaderRecordResult:
+    """Tests for record_result method."""
+
+    def test_record_result_success_increments_count(self):
+        """record_result(True) increments success count."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.record_result(success=True)
+        assert loader._success_count == 1
+
+    def test_record_result_failure_increments_count(self):
+        """record_result(False) increments failure count."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.record_result(success=False)
+        assert loader._failure_count == 1
+
+    def test_record_result_adds_cost(self):
+        """record_result adds cost to total."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.record_result(success=True, cost=0.005)
+        assert loader._total_cost == 0.005
+
+    def test_record_result_cost_accumulates(self):
+        """Multiple record_result calls accumulate cost."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.record_result(success=True, cost=0.003)
+        loader.record_result(success=True, cost=0.002)
+        assert loader._total_cost == 0.005
+
+    def test_record_result_default_cost_is_zero(self):
+        """Default cost is 0.0."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.record_result(success=True)
+        assert loader._total_cost == 0.0
+
+    def test_record_result_updates_render(self):
+        """record_result updates are reflected in render."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.record_result(success=True, cost=0.01)
+        loader.record_result(success=False)
+        with patch.object(loader, "_get_terminal_width", return_value=80):
+            result = loader._render_frame()
+            result_str = str(result)
+            assert "✓ 1" in result_str
+            assert "✗ 1" in result_str
+            assert "$0.0100" in result_str

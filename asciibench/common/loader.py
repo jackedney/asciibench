@@ -185,6 +185,9 @@ class RuneScapeLoader:
         self._failure_count = 0
         self._total_cost = 0.0
 
+        # Current prompt text (updated in-place)
+        self._current_prompt: str = ""
+
         # Detect terminal capabilities for fallback mode
         self._capabilities = detect_terminal_capabilities(self._console)
         has_color = self._capabilities["has_color"]
@@ -215,7 +218,10 @@ class RuneScapeLoader:
             return self._completed
 
     def set_model(self, model_name: str) -> None:
-        """Change the displayed model name.
+        """Change the displayed model name and reset progress.
+
+        Use this when starting a new model batch. For updating the display
+        name without resetting progress, use set_model_name() instead.
 
         Args:
             model_name: New model name to display.
@@ -225,6 +231,50 @@ class RuneScapeLoader:
             self._current_step = 0
             self._completed = False
             self._last_printed_progress = None
+
+    def set_model_name(self, model_name: str) -> None:
+        """Update the displayed model name without resetting progress.
+
+        Use this to update the model name in the display while preserving
+        the current progress. For resetting progress, use set_model() instead.
+
+        Args:
+            model_name: New model name to display.
+        """
+        with self._lock:
+            self._model_name = model_name
+
+    def set_prompt(self, prompt_text: str) -> None:
+        """Update the current prompt text displayed in the loader.
+
+        The prompt is updated in-place without creating new lines.
+
+        Args:
+            prompt_text: The prompt text to display.
+        """
+        with self._lock:
+            # Truncate long prompts for display
+            max_len = 80
+            if len(prompt_text) > max_len:
+                self._current_prompt = prompt_text[:max_len] + "..."
+            else:
+                self._current_prompt = prompt_text
+
+    def record_result(self, success: bool, cost: float = 0.0) -> None:
+        """Record a generation result and update the status counters.
+
+        Thread-safe method to update success/failure counts and cost.
+
+        Args:
+            success: True if generation was successful, False otherwise.
+            cost: Cost to add to total (default 0.0).
+        """
+        with self._lock:
+            if success:
+                self._success_count += 1
+            else:
+                self._failure_count += 1
+            self._total_cost += cost
 
     def update(self, current_step: int) -> None:
         """Update the progress to the given step.
@@ -273,10 +323,18 @@ class RuneScapeLoader:
             success_count = self._success_count
             failure_count = self._failure_count
             total_cost = self._total_cost
+            current_prompt = self._current_prompt
 
         progress_text = format_simple_progress(
             model_name, progress, success_count, failure_count, total_cost
         )
+
+        # Include prompt info for fallback
+        if current_prompt:
+            prompt_display = (
+                current_prompt[:40] + "..." if len(current_prompt) > 40 else current_prompt
+            )
+            progress_text = f"[{prompt_display}] {progress_text}"
 
         if self._capabilities["is_terminal"]:
             # Terminal mode: use carriage return to update in place
@@ -379,6 +437,12 @@ class RuneScapeLoader:
     def _render_frame(self) -> Text:
         """Render the current animation frame with 4-layer layout.
 
+        Layout:
+        - Line 1: Current prompt text (truncated)
+        - Line 2: Model name with rainbow cycling
+        - Line 3: Progress bar with gradient
+        - Line 4: Status line (success/failure/cost)
+
         Returns:
             Rich Text object with the current loader state.
         """
@@ -391,6 +455,7 @@ class RuneScapeLoader:
             success_count = self._success_count
             failure_count = self._failure_count
             total_cost = self._total_cost
+            current_prompt = self._current_prompt
 
         width = self._get_terminal_width()
 
@@ -400,26 +465,31 @@ class RuneScapeLoader:
             result.append("━" * width, style=flash_color)
             return result
 
-        # Left-justified model name with color cycling
-        model_name_text = render_cycling_text(model_name, frame, shift_interval=2)
+        result = Text()
 
-        # Progress bar with gradient
+        # Line 1: Current prompt (if set)
+        if current_prompt:
+            result.append("Prompt: ", style="bold cyan")
+            result.append(current_prompt, style="white")
+            result.append("\n")
+
+        # Line 2: Model name with color cycling
+        model_name_text = render_cycling_text(model_name, frame, shift_interval=2)
+        result.append(model_name_text)
+        result.append("\n")
+
+        # Line 3: Progress bar with gradient
         # Use ━ (filled) and ─ (empty) for progress bar
         bar_width = min(80, width - 4)  # Limit bar width to 80 or available width
         filled_count = int(bar_width * progress)
         empty_count = bar_width - filled_count
         progress_bar_text = "━" * filled_count + "─" * empty_count
         progress_bar = render_gradient_text(progress_bar_text, frame, filled_ratio=progress)
-
-        # Status line with success/failure counts and cost
-        status_line = render_status_line(success_count, failure_count, total_cost)
-
-        # Combine all layers: model name, progress bar, status
-        result = Text()
-        result.append(model_name_text)
-        result.append("\n")
         result.append(progress_bar)
         result.append("\n")
+
+        # Line 4: Status line with success/failure counts and cost
+        status_line = render_status_line(success_count, failure_count, total_cost)
         result.append(status_line)
 
         return result
