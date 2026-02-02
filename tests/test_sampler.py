@@ -968,3 +968,121 @@ class TestConcurrentIdempotency:
         assert sample.model_id == "openai/gpt-4o"
         assert sample.prompt_text == "Draw a cat"
         assert sample.attempt_number == 1
+
+
+class TestConcurrentMetricsAccuracy:
+    """Tests for metrics accuracy under concurrent execution."""
+
+    @pytest.fixture
+    def sample_models(self) -> list[Model]:
+        """Create sample model list."""
+        return [
+            Model(id="openai/gpt-4o", name="GPT-4o"),
+        ]
+
+    @pytest.fixture
+    def sample_prompts(self) -> list[Prompt]:
+        """Create sample prompt list."""
+        return [
+            Prompt(text="Draw a cat", category="single_animal", template_type="animal"),
+            Prompt(text="Draw a dog", category="single_animal", template_type="animal"),
+            Prompt(text="Draw a tree", category="single_object", template_type="object"),
+            Prompt(text="Draw a bird", category="single_animal", template_type="animal"),
+            Prompt(text="Draw a fish", category="single_animal", template_type="animal"),
+        ]
+
+    def test_concurrent_metrics_accuracy(
+        self,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """Verify metrics are accurate under concurrent execution."""
+        from unittest.mock import AsyncMock
+
+        db_path = tmp_path / "database.jsonl"
+
+        # Track metrics via stats_callback
+        successful_count = 0
+        failed_count = 0
+        total_cost = 0.0
+
+        def stats_callback(is_valid: bool, cost: float | None) -> None:
+            """Track metrics from each sample generation."""
+            nonlocal successful_count, failed_count, total_cost
+            if is_valid:
+                successful_count += 1
+            else:
+                failed_count += 1
+            if cost is not None:
+                total_cost += cost
+
+        # Create 10 samples: 5 successful, 5 failed
+        num_samples = 10
+        successful_samples = 5
+        failed_samples = 5
+
+        # Create mock responses
+        success_response = OpenRouterResponse(
+            text="```\n/\\_/\\\n( o.o )\n > ^ <\n```",
+            prompt_tokens=10,
+            completion_tokens=50,
+            total_tokens=60,
+            cost=0.0001,
+        )
+
+        # Mix of successful and failed responses
+        mock_responses = []
+        for i in range(num_samples):
+            if i < successful_samples:
+                mock_responses.append(success_response)
+            else:
+                mock_responses.append(OpenRouterClientError("API error"))
+
+        async def mock_generate_async(*args, **kwargs):
+            """Mock generate that returns mixed responses."""
+            # Get the next response
+            response = mock_responses.pop(0)
+            if isinstance(response, OpenRouterResponse):
+                return response
+            raise response
+
+        mock_client = MagicMock(spec=OpenRouterClient)
+        mock_client.generate_async = AsyncMock(side_effect=mock_generate_async)
+
+        config = GenerationConfig(
+            attempts_per_prompt=2,
+            max_concurrent_requests=10,
+        )
+
+        result = generate_samples(
+            models=sample_models,
+            prompts=sample_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+            stats_callback=stats_callback,
+        )
+
+        # Verify samples were generated
+        assert len(result) == num_samples, f"Expected {num_samples} samples, got {len(result)}"
+
+        # Verify successful count from callback
+        assert successful_count == successful_samples, (
+            f"Expected {successful_samples} successful samples, got {successful_count}"
+        )
+
+        # Verify failed count from callback
+        assert failed_count == failed_samples, (
+            f"Expected {failed_samples} failed samples, got {failed_count}"
+        )
+
+        # Verify cost from callback
+        expected_cost = successful_samples * 0.0001
+        assert total_cost == expected_cost, f"Expected cost {expected_cost}, got {total_cost}"
+
+        # Verify samples in result
+        result_successful = sum(1 for s in result if s.is_valid)
+        result_failed = sum(1 for s in result if not s.is_valid)
+        assert result_successful == successful_samples
+        assert result_failed == failed_samples
