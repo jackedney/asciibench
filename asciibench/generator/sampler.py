@@ -22,10 +22,12 @@ from asciibench.common.config import GenerationConfig, Settings
 from asciibench.common.logging import (
     generate_id,
     get_logger,
+    get_run_id,
     set_request_id,
     set_run_id,
 )
 from asciibench.common.models import ArtSample, Model, Prompt
+from asciibench.common.observability import is_logfire_enabled
 from asciibench.common.persistence import append_jsonl, read_jsonl
 from asciibench.generator.client import (
     AuthenticationError,
@@ -129,6 +131,21 @@ async def _generate_single_sample(
     # Generate and set request_id for this sample generation
     request_id = generate_id()
     set_request_id(request_id)
+
+    span = None
+    if is_logfire_enabled():
+        import logfire
+
+        prompt_id = f"{task.model.id}_{task.prompt.text}_{task.attempt}"
+        span = logfire.span(
+            "sample.generate",
+            prompt_id=prompt_id,
+            model_id=task.model.id,
+            attempt_number=task.attempt,
+            run_id=get_run_id(),
+            request_id=request_id,
+        )
+        span.__enter__()
 
     start_time = time.perf_counter()
     error_message = None
@@ -282,9 +299,16 @@ async def _generate_single_sample(
             },
         )
         error_message = f"Unexpected {type(e).__name__}: {e}"
+        if span is not None:
+            span.record_exception(e)
 
     end_time = time.perf_counter()
     duration_ms = (end_time - start_time) * 1000
+
+    if span is not None:
+        if error_message:
+            span.set_attribute("error_message", error_message)
+        span.__exit__(None, None, None)
 
     return sample, duration_ms, error_message
 
@@ -524,15 +548,35 @@ def generate_samples(
     Returns:
         List of newly generated ArtSample objects (excludes existing samples)
     """
-    return asyncio.run(
-        generate_samples_async(
-            models=models,
-            prompts=prompts,
-            config=config,
-            database_path=database_path,
-            client=client,
-            settings=settings,
-            progress_callback=progress_callback,
-            stats_callback=stats_callback,
+    span = None
+    if is_logfire_enabled():
+        import logfire
+
+        total_tasks = len(models) * len(prompts) * config.attempts_per_prompt
+        model_ids = [m.id for m in models]
+
+        span = logfire.span(
+            "batch.generate",
+            total_tasks=total_tasks,
+            max_concurrent_requests=config.max_concurrent_requests,
+            model_ids=model_ids,
+            run_id=get_run_id(),
         )
-    )
+        span.__enter__()
+
+    try:
+        return asyncio.run(
+            generate_samples_async(
+                models=models,
+                prompts=prompts,
+                config=config,
+                database_path=database_path,
+                client=client,
+                settings=settings,
+                progress_callback=progress_callback,
+                stats_callback=stats_callback,
+            )
+        )
+    finally:
+        if span is not None:
+            span.__exit__(None, None, None)
