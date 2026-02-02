@@ -876,3 +876,95 @@ class TestSemaphoreConcurrencyLimit:
 
         # Verify max concurrent calls was always 1 (sequential)
         assert max_concurrent_calls <= 1
+
+
+class TestConcurrentIdempotency:
+    """Tests for atomic idempotency checks under concurrent execution."""
+
+    @pytest.fixture
+    def sample_models(self) -> list[Model]:
+        """Create sample model list."""
+        return [
+            Model(id="openai/gpt-4o", name="GPT-4o"),
+        ]
+
+    @pytest.fixture
+    def sample_prompts(self) -> list[Prompt]:
+        """Create sample prompt list."""
+        return [
+            Prompt(text="Draw a cat", category="single_animal", template_type="animal"),
+        ]
+
+    def test_concurrent_idempotency_race_condition(
+        self,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """Verify atomic idempotency checks prevent race conditions."""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        db_path = tmp_path / "database.jsonl"
+
+        # Track API calls to verify only one is made for duplicate keys
+        api_call_count = 0
+        call_lock = asyncio.Lock()
+
+        async def tracked_generate(*args, **kwargs):
+            """Mock generate with delay to allow concurrent race conditions."""
+            nonlocal api_call_count
+
+            # Simulate API delay to increase race condition window
+            await asyncio.sleep(0.1)
+
+            async with call_lock:
+                api_call_count += 1
+
+            return OpenRouterResponse(
+                text="```\n/\\_/\\\n( o.o )\n > ^ <\n```",
+                prompt_tokens=10,
+                completion_tokens=50,
+                total_tokens=60,
+                cost=0.0001,
+            )
+
+        mock_client = MagicMock(spec=OpenRouterClient)
+        mock_client.generate_async = AsyncMock(wraps=tracked_generate)
+
+        # Create 5 identical tasks (same model, prompt, attempt)
+        # This creates a race condition where multiple concurrent tasks
+        # try to add the same key to SharedState
+        num_tasks = 5
+        identical_models = [sample_models[0]] * num_tasks
+        identical_prompts = [sample_prompts[0]] * num_tasks
+
+        config = GenerationConfig(
+            attempts_per_prompt=1,
+            max_concurrent_requests=num_tasks,
+        )
+
+        result = generate_samples(
+            models=identical_models,
+            prompts=identical_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        # Verify only one task succeeded in generating the sample
+        assert len(result) == 1, "Only one sample should be generated for duplicate keys"
+
+        # Verify only one API call was made
+        assert api_call_count == 1, "Only one API call should be made for duplicate keys"
+
+        # Verify database has exactly one entry
+        with open(db_path) as f:
+            lines = [line.strip() for line in f if line.strip()]
+        assert len(lines) == 1, "Database should have exactly one entry"
+
+        # Verify the generated sample has correct properties
+        sample = result[0]
+        assert sample.model_id == "openai/gpt-4o"
+        assert sample.prompt_text == "Draw a cat"
+        assert sample.attempt_number == 1
