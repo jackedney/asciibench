@@ -9,6 +9,7 @@ Dependencies:
 """
 
 import asyncio
+import json
 import threading
 from typing import Any
 
@@ -17,6 +18,7 @@ from smolagents import ChatMessage, LiteLLMModel
 
 from asciibench.common.config import GenerationConfig
 from asciibench.common.models import OpenRouterResponse
+from asciibench.common.observability import is_logfire_enabled
 from asciibench.common.retry import retry
 
 # Suppress LiteLLM debug info (e.g., "Provider List: https://docs.litellm.ai/docs/providers")
@@ -180,6 +182,20 @@ class OpenRouterClient:
         if config is None:
             config = GenerationConfig()
 
+        span = None
+        if is_logfire_enabled():
+            import logfire
+
+            span = logfire.span(
+                "llm.generate",
+                model_id=model_id,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens,
+                timeout=self.timeout,
+                reasoning_enabled=config.reasoning,
+            )
+            span.__enter__()
+
         try:
             # Initialize the model with LiteLLMModelWithCost for cost tracking
             # Disable retries to prevent indefinite retrying on rate limits
@@ -271,7 +287,20 @@ class OpenRouterClient:
                 raw = response.raw
                 cost = getattr(raw, "_litellm_cost", None)
 
-            return OpenRouterResponse(
+            # Log span attributes if Logfire is enabled
+            if span is not None:
+                span.set_attribute("llm.messages", json.dumps(messages))
+                span.set_attribute("llm.response", text)
+                if prompt_tokens is not None:
+                    span.set_attribute("prompt_tokens", prompt_tokens)
+                if completion_tokens is not None:
+                    span.set_attribute("completion_tokens", completion_tokens)
+                if total_tokens is not None:
+                    span.set_attribute("total_tokens", total_tokens)
+                if cost is not None:
+                    span.set_attribute("llm.cost", cost)
+
+            result = OpenRouterResponse(
                 text=text,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
@@ -279,9 +308,21 @@ class OpenRouterClient:
                 cost=cost,
             )
 
+            if span is not None:
+                span.__exit__(None, None, None)
+
+            return result
+
         except APITimeoutError as e:
+            if span is not None:
+                span.record_exception(e)
+                span.__exit__(type(e), e, e.__traceback__)
             raise TransientError(f"API call timed out after {self.timeout} seconds") from e
         except Exception as e:
+            if span is not None:
+                span.record_exception(e)
+                span.__exit__(type(e), e, e.__traceback__)
+
             error_message = str(e).lower()
 
             # Check for rate limit errors (429)

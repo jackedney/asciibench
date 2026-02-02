@@ -57,3 +57,12 @@ def init_logfire(settings: Settings) -> bool:
     except Exception as e:
         logger.error(f"Failed to initialize Logfire: {e}")
         return False
+
+
+def is_logfire_enabled() -> bool:
+    """Check if Logfire is currently enabled and initialized.
+
+    Returns:
+        True if Logfire was initialized successfully, False otherwise
+    """
+    return _LOGFIRE_INITIALIZED

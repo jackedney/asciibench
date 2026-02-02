@@ -1,5 +1,6 @@
 """Tests for the OpenRouter client module."""
 
+import json
 import time
 from unittest.mock import MagicMock, patch
 
@@ -517,3 +518,176 @@ class TestOpenRouterClientExceptionHierarchy:
     def test_client_error_is_exception(self):
         """OpenRouterClientError inherits from Exception."""
         assert issubclass(OpenRouterClientError, Exception)
+
+
+class TestOpenRouterClientLogfireInstrumentation:
+    """Tests for Logfire span instrumentation."""
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_created_when_logfire_enabled(self, mock_model_class, mock_is_enabled):
+        """Span is created when Logfire is enabled."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "ASCII art"
+        mock_response.token_usage = None
+        mock_response.raw = None
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+            mock_logfire_span.assert_called_once()
+            call_kwargs = mock_logfire_span.call_args[1]
+            assert call_kwargs["model_id"] == "openai/gpt-4o"
+            assert "temperature" in call_kwargs
+            assert "max_tokens" in call_kwargs
+            assert "timeout" in call_kwargs
+            assert "reasoning_enabled" in call_kwargs
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_sets_response_attributes(self, mock_model_class, mock_is_enabled):
+        """Span sets response attributes when Logfire is enabled."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "ASCII art"
+        mock_token_usage = MagicMock()
+        mock_token_usage.input_tokens = 10
+        mock_token_usage.output_tokens = 20
+        mock_token_usage.total_tokens = 30
+        mock_response.token_usage = mock_token_usage
+        mock_raw = MagicMock()
+        mock_raw._litellm_cost = 0.001
+        mock_response.raw = mock_raw
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            config = GenerationConfig(temperature=0.5, max_tokens=500)
+            client.generate("openai/gpt-4o", "Draw a cat", config=config)
+
+            mock_span.set_attribute.assert_any_call("llm.response", "ASCII art")
+            mock_span.set_attribute.assert_any_call("prompt_tokens", 10)
+            mock_span.set_attribute.assert_any_call("completion_tokens", 20)
+            mock_span.set_attribute.assert_any_call("total_tokens", 30)
+            mock_span.set_attribute.assert_any_call("llm.cost", 0.001)
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_sets_messages_attribute(self, mock_model_class, mock_is_enabled):
+        """Span sets messages attribute as JSON when Logfire is enabled."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "Response"
+        mock_response.token_usage = None
+        mock_response.raw = None
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            config = GenerationConfig(system_prompt="You are an artist")
+            client.generate("openai/gpt-4o", "Draw a cat", config=config)
+
+            mock_span.set_attribute.assert_any_call(
+                "llm.messages",
+                json.dumps(
+                    [
+                        {
+                            "role": "system",
+                            "content": [{"type": "text", "text": "You are an artist"}],
+                        },
+                        {"role": "user", "content": [{"type": "text", "text": "Draw a cat"}]},
+                    ]
+                ),
+            )
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_records_exception_on_error(self, mock_model_class, mock_is_enabled):
+        """Span records exception and sets error status when LLM call fails."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("API error")
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            with pytest.raises(OpenRouterClientError):
+                client.generate("openai/gpt-4o", "Draw a cat")
+
+            mock_span.record_exception.assert_called_once()
+            mock_span.__exit__.assert_called_once()
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=False)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_no_span_when_logfire_disabled(self, mock_model_class, mock_is_enabled):
+        """No span is created when Logfire is disabled."""
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "ASCII art"
+        mock_response.token_usage = None
+        mock_response.raw = None
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            client = OpenRouterClient(api_key="test-key")
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+            mock_logfire_span.assert_not_called()
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_includes_reasoning_enabled_for_reasoning_models(
+        self, mock_model_class, mock_is_enabled
+    ):
+        """Span includes reasoning_enabled=True when using reasoning models."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "Reasoning response"
+        mock_response.token_usage = None
+        mock_response.raw = None
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            config = GenerationConfig(reasoning=True)
+            client.generate("openai/o1-preview", "Draw a cat", config=config)
+
+            call_kwargs = mock_logfire_span.call_args[1]
+            assert call_kwargs["reasoning_enabled"] is True
