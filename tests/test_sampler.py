@@ -825,9 +825,10 @@ class TestSemaphoreConcurrencyLimit:
 
         db_path = tmp_path / "database.jsonl"
 
-        # Track concurrent calls
+        # Track concurrent calls and order
         concurrent_calls = 0
         max_concurrent_calls = 0
+        call_order = []
         call_lock = asyncio.Lock()
 
         async def delayed_generate(*args, **kwargs):
@@ -844,6 +845,11 @@ class TestSemaphoreConcurrencyLimit:
 
             async with call_lock:
                 concurrent_calls -= 1
+
+            # Extract model_id and prompt_text from kwargs to track order
+            model_id = kwargs.get("model_id", "")
+            prompt_text = kwargs.get("prompt_text", "")
+            call_order.append((model_id, prompt_text))
 
             return OpenRouterResponse(
                 text="```\n/\\_/\\\n( o.o )\n > ^ <\n```",
@@ -876,6 +882,87 @@ class TestSemaphoreConcurrencyLimit:
 
         # Verify max concurrent calls was always 1 (sequential)
         assert max_concurrent_calls <= 1
+
+        # Verify results match expected sequential order
+        # Tasks are built in order: for model in models, for prompt in prompts,
+        # for attempt in attempts
+        expected_order = []
+        for model in sample_models:
+            for prompt in sample_prompts:
+                expected_order.append((model.id, prompt.text))
+
+        # Results should be in the same order as submitted tasks
+        result_order = [(s.model_id, s.prompt_text) for s in result]
+        assert result_order == expected_order, (
+            f"Result order {result_order} does not match expected order {expected_order}"
+        )
+
+    def test_concurrent_mode_with_limit_greater_than_one(
+        self,
+        sample_models: list[Model],
+        sample_prompts: list[Prompt],
+        tmp_path: Path,
+    ) -> None:
+        """Negative case: with limit>1, tasks overlap (not sequential)."""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        db_path = tmp_path / "database.jsonl"
+
+        # Track concurrent calls
+        concurrent_calls = 0
+        max_concurrent_calls = 0
+        call_lock = asyncio.Lock()
+
+        async def delayed_generate(*args, **kwargs):
+            """Mock generate with delay to allow concurrent execution."""
+            nonlocal concurrent_calls, max_concurrent_calls
+
+            async with call_lock:
+                concurrent_calls += 1
+                if concurrent_calls > max_concurrent_calls:
+                    max_concurrent_calls = concurrent_calls
+
+            # Simulate API delay to allow overlap
+            await asyncio.sleep(0.05)
+
+            async with call_lock:
+                concurrent_calls -= 1
+
+            return OpenRouterResponse(
+                text="```\n/\\_/\\\n( o.o )\n > ^ <\n```",
+                prompt_tokens=10,
+                completion_tokens=50,
+                total_tokens=60,
+                cost=0.0001,
+            )
+
+        mock_client = MagicMock(spec=OpenRouterClient)
+        mock_client.generate_async = AsyncMock(wraps=delayed_generate)
+
+        # Test with limit=2 (allows 2 concurrent tasks, not sequential)
+        config = GenerationConfig(
+            attempts_per_prompt=1,
+            max_concurrent_requests=2,
+        )
+
+        result = generate_samples(
+            models=sample_models,
+            prompts=sample_prompts,
+            config=config,
+            database_path=db_path,
+            client=mock_client,
+        )
+
+        # Verify tasks completed
+        expected_tasks = len(sample_models) * len(sample_prompts) * 1
+        assert len(result) == expected_tasks
+
+        # Verify max concurrent calls exceeded 1 (not sequential)
+        assert max_concurrent_calls > 1, (
+            "Expected tasks to overlap with limit=2, "
+            f"but max_concurrent_calls={max_concurrent_calls}"
+        )
 
 
 class TestConcurrentIdempotency:
