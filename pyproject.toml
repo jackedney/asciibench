@@ -45,3 +45,7 @@ indent-style = "space"
 dev = [
     "httpx>=0.28.1",
 ]
+
+# Tailwind CSS is installed via npm (package.json)
+# Build with: npm run build:css
+# Watch with: npm run watch:css
