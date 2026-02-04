@@ -22,9 +22,9 @@
      hx-swap="innerHTML"
      hx-indicator="#loading-indicator">
     {# Initial content will be replaced by HTMX #}
-    <div class="comparison-container">
-        <div class="sample">
-            <h2>Sample A</h2>
+    <div class="comparison-container grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <h2 class="text-xl font-semibold text-slate-800 mb-4">Sample A</h2>
             <div class="font-variants">
                 <div class="font-variant">
                     <span class="font-label">Classic</span>
@@ -32,8 +32,8 @@
                 </div>
             </div>
         </div>
-        <div class="sample">
-            <h2>Sample B</h2>
+        <div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <h2 class="text-xl font-semibold text-slate-800 mb-4">Sample B</h2>
             <div class="font-variants">
                 <div class="font-variant">
                     <span class="font-label">Classic</span>
