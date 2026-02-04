@@ -1,6 +1,6 @@
 {# HTMX partial template for matchup display #}
 {% if error %}
-<div id="matchup-error" class="error-message" style="display: block;">{{ error }}</div>
+<div id="matchup-error" class="error-message bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center mb-4" style="display: block;">{{ error }}</div>
 {% else %}
 <div class="comparison-container grid grid-cols-1 md:grid-cols-2 gap-6">
     <div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">

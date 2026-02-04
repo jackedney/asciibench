@@ -12,7 +12,7 @@
     </p>
 </header>
 
-<div id="loading-indicator" class="loading-indicator htmx-indicator">
+<div id="loading-indicator" class="loading-indicator htmx-indicator text-center py-8 text-slate-500 text-base">
     Loading matchup...
 </div>
 
@@ -44,7 +44,7 @@
     </div>
 </div>
 
-<div id="error-message" class="error-message" style="display: none;"></div>
+<div id="error-message" class="error-message bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center mb-4" style="display: none;"></div>
 
 <div class="controls text-center mt-8">
     <h3>Which sample do you prefer?</h3>
@@ -89,7 +89,7 @@
 </div>
 
 <div id="progress-display"
-     class="progress-display"
+     class="progress-display text-center mt-6 p-3 bg-slate-100 rounded-lg text-sm text-slate-600 font-medium"
      hx-get="/htmx/progress"
      hx-trigger="load, vote-submitted from:body, undo-completed from:body"
      hx-swap="innerHTML">
