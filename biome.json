@@ -1,0 +1,22 @@
+{
+	"linter": {
+		"rules": {
+			"suspicious": {
+				"noUnknownAtRules": {
+					"options": {
+						"ignore": [
+							"tailwind",
+							"apply",
+							"layer",
+							"config",
+							"theme",
+							"utility",
+							"variant",
+							"plugin"
+						]
+					}
+				}
+			}
+		}
+	}
+}
