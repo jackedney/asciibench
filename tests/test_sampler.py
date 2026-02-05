@@ -162,7 +162,7 @@ class TestGenerateSamples:
             assert sample.category == "single_animal"
             assert sample.attempt_number == i
             assert sample.is_valid is True
-            assert sample.sanitized_output == "/\\_/\\\n( o.o )\n > ^ <\n"
+            assert sample.sanitized_output == "/\\_/\\\n( o.o )\n > ^ <"
 
     def test_idempotency_skips_existing_samples(
         self,
@@ -288,7 +288,7 @@ class TestGenerateSamples:
         assert cat_sample.raw_output == ""
 
         assert dog_sample.is_valid is True
-        assert dog_sample.sanitized_output == "dog\n"
+        assert dog_sample.sanitized_output == "dog"
 
         # Database should have 2 entries
         with open(db_path) as f:
@@ -349,7 +349,7 @@ class TestGenerateSamples:
 
         assert len(result) == 1
         assert result[0].is_valid is False
-        assert result[0].sanitized_output == long_content + "\n"
+        assert result[0].sanitized_output == long_content
 
     def test_multiple_models_and_prompts(
         self,

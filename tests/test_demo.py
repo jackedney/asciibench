@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -372,7 +372,7 @@ class TestGenerateDemoSample:
         assert isinstance(result.timestamp, datetime)
 
         mock_client_class.assert_called_once_with(
-            api_key="test-api-key", base_url="https://openrouter.ai/api/v1"
+            api_key="test-api-key", base_url="https://openrouter.ai/api/v1", timeout=ANY
         )
         mock_client_instance.generate.assert_called_once()
 
