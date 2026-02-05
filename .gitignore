@@ -40,5 +40,11 @@ htmlcov/
 .DS_Store
 *.DS_Store
 
+# Temporary files
+tmp/
+
+# Internal planning documents
+docs/plans/
+
 data/
 coverage.json
