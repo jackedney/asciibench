@@ -1,5 +1,6 @@
 """Tests for retry decorator with exponential backoff."""
 
+import asyncio
 import time
 
 import pytest
@@ -269,6 +270,257 @@ class TestRetryDecorator:
 
         assert attempt_count == 4
         assert elapsed_time < 0.5  # Should complete quickly without delays
+
+
+class TestAsyncRetryDecorator:
+    """Tests for retry decorator with async functions."""
+
+    @pytest.mark.asyncio
+    async def test_async_succeeds_on_first_attempt(self) -> None:
+        """Async function succeeds on first attempt without retries."""
+        attempt_count = 0
+
+        @retry(max_retries=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        async def successful_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            return "success"
+
+        result = await successful_call()
+
+        assert result == "success"
+        assert attempt_count == 1
+
+    @pytest.mark.asyncio
+    async def test_async_retries_on_specified_exception(self) -> None:
+        """Async function retries when specified exception is raised."""
+        attempt_count = 0
+
+        @retry(max_retries=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        async def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = await failing_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+
+    @pytest.mark.asyncio
+    async def test_async_raises_after_max_retries(self) -> None:
+        """Async function raises exception after max retries exceeded."""
+        attempt_count = 0
+
+        @retry(max_retries=2, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        async def always_failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise CustomRetryableError("Persistent error")
+
+        with pytest.raises(CustomRetryableError, match="Persistent error"):
+            await always_failing_call()
+
+        assert attempt_count == 3  # Initial attempt + 2 retries
+
+    @pytest.mark.asyncio
+    async def test_async_uses_exponential_backoff(self) -> None:
+        """Async retry delays follow exponential backoff pattern."""
+        attempt_count = 0
+        timestamps = []
+
+        @retry(max_retries=3, base_delay_seconds=0.1, retryable_exceptions=(CustomRetryableError,))
+        async def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            timestamps.append(time.time())
+            if attempt_count < 4:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        await failing_call()
+
+        assert len(timestamps) == 4
+        delays = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+
+        assert delays[0] >= 0.1 * 0.8  # Allow some tolerance
+        assert delays[1] >= 0.2 * 0.8  # 0.1 * 2^1
+        assert delays[2] >= 0.4 * 0.8  # 0.1 * 2^2
+
+    @pytest.mark.asyncio
+    async def test_async_non_retryable_exception_raises_immediately(self) -> None:
+        """Non-retryable exception raises immediately without retry."""
+        attempt_count = 0
+
+        @retry(max_retries=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        async def non_retryable_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise NonRetryableError("Non-retryable error")
+
+        with pytest.raises(NonRetryableError, match="Non-retryable error"):
+            await non_retryable_call()
+
+        assert attempt_count == 1  # Only initial attempt, no retries
+
+    @pytest.mark.asyncio
+    async def test_async_preserves_function_name_and_docstring(self) -> None:
+        """Decorator preserves original async function's metadata."""
+
+        @retry(max_retries=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        async def my_function():
+            """My function docstring."""
+            pass
+
+        assert my_function.__name__ == "my_function"
+        assert my_function.__doc__ == "My function docstring."
+
+    @pytest.mark.asyncio
+    async def test_async_passes_arguments_and_returns_result(self) -> None:
+        """Decorator correctly passes arguments and returns result."""
+
+        @retry(max_retries=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        async def add(a: int, b: int) -> int:
+            return a + b
+
+        result = await add(2, 3)
+
+        assert result == 5
+
+    @pytest.mark.asyncio
+    async def test_async_passes_keyword_arguments(self) -> None:
+        """Decorator correctly passes keyword arguments."""
+
+        @retry(max_retries=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        async def greet(name: str, greeting: str = "Hello") -> str:
+            return f"{greeting}, {name}!"
+
+        result = await greet("World", greeting="Hi")
+
+        assert result == "Hi, World!"
+
+    @pytest.mark.asyncio
+    async def test_async_with_custom_sleep_func(self) -> None:
+        """Async decorator uses custom sleep function when provided."""
+        sleep_calls = []
+
+        async def custom_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        attempt_count = 0
+
+        @retry(
+            max_retries=2,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=custom_sleep,
+        )
+        async def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        await failing_call()
+
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+        assert sleep_calls[0] == 0.1  # First retry delay
+        assert sleep_calls[1] == 0.2  # Second retry delay (exponential backoff)
+
+    @pytest.mark.asyncio
+    async def test_async_zero_retries(self) -> None:
+        """Zero retries means async function only runs once."""
+        attempt_count = 0
+
+        @retry(max_retries=0, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        async def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise CustomRetryableError("Error")
+
+        with pytest.raises(CustomRetryableError):
+            await failing_call()
+
+        assert attempt_count == 1
+
+    @pytest.mark.asyncio
+    async def test_async_zero_base_delay(self) -> None:
+        """Zero base delay means no waiting between retries."""
+        attempt_count = 0
+
+        @retry(max_retries=3, base_delay_seconds=0, retryable_exceptions=(CustomRetryableError,))
+        async def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 4:
+                raise CustomRetryableError("Error")
+            return "success"
+
+        start_time = time.time()
+        await failing_call()
+        elapsed_time = time.time() - start_time
+
+        assert attempt_count == 4
+        assert elapsed_time < 0.5  # Should complete quickly without delays
+
+    @pytest.mark.asyncio
+    async def test_sync_decorator_on_sync_function_still_works(self) -> None:
+        """Negative case: @retry() on sync def bar() still works as before."""
+        attempt_count = 0
+
+        @retry(max_retries=2, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        def sync_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = sync_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+
+    @pytest.mark.asyncio
+    async def test_async_awaits_func_correctly(self) -> None:
+        """Async wrapper correctly awaits func(*args, **kwargs)."""
+
+        @retry(max_retries=1, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        async def async_call():
+            await asyncio.sleep(0)
+            return "awaited"
+
+        result = await async_call()
+
+        assert result == "awaited"
+
+    @pytest.mark.asyncio
+    async def test_async_multiple_retryable_exception_types(self) -> None:
+        """Async retry works with multiple exception types."""
+        attempt_count = 0
+
+        @retry(
+            max_retries=3,
+            base_delay_seconds=0.01,
+            retryable_exceptions=(CustomRetryableError, ValueError),
+        )
+        async def multi_exception_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count == 1:
+                raise CustomRetryableError("First error")
+            if attempt_count == 2:
+                raise ValueError("Second error")
+            return "success"
+
+        result = await multi_exception_call()
+
+        assert result == "success"
+        assert attempt_count == 3
 
 
 class TestRetryExamples:
