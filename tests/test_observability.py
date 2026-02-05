@@ -54,12 +54,19 @@ class TestInitLogfire:
         assert result is False
 
     def test_init_logfire_with_empty_token(self):
-        """init_logfire with empty token returns False."""
+        """init_logfire with empty token returns False and does not configure logfire."""
+        mock_logfire = MagicMock()
+        mock_logfire.configure = MagicMock()
+        mock_logfire.instrument_openai = MagicMock()
+        sys.modules["logfire"] = mock_logfire
+
         settings = Settings(logfire=LogfireConfig(token=""))
 
         result = observability.init_logfire(settings)
 
         assert result is False
+        mock_logfire.configure.assert_not_called()
+        mock_logfire.instrument_openai.assert_not_called()
 
     def test_init_logfire_is_idempotent(self):
         """Multiple calls to init_logfire don't cause errors."""
