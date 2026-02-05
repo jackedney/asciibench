@@ -691,7 +691,8 @@ def generate_html() -> None:
     <div class="filter-controls">
         <button class="filter-btn active" onclick="filterModels('all')">All ({total_count})</button>
         <button class="filter-btn" onclick="filterModels('valid')">Valid ({valid_count})</button>
-        <button class="filter-btn" onclick="filterModels('invalid')">Invalid ({invalid_count})</button>
+        <button class="filter-btn" onclick="filterModels('invalid')">
+            Invalid ({invalid_count})</button>
     </div>
 
     <div class="models-container">
@@ -816,7 +817,8 @@ def main() -> None:
 
     console.print()
     console.print(
-        f"  [dim]•[/dim] [bold cyan]{len(models)}[/bold cyan] [dim]models loaded from[/dim] [white]models.yaml[/white]"
+        f"  [dim]•[/dim] [bold cyan]{len(models)}[/bold cyan] "
+        f"[dim]models loaded from[/dim] [white]models.yaml[/white]"
     )
 
     results = load_demo_results()
@@ -824,7 +826,8 @@ def main() -> None:
     remaining_models = [m for m in models if m.id not in completed_ids]
 
     console.print(
-        f"  [dim]•[/dim] [bold yellow]{len(remaining_models)}[/bold yellow] [dim]remaining to generate[/dim]"
+        f"  [dim]•[/dim] [bold yellow]{len(remaining_models)}[/bold yellow] "
+        "[dim]remaining to generate[/dim]"
     )
     console.print()
 

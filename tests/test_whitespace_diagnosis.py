@@ -4,7 +4,6 @@ This module provides tests to help diagnose where leading whitespace
 is being lost in the ASCII art pipeline.
 """
 
-
 from asciibench.generator.sanitizer import extract_ascii_from_markdown
 
 
@@ -20,7 +19,9 @@ class TestWhitespacePreservation:
         # The first line should start with 6 spaces
         first_line = result.split("\n")[0]
         assert first_line == "      ___", f"Expected '      ___' but got '{first_line}'"
-        assert first_line.startswith("      "), f"First line should start with 6 spaces: '{first_line}'"
+        assert first_line.startswith("      "), (
+            f"First line should start with 6 spaces: '{first_line}'"
+        )
 
     def test_first_line_leading_spaces_with_text_lang(self):
         """Verify leading spaces preserved with ```text code block."""
@@ -187,4 +188,6 @@ class TestHTMLEscapingPreservation:
         pre_content = f"<pre>{escaped}</pre>"
 
         # Verify the content still has leading spaces after the <pre> tag
-        assert "<pre>      ___" in pre_content, f"Leading spaces should be after <pre>: {pre_content[:50]}"
+        assert "<pre>      ___" in pre_content, (
+            f"Leading spaces should be after <pre>: {pre_content[:50]}"
+        )
