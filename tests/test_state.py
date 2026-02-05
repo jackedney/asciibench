@@ -4,8 +4,7 @@ import asyncio
 
 import pytest
 
-from asciibench.generator.sampler import BatchMetrics
-from asciibench.generator.state import SharedState
+from asciibench.generator.state import BatchMetrics, SharedState
 
 
 @pytest.fixture
