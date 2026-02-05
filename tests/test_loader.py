@@ -1479,6 +1479,57 @@ class TestRuneScapeLoaderSetPrompt:
             lines = result_str.split("\n")
             assert len(lines) == 4
 
+    def test_set_prompt_sanitizes_newlines(self):
+        """Prompt with newlines is sanitized to single line."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.set_prompt("Hello\nWorld")
+        assert loader._current_prompt == "Hello World"
+
+    def test_set_prompt_sanitizes_carriage_return_newline(self):
+        """Prompt with \\r\\n is sanitized to single line."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.set_prompt("Test\r\nLine")
+        assert loader._current_prompt == "Test Line"
+
+    def test_set_prompt_empty_prompt_remains_empty(self):
+        """Empty prompt remains empty string."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.set_prompt("")
+        assert loader._current_prompt == ""
+
+    def test_set_prompt_sanitizes_multiple_newlines(self):
+        """Multiple newlines are collapsed to single space."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.set_prompt("Line1\n\n\nLine2")
+        assert loader._current_prompt == "Line1 Line2"
+
+    def test_set_prompt_sanitizes_mixed_line_endings(self):
+        """Mixed line endings are normalized to spaces."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.set_prompt("First\r\nSecond\nThird\rFourth")
+        assert loader._current_prompt == "First Second Third Fourth"
+
+    def test_set_prompt_collapses_whitespace(self):
+        """Repeated whitespace is collapsed to single space."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        loader.set_prompt("Hello   World")
+        assert loader._current_prompt == "Hello World"
+
+    def test_set_prompt_sanitizes_before_truncation(self):
+        """Sanitization is applied before max_len check."""
+        loader = RuneScapeLoader("Model", total_steps=100)
+        # This has a newline in the middle, after sanitization it becomes shorter
+        # but should still be truncated if the sanitized version is too long
+        long_with_newlines = "A" * 40 + "\n" + "B" * 50
+        loader.set_prompt(long_with_newlines)
+        # After sanitization: 40 spaces + 50 = 91 chars
+        # Should be truncated to 80 + "..."
+        assert len(loader._current_prompt) == 83
+        assert loader._current_prompt.endswith("...")
+        # And should have no newlines
+        assert "\n" not in loader._current_prompt
+        assert "\r" not in loader._current_prompt
+
 
 class TestRuneScapeLoaderRecordResult:
     """Tests for record_result method."""

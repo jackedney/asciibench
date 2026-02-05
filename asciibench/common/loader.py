@@ -1,6 +1,7 @@
 """RuneScape-style animated loading bar component using Rich Live."""
 
 import os
+import re
 import shutil
 import threading
 import time
@@ -253,12 +254,19 @@ class RuneScapeLoader:
             prompt_text: The prompt text to display.
         """
         with self._lock:
+            # Sanitize prompt: replace all \r and \n with single space, collapse repeated whitespace
+            if prompt_text:
+                sanitized = re.sub(r"[\r\n]+", " ", prompt_text)
+                sanitized = re.sub(r"[ \t]+", " ", sanitized).strip()
+            else:
+                sanitized = ""
+
             # Truncate long prompts for display
             max_len = 80
-            if len(prompt_text) > max_len:
-                self._current_prompt = prompt_text[:max_len] + "..."
+            if len(sanitized) > max_len:
+                self._current_prompt = sanitized[:max_len] + "..."
             else:
-                self._current_prompt = prompt_text
+                self._current_prompt = sanitized
 
     def record_result(self, success: bool, cost: float = 0.0) -> None:
         """Record a generation result and update the status counters.
