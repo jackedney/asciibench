@@ -16,6 +16,7 @@ dependencies = [
     "python-multipart",
     "rich>=14.3.1",
     "logfire>=4.21.0",
+    "filelock>=3.0",
 ]
 
 [project.optional-dependencies]
