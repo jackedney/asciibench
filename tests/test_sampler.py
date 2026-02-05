@@ -692,12 +692,17 @@ class TestGenerateSamples:
         db_path = tmp_path / "database.jsonl"
         log_path = tmp_path / "logs.jsonl"
 
-        from asciibench.common.logging import set_request_id
+        from asciibench.common.logging import get_logger, set_request_id
 
         # Clear any previous request_id
         set_request_id(None)
 
-        config = GenerationConfig(attempts_per_prompt=2)
+        # Configure logger to use custom log_path
+        logger = get_logger("generator.sampler")
+        logger.log_path = log_path
+
+        attempts_per_prompt = 2
+        config = GenerationConfig(attempts_per_prompt=attempts_per_prompt)
         generate_samples(
             models=sample_models,
             prompts=sample_prompts,
@@ -709,24 +714,29 @@ class TestGenerateSamples:
         # Clear request_id
         set_request_id(None)
 
+        # Log file must exist
+        assert log_path.exists()
+
         # Read log file and verify request_ids are present and unique
-        if log_path.exists():
-            with open(log_path) as f:
-                lines = [line for line in f if line.strip()]
-            if lines:
-                import json
+        with open(log_path) as f:
+            lines = [line for line in f if line.strip()]
 
-                # Check that logs have request_id and they are different
-                log_entries = [json.loads(line) for line in lines]
-                entries_with_request_id = [e for e in log_entries if "request_id" in e]
-                # Should have at least some entries with request_id
-                assert len(entries_with_request_id) > 0
+        assert len(lines) > 0, "Log file should have entries"
 
-                # Extract all request_ids
-                request_ids = [e["request_id"] for e in entries_with_request_id]
-                # Should have at least some unique request_ids
-                unique_request_ids = set(request_ids)
-                assert len(unique_request_ids) > 0
+        import json
+
+        # Extract all request_ids from log entries
+        log_entries = [json.loads(line) for line in lines]
+        request_ids = [e["request_id"] for e in log_entries if "request_id" in e]
+
+        # Verify we have the expected number of unique request_ids
+        expected_count = len(sample_models) * len(sample_prompts) * attempts_per_prompt
+        unique_request_ids = set(request_ids)
+
+        assert len(unique_request_ids) == expected_count, (
+            f"Expected {expected_count} unique request_ids, got {len(unique_request_ids)}"
+        )
+        assert all(rid is not None for rid in request_ids), "No request_id should be None"
 
 
 class TestSemaphoreConcurrencyLimit:
