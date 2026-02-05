@@ -438,9 +438,10 @@ async def generate_samples_async(
     """
     database_path = Path(database_path)
 
-    # Generate and set run_id for this generation batch
-    run_id = generate_id()
-    set_run_id(run_id)
+    # Generate and set run_id for this generation batch if not already set
+    if get_run_id() is None:
+        run_id = generate_id()
+        set_run_id(run_id)
 
     # Initialize client if not provided
     if client is None:
@@ -554,6 +555,10 @@ def generate_samples(
 
         total_tasks = len(models) * len(prompts) * config.attempts_per_prompt
         model_ids = [m.id for m in models]
+
+        if get_run_id() is None:
+            run_id = generate_id()
+            set_run_id(run_id)
 
         span = logfire.span(
             "batch.generate",
