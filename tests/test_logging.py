@@ -209,12 +209,13 @@ class TestJSONLogger:
 
         assert Path(log_path).exists()
 
-    def test_default_log_path(self, tmp_path: Path) -> None:
+    def test_default_log_path(self, tmp_path: Path, monkeypatch) -> None:
         """Logger uses default log path when not specified."""
-        logger = JSONLogger("test", tmp_path / "default_logs.jsonl")
+        monkeypatch.chdir(tmp_path)
+        logger = JSONLogger("test")
         logger.info("Default path test")
 
-        assert (tmp_path / "default_logs.jsonl").exists()
+        assert (tmp_path / "data" / "logs" / "asciibench.jsonl").exists()
 
     def test_info_method(self, tmp_path: Path) -> None:
         """info() method logs at info level."""
