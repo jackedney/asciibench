@@ -1,5 +1,6 @@
 """Tests for the sampler module."""
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1120,18 +1121,18 @@ class TestConcurrentMetricsAccuracy:
             cost=0.0001,
         )
 
-        # Mix of successful and failed responses
-        mock_responses = []
+        # Mix of successful and failed responses in a thread-safe queue
+        mock_queue = asyncio.Queue()
         for i in range(num_samples):
             if i < successful_samples:
-                mock_responses.append(success_response)
+                mock_queue.put_nowait(success_response)
             else:
-                mock_responses.append(OpenRouterClientError("API error"))
+                mock_queue.put_nowait(OpenRouterClientError("API error"))
 
         async def mock_generate_async(*args, **kwargs):
             """Mock generate that returns mixed responses."""
-            # Get the next response
-            response = mock_responses.pop(0)
+            # Get the next response from the queue (thread-safe)
+            response = await mock_queue.get()
             if isinstance(response, OpenRouterResponse):
                 return response
             raise response
