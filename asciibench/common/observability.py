@@ -8,7 +8,7 @@ _LOGFIRE_INITIALIZED = False
 
 
 def init_logfire(settings: Settings) -> bool:
-    """Initialize Logfire observability if enabled in settings.
+    """Initialize Logfire observability if token is present in settings.
 
     Args:
         settings: Application settings containing Logfire configuration
@@ -17,12 +17,12 @@ def init_logfire(settings: Settings) -> bool:
         True if Logfire was initialized successfully, False otherwise
 
     Example:
-        >>> settings = Settings()
+        >>> settings = Settings(logfire=LogfireConfig(token="test-token"))
         >>> init_logfire(settings)
         True
 
     Example:
-        >>> settings = Settings(logfire=LogfireConfig(enabled=False))
+        >>> settings = Settings(logfire=LogfireConfig(token=None))
         >>> init_logfire(settings)
         False
 

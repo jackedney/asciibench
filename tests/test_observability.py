@@ -17,14 +17,14 @@ class TestInitLogfire:
             del sys.modules["logfire"]
 
     def test_init_logfire_with_valid_config_returns_true(self):
-        """init_logfire returns True when Logfire is enabled with valid config."""
+        """init_logfire returns True when Logfire token is present."""
         mock_logfire = MagicMock()
         mock_logfire.configure = MagicMock()
         mock_logfire.instrument_openai = MagicMock()
         sys.modules["logfire"] = mock_logfire
 
         settings = Settings(
-            logfire=LogfireConfig(token="test-token-123", service_name="test-service", enabled=True)
+            logfire=LogfireConfig(token="test-token-123", service_name="test-service")
         )
 
         result = observability.init_logfire(settings)
@@ -38,8 +38,8 @@ class TestInitLogfire:
         mock_logfire.instrument_openai.assert_called_once()
 
     def test_init_logfire_with_disabled_config_returns_false(self):
-        """init_logfire returns False when Logfire is disabled."""
-        settings = Settings(logfire=LogfireConfig(token="test-token", enabled=False))
+        """init_logfire returns False when Logfire token is None."""
+        settings = Settings(logfire=LogfireConfig(token=None))
 
         result = observability.init_logfire(settings)
 
@@ -47,24 +47,19 @@ class TestInitLogfire:
 
     def test_init_logfire_with_missing_token_returns_false(self):
         """init_logfire returns False when token is None."""
-        settings = Settings(logfire=LogfireConfig(token=None, enabled=True))
+        settings = Settings(logfire=LogfireConfig(token=None))
 
         result = observability.init_logfire(settings)
 
         assert result is False
 
     def test_init_logfire_with_empty_token(self):
-        """init_logfire with empty token attempts import but may fail."""
-        mock_logfire = MagicMock()
-        mock_logfire.configure = MagicMock()
-        sys.modules["logfire"] = mock_logfire
-
-        settings = Settings(logfire=LogfireConfig(token="", enabled=True))
+        """init_logfire with empty token returns False."""
+        settings = Settings(logfire=LogfireConfig(token=""))
 
         result = observability.init_logfire(settings)
 
-        assert result is True
-        mock_logfire.configure.assert_called_once()
+        assert result is False
 
     def test_init_logfire_is_idempotent(self):
         """Multiple calls to init_logfire don't cause errors."""
@@ -74,7 +69,7 @@ class TestInitLogfire:
         sys.modules["logfire"] = mock_logfire
 
         settings = Settings(
-            logfire=LogfireConfig(token="test-token-123", service_name="test-service", enabled=True)
+            logfire=LogfireConfig(token="test-token-123", service_name="test-service")
         )
 
         result1 = observability.init_logfire(settings)
@@ -100,7 +95,6 @@ class TestInitLogfire:
                 token="test-token-123",
                 service_name="test-service",
                 environment="production",
-                enabled=True,
             )
         )
 
@@ -120,7 +114,7 @@ class TestInitLogfire:
         sys.modules["logfire"] = mock_logfire
 
         settings = Settings(
-            logfire=LogfireConfig(token="test-token-123", service_name="test-service", enabled=True)
+            logfire=LogfireConfig(token="test-token-123", service_name="test-service")
         )
 
         result = observability.init_logfire(settings)
@@ -151,7 +145,7 @@ class TestIsLogfireEnabled:
         sys.modules["logfire"] = mock_logfire
 
         settings = Settings(
-            logfire=LogfireConfig(token="test-token-123", service_name="test-service", enabled=True)
+            logfire=LogfireConfig(token="test-token-123", service_name="test-service")
         )
 
         observability.init_logfire(settings)
@@ -165,7 +159,7 @@ class TestIsLogfireEnabled:
         sys.modules["logfire"] = mock_logfire
 
         settings = Settings(
-            logfire=LogfireConfig(token="test-token-123", service_name="test-service", enabled=True)
+            logfire=LogfireConfig(token="test-token-123", service_name="test-service")
         )
 
         observability.init_logfire(settings)
@@ -173,8 +167,8 @@ class TestIsLogfireEnabled:
         assert observability.is_logfire_enabled() is False
 
     def test_is_logfire_enabled_returns_false_when_disabled(self):
-        """is_logfire_enabled returns False when Logfire is disabled."""
-        settings = Settings(logfire=LogfireConfig(enabled=False))
+        """is_logfire_enabled returns False when Logfire token is None."""
+        settings = Settings(logfire=LogfireConfig(token=None))
 
         observability.init_logfire(settings)
 

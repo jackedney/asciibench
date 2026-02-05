@@ -96,7 +96,6 @@ Logfire is optional and disabled by default. To enable it:
 
 ```bash
 LOGFIRE_TOKEN=your_logfire_token_here
-LOGFIRE_ENABLED=true
 LOGFIRE_SERVICE_NAME=asciibench
 LOGFIRE_ENVIRONMENT=development
 ```
@@ -105,12 +104,9 @@ LOGFIRE_ENVIRONMENT=development
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `LOGFIRE_TOKEN` | Required* | - | Your Logfire API token from the dashboard |
-| `LOGFIRE_ENABLED` | Required | `false` | Set to `true` to enable Logfire monitoring |
+| `LOGFIRE_TOKEN` | Optional | - | Your Logfire API token from the dashboard. Presence enables Logfire monitoring |
 | `LOGFIRE_SERVICE_NAME` | Optional | `asciibench` | Name of the service in Logfire |
 | `LOGFIRE_ENVIRONMENT` | Optional | `development` | Environment identifier (e.g., `development`, `staging`, `production`) |
-
-*Required only when `LOGFIRE_ENABLED=true`
 
 ### Data Captured
 

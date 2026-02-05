@@ -10,11 +10,10 @@ class LogfireConfig(BaseModel):
     token: str | None = None
     service_name: str = "asciibench"
     environment: str = "development"
-    enabled: bool = False
 
     @property
     def is_enabled(self) -> bool:
-        return self.enabled and self.token is not None
+        return bool(self.token)
 
 
 class GenerationConfig(BaseModel):
@@ -45,13 +44,6 @@ class Settings(BaseSettings):
     logfire: LogfireConfig = Field(default_factory=LogfireConfig)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
-
-    @field_validator("logfire", mode="after")
-    @classmethod
-    def validate_logfire(cls, v: LogfireConfig) -> LogfireConfig:
-        if v.enabled and v.token is None:
-            logger.warning("LOGFIRE_ENABLED is true but LOGFIRE_TOKEN missing; Logfire disabled.")
-        return v
 
     @property
     def timeout_seconds(self) -> int:
