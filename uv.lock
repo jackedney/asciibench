@@ -145,6 +145,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "filelock" },
     { name = "logfire" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
@@ -170,6 +171,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
+    { name = "filelock", specifier = ">=3.0" },
     { name = "logfire", specifier = ">=4.21.0" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pydantic-settings" },

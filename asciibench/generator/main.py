@@ -175,9 +175,7 @@ def main() -> None:
     def _loader_progress_callback(
         model_id: str, prompt_text: str, attempt: int, remaining: int
     ) -> None:
-        """Progress callback - updates model name, prompt and progress bar."""
-        nonlocal total_completed
-
+        """Progress callback - updates model name and prompt display."""
         # Update model name (use display name from mapping, without resetting progress)
         display_name = model_names.get(model_id, model_id)
         loader.set_model_name(display_name)
@@ -185,14 +183,16 @@ def main() -> None:
         # Update the current prompt in the loader (in-place update)
         loader.set_prompt(prompt_text)
 
-        # Increment total progress
-        total_completed += 1
-        loader.update(total_completed)
-
     def _stats_callback(is_valid: bool, cost: float | None) -> None:
-        """Stats callback - updates success/failure/cost counters."""
+        """Stats callback - updates success/failure/cost counters and progress."""
+        nonlocal total_completed
         actual_cost = cost if cost is not None else 0.0
         loader.record_result(is_valid, actual_cost)
+
+        # Increment progress only for successful generations
+        if is_valid:
+            total_completed += 1
+            loader.update(total_completed)
 
     # Generate samples with progress and stats callbacks
     try:
