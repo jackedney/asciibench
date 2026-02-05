@@ -317,7 +317,7 @@ class OpenRouterClient:
             if span is not None:
                 span.record_exception(e)
                 span.__exit__(type(e), e, e.__traceback__)
-            raise TransientError(f"API call timed out after {self.timeout} seconds") from e
+            raise
         except Exception as e:
             if span is not None:
                 span.record_exception(e)
