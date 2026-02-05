@@ -63,7 +63,13 @@ def log_generation_error(
     if exception:
         metadata["exception_type"] = type(exception).__name__
         metadata["exception_message"] = str(exception)
-        metadata["traceback"] = traceback.format_exc()
+        if exception.__traceback__:
+            tb_lines = traceback.format_exception(
+                type(exception), exception, exception.__traceback__
+            )
+            metadata["traceback"] = "".join(tb_lines)
+        else:
+            metadata["traceback"] = ""
 
     if raw_output:
         # Truncate very long outputs but keep enough for debugging
