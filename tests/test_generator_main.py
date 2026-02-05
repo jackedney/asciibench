@@ -124,11 +124,12 @@ class TestMain:
             main()
 
         captured = capsys.readouterr()
+        stripped_output = strip_ansi(captured.out)
         # Check for banner (contains ASCII art with these patterns)
-        assert "___" in captured.out  # Part of the ASCII art banner
+        assert "___" in stripped_output  # Part of the ASCII art banner
         # Check for config summary (like demo.py)
-        assert "models loaded from" in captured.out
-        assert "models.yaml" in captured.out
+        assert "models loaded from" in stripped_output
+        assert "models.yaml" in stripped_output
 
     def test_main_calls_generate_samples_with_correct_args(
         self,
