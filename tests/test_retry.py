@@ -523,6 +523,112 @@ class TestAsyncRetryDecorator:
         assert attempt_count == 3
 
 
+class TestRetryValidation:
+    """Tests for input validation of retry decorator parameters."""
+
+    def test_negative_max_retries_raises_value_error(self) -> None:
+        """Example: retry(max_retries=-1) raises ValueError with clear message."""
+        with pytest.raises(ValueError, match="max_retries must be >= 0"):
+
+            @retry(max_retries=-1)
+            def dummy_func():
+                pass
+
+    def test_string_max_retries_raises_value_error(self) -> None:
+        """Invalid max_retries type raises ValueError."""
+        with pytest.raises(ValueError, match="max_retries must be an integer"):
+
+            @retry(max_retries="3")  # type: ignore[invalid-argument-type]
+            def dummy_func():
+                pass
+
+    def test_float_max_retries_raises_value_error(self) -> None:
+        """Float max_retries raises ValueError."""
+        with pytest.raises(ValueError, match="max_retries must be an integer"):
+
+            @retry(max_retries=3.5)  # type: ignore[invalid-argument-type]
+            def dummy_func():
+                pass
+
+    def test_negative_base_delay_raises_value_error(self) -> None:
+        """Negative base_delay_seconds raises ValueError."""
+        with pytest.raises(ValueError, match="base_delay_seconds must be >= 0"):
+
+            @retry(base_delay_seconds=-1)
+            def dummy_func():
+                pass
+
+    def test_string_base_delay_raises_value_error(self) -> None:
+        """Example: retry(base_delay_seconds='invalid') raises ValueError."""
+        with pytest.raises(ValueError, match="base_delay_seconds must be a number"):
+
+            @retry(base_delay_seconds="invalid")  # type: ignore[invalid-argument-type]
+            def dummy_func():
+                pass
+
+    def test_zero_max_retries_is_valid(self) -> None:
+        """Negative case: retry(max_retries=0) is valid (no retries)."""
+
+        @retry(max_retries=0, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
+        def failing_call():
+            raise CustomRetryableError("Error")
+
+        with pytest.raises(CustomRetryableError):
+            failing_call()
+
+    def test_zero_base_delay_is_valid(self) -> None:
+        """Zero base delay is valid."""
+
+        @retry(max_retries=0, base_delay_seconds=0, retryable_exceptions=(CustomRetryableError,))
+        def dummy_func():
+            return "success"
+
+        result = dummy_func()
+        assert result == "success"
+
+    def test_empty_retryable_exceptions_raises_type_error(self) -> None:
+        """Empty retryable_exceptions tuple raises TypeError."""
+        with pytest.raises(TypeError, match="retryable_exceptions must not be empty"):
+
+            @retry(retryable_exceptions=())
+            def dummy_func():
+                pass
+
+    def test_list_retryable_exceptions_raises_type_error(self) -> None:
+        """List instead of tuple raises TypeError."""
+        with pytest.raises(TypeError, match="retryable_exceptions must be a tuple"):
+
+            @retry(retryable_exceptions=[Exception])  # type: ignore[invalid-argument-type]
+            def dummy_func():
+                pass
+
+    def test_non_exception_type_in_retryable_exceptions_raises_type_error(self) -> None:
+        """Non-Exception type in retryable_exceptions raises TypeError."""
+        with pytest.raises(TypeError, match="retryable_exceptions must contain Exception types"):
+
+            @retry(retryable_exceptions=(Exception, "not_an_exception"))  # type: ignore[invalid-argument-type]
+            def dummy_func():
+                pass
+
+    def test_non_class_in_retryable_exceptions_raises_type_error(self) -> None:
+        """Non-class in retryable_exceptions raises TypeError."""
+        with pytest.raises(TypeError, match="retryable_exceptions must contain Exception types"):
+
+            @retry(retryable_exceptions=(Exception, 123))  # type: ignore[invalid-argument-type]
+            def dummy_func():
+                pass
+
+    def test_valid_retryable_exceptions_tuple(self) -> None:
+        """Valid tuple of exception types works correctly."""
+
+        @retry(retryable_exceptions=(CustomRetryableError, ValueError))
+        def dummy_func():
+            return "success"
+
+        result = dummy_func()
+        assert result == "success"
+
+
 class TestRetryExamples:
     """Example tests from acceptance criteria."""
 

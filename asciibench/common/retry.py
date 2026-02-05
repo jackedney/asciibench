@@ -44,6 +44,27 @@ def retry(
         async def async_api_call():
             ...
     """
+    if not isinstance(max_retries, int):
+        raise ValueError(f"max_retries must be an integer, got {type(max_retries).__name__}")
+    if max_retries < 0:
+        raise ValueError(f"max_retries must be >= 0, got {max_retries}")
+
+    if not isinstance(base_delay_seconds, (int, float)):
+        raise ValueError(
+            f"base_delay_seconds must be a number, got {type(base_delay_seconds).__name__}"
+        )
+    if base_delay_seconds < 0:
+        raise ValueError(f"base_delay_seconds must be >= 0, got {base_delay_seconds}")
+
+    if not isinstance(retryable_exceptions, tuple):
+        raise TypeError(
+            f"retryable_exceptions must be a tuple, got {type(retryable_exceptions).__name__}"
+        )
+    if len(retryable_exceptions) == 0:
+        raise TypeError("retryable_exceptions must not be empty")
+    for exc_type in retryable_exceptions:
+        if not (isinstance(exc_type, type) and issubclass(exc_type, Exception)):
+            raise TypeError(f"retryable_exceptions must contain Exception types, got {exc_type}")
 
     def decorator(func):
         is_async = inspect.iscoroutinefunction(func)
