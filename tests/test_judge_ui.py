@@ -48,6 +48,15 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
+def matchup_service(temp_data_dir: Path) -> MatchupService:
+    """Create a MatchupService instance for tests."""
+    return MatchupService(
+        database_path=temp_data_dir / "database.jsonl",
+        votes_path=temp_data_dir / "votes.jsonl",
+    )
+
+
+@pytest.fixture
 def sample_data() -> list[ArtSample]:
     """Create sample test data with samples from different models."""
     return [
@@ -335,21 +344,13 @@ class TestMatchupEndpoint:
 class TestComparisonPrioritization:
     """Tests for the comparison count prioritization logic."""
 
-    def test_get_pair_comparison_counts_empty(self, temp_data_dir: Path) -> None:
+    def test_get_pair_comparison_counts_empty(self, matchup_service: MatchupService) -> None:
         """Test counting comparisons with no votes."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         counts = matchup_service._get_pair_comparison_counts([])
         assert len(counts) == 0
 
-    def test_get_pair_comparison_counts_single_vote(self, temp_data_dir: Path) -> None:
+    def test_get_pair_comparison_counts_single_vote(self, matchup_service: MatchupService) -> None:
         """Test counting comparisons with a single vote."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         vote = Vote(
             sample_a_id="sample-1",
             sample_b_id="sample-2",
@@ -360,12 +361,10 @@ class TestComparisonPrioritization:
         expected_pair = matchup_service._make_sorted_pair("sample-1", "sample-2")
         assert counts[expected_pair] == 1
 
-    def test_get_pair_comparison_counts_normalizes_order(self, temp_data_dir: Path) -> None:
+    def test_get_pair_comparison_counts_normalizes_order(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test that (A,B) and (B,A) are counted as the same pair."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         votes = [
             Vote(sample_a_id="sample-1", sample_b_id="sample-2", winner="A"),
             Vote(sample_a_id="sample-2", sample_b_id="sample-1", winner="B"),
@@ -375,12 +374,8 @@ class TestComparisonPrioritization:
         assert counts[expected_pair] == 2
         assert len(counts) == 1  # Only one unique pair
 
-    def test_get_model_pair_comparison_counts(self, temp_data_dir: Path) -> None:
+    def test_get_model_pair_comparison_counts(self, matchup_service: MatchupService) -> None:
         """Test counting comparisons by model pairs."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         samples = [
             ArtSample(
                 id=uuid4(),
@@ -412,12 +407,10 @@ class TestComparisonPrioritization:
         expected_pair = matchup_service._make_sorted_pair("model-a", "model-b")
         assert counts[expected_pair] == 1
 
-    def test_select_matchup_prioritizes_less_compared(self, temp_data_dir: Path) -> None:
+    def test_select_matchup_prioritizes_less_compared(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test that matchup selection prioritizes model pairs with fewer comparisons."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         # Create samples from 3 models
         samples = []
         for model in ["model-a", "model-b", "model-c"]:
@@ -463,12 +456,8 @@ class TestComparisonPrioritization:
         # At least one of the less-compared pairs should be selected frequently
         assert pair_counts.get(ac_pair, 0) > 0 or pair_counts.get(bc_pair, 0) > 0
 
-    def test_select_matchup_with_single_model(self, temp_data_dir: Path) -> None:
+    def test_select_matchup_with_single_model(self, matchup_service: MatchupService) -> None:
         """Test matchup selection when all samples are from one model."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         samples = [
             ArtSample(
                 id=uuid4(),
@@ -496,12 +485,10 @@ class TestComparisonPrioritization:
         sample_a, sample_b = matchup_service._select_matchup(samples, [])
         assert sample_a.id != sample_b.id
 
-    def test_select_matchup_raises_with_insufficient_samples(self, temp_data_dir: Path) -> None:
+    def test_select_matchup_raises_with_insufficient_samples(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test that matchup selection raises error with fewer than 2 samples."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         samples = [
             ArtSample(
                 id=uuid4(),
@@ -1591,20 +1578,14 @@ class TestProgressEndpoint:
 class TestProgressHelperFunctions:
     """Tests for progress calculation helper functions."""
 
-    def test_calculate_total_possible_pairs_empty(self, temp_data_dir: Path) -> None:
+    def test_calculate_total_possible_pairs_empty(self, matchup_service: MatchupService) -> None:
         """Test total pairs calculation with no samples."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         assert matchup_service._calculate_total_possible_pairs([]) == 0
 
-    def test_calculate_total_possible_pairs_single_model(self, temp_data_dir: Path) -> None:
+    def test_calculate_total_possible_pairs_single_model(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test total pairs calculation with single model (no cross-model pairs)."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         samples = [
             ArtSample(
                 id=uuid4(),
@@ -1621,12 +1602,10 @@ class TestProgressHelperFunctions:
         # All samples from same model, so no valid cross-model pairs
         assert matchup_service._calculate_total_possible_pairs(samples) == 0
 
-    def test_calculate_total_possible_pairs_two_models(self, temp_data_dir: Path) -> None:
+    def test_calculate_total_possible_pairs_two_models(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test total pairs calculation with two models."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         samples = []
         # 3 samples from model-a, 2 samples from model-b
         for i in range(3):
@@ -1658,12 +1637,10 @@ class TestProgressHelperFunctions:
         # Cross-model pairs: 3 * 2 = 6
         assert matchup_service._calculate_total_possible_pairs(samples) == 6
 
-    def test_calculate_total_possible_pairs_three_models(self, temp_data_dir: Path) -> None:
+    def test_calculate_total_possible_pairs_three_models(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test total pairs calculation with three models."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         samples = []
         # 2 samples each from 3 models
         for model in ["model-a", "model-b", "model-c"]:
@@ -1683,20 +1660,14 @@ class TestProgressHelperFunctions:
         # Cross-model pairs: (2*2) + (2*2) + (2*2) = 4 + 4 + 4 = 12
         assert matchup_service._calculate_total_possible_pairs(samples) == 12
 
-    def test_get_unique_model_pairs_judged_empty(self, temp_data_dir: Path) -> None:
+    def test_get_unique_model_pairs_judged_empty(self, matchup_service: MatchupService) -> None:
         """Test unique pairs judged with no votes."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         assert matchup_service.get_unique_model_pairs_judged([], []) == 0
 
-    def test_get_unique_model_pairs_judged_single_pair(self, temp_data_dir: Path) -> None:
+    def test_get_unique_model_pairs_judged_single_pair(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test unique pairs judged with one model pair compared."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         samples = [
             ArtSample(
                 id=uuid4(),
@@ -1734,12 +1705,10 @@ class TestProgressHelperFunctions:
         # Two votes but only one unique model pair
         assert matchup_service.get_unique_model_pairs_judged(votes, samples) == 1
 
-    def test_get_unique_model_pairs_judged_multiple_pairs(self, temp_data_dir: Path) -> None:
+    def test_get_unique_model_pairs_judged_multiple_pairs(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test unique pairs judged with multiple model pairs compared."""
-        matchup_service = MatchupService(
-            database_path=temp_data_dir / "database.jsonl",
-            votes_path=temp_data_dir / "votes.jsonl",
-        )
         samples = [
             ArtSample(
                 id=uuid4(),
