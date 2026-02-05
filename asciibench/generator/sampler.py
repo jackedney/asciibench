@@ -550,15 +550,16 @@ def generate_samples(
         List of newly generated ArtSample objects (excludes existing samples)
     """
     span = None
+
+    if get_run_id() is None:
+        run_id = generate_id()
+        set_run_id(run_id)
+
     if is_logfire_enabled():
         import logfire
 
         total_tasks = len(models) * len(prompts) * config.attempts_per_prompt
         model_ids = [m.id for m in models]
-
-        if get_run_id() is None:
-            run_id = generate_id()
-            set_run_id(run_id)
 
         span = logfire.span(
             "batch.generate",

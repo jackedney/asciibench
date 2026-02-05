@@ -638,10 +638,14 @@ class TestGenerateSamples:
         db_path = tmp_path / "database.jsonl"
         log_path = tmp_path / "logs.jsonl"
 
-        from asciibench.common.logging import get_run_id, set_run_id
+        from asciibench.common.logging import get_logger, get_run_id, set_run_id
 
         # Clear any previous run_id
         set_run_id(None)
+
+        # Configure logger to use custom log_path
+        logger = get_logger("generator.sampler")
+        logger.log_path = log_path
 
         config = GenerationConfig(attempts_per_prompt=2)
         generate_samples(
@@ -654,21 +658,25 @@ class TestGenerateSamples:
 
         # Verify run_id was set during generation
         run_id = get_run_id()
-        # run_id should still be set or be a valid UUID/timestamp
-        assert run_id is None or isinstance(run_id, str)
+        # run_id must be a non-empty string
+        assert isinstance(run_id, str)
+        assert len(run_id) > 0
+
+        # Log file must exist
+        assert log_path.exists()
 
         # Read log file and verify run_id is present in logs
-        if log_path.exists():
-            with open(log_path) as f:
-                lines = [line for line in f if line.strip()]
-            if lines:
-                import json
+        with open(log_path) as f:
+            lines = [line for line in f if line.strip()]
+        assert len(lines) > 0, "Log file should have entries"
 
-                # Check that at least some logs have run_id
-                log_entries = [json.loads(line) for line in lines]
-                entries_with_run_id = [e for e in log_entries if "run_id" in e]
-                # Should have at least some entries with run_id
-                assert len(entries_with_run_id) > 0
+        import json
+
+        # Check that at least some logs have run_id
+        log_entries = [json.loads(line) for line in lines]
+        entries_with_run_id = [e for e in log_entries if "run_id" in e]
+        # Should have at least some entries with run_id
+        assert len(entries_with_run_id) > 0, "At least one log entry should have run_id"
 
         # Clear run_id
         set_run_id(None)
