@@ -61,8 +61,8 @@ class PairwiseSignificance:
 
     model_a: str
     model_b: str
-    wins_a: int
-    wins_b: int
+    wins_a: float  # Ties count as 0.5 for each side
+    wins_b: float  # Ties count as 0.5 for each side
     p_value: float
     is_significant: bool  # p < 0.05
 
@@ -307,7 +307,7 @@ def bradley_terry_significance(
 
     # Build win matrix
     sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
-    win_matrix: dict[str, dict[str, int]] = {}
+    win_matrix: dict[str, dict[str, float]] = {}
 
     for vote in votes:
         if vote.winner == "fail":
@@ -325,11 +325,13 @@ def bradley_terry_significance(
             win_matrix[model_b] = {}
 
         if vote.winner == "A":
-            win_matrix[model_a][model_b] = win_matrix[model_a].get(model_b, 0) + 1
+            win_matrix[model_a][model_b] = win_matrix[model_a].get(model_b, 0.0) + 1.0
         elif vote.winner == "B":
-            win_matrix[model_b][model_a] = win_matrix[model_b].get(model_a, 0) + 1
-        else:  # tie - count as 0.5 for each (handled in p-value calc)
-            pass
+            win_matrix[model_b][model_a] = win_matrix[model_b].get(model_a, 0.0) + 1.0
+        elif vote.winner == "tie":
+            # Tie counts as 0.5 win for each side
+            win_matrix[model_a][model_b] = win_matrix[model_a].get(model_b, 0.0) + 0.5
+            win_matrix[model_b][model_a] = win_matrix[model_b].get(model_a, 0.0) + 0.5
 
     # Get Elo ratings to determine adjacent pairs
     elo_ratings = calculate_elo(votes, samples)
@@ -343,15 +345,17 @@ def bradley_terry_significance(
         model_a, _ = sorted_models[i]
         model_b, _ = sorted_models[i + 1]
 
-        wins_a = win_matrix.get(model_a, {}).get(model_b, 0)
-        wins_b = win_matrix.get(model_b, {}).get(model_a, 0)
+        wins_a = win_matrix.get(model_a, {}).get(model_b, 0.0)
+        wins_b = win_matrix.get(model_b, {}).get(model_a, 0.0)
         total = wins_a + wins_b
 
         if total == 0:
             p_value = 1.0
         else:
             # Two-tailed binomial test: H0 is p=0.5
-            p_value = _binomial_test_two_tailed(wins_a, total, 0.5)
+            # Note: total is always an integer since each vote (including ties)
+            # contributes 1 to the total (0.5 + 0.5 for ties)
+            p_value = _binomial_test_two_tailed(wins_a, int(total), 0.5)
 
         results.append(
             PairwiseSignificance(
@@ -367,7 +371,7 @@ def bradley_terry_significance(
     return results
 
 
-def _binomial_test_two_tailed(k: int, n: int, p: float = 0.5) -> float:
+def _binomial_test_two_tailed(k: float, n: int, p: float = 0.5) -> float:
     """Two-tailed binomial test p-value.
 
     Tests H0: probability of success = p
@@ -376,7 +380,7 @@ def _binomial_test_two_tailed(k: int, n: int, p: float = 0.5) -> float:
     Uses exact binomial calculation (pure Python, no scipy).
 
     Args:
-        k: Number of successes
+        k: Number of successes (can be fractional due to ties counting as 0.5)
         n: Number of trials
         p: Null hypothesis probability (default 0.5)
 
@@ -743,7 +747,11 @@ def generate_stability_report(
         max_ci_width = max(ci_widths)
         if max_ci_width > 150:
             warnings.append(f"Max CI width is {max_ci_width:.0f}, above 150 threshold")
-        score_components.append(min(150 / max_ci_width, 1.0) * 25)
+        if max_ci_width <= 0:
+            # All CI widths are 0, treat as fully stable
+            score_components.append(25)
+        else:
+            score_components.append(min(150 / max_ci_width, 1.0) * 25)
     else:
         score_components.append(0)
 
