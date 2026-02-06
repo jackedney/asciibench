@@ -142,6 +142,11 @@ class SharedState:
             The new value of current_tasks after decrementing
         """
         async with self._lock:
+            if self.current_tasks == 0:
+                logger.warning(
+                    "Attempted to decrement concurrent tasks counter when already at 0",
+                )
+                return 0
             self.current_tasks -= 1
             return self.current_tasks
 
