@@ -8,6 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from asciibench.analyst.elo import calculate_elo
+from asciibench.analyst.stability import generate_stability_report
 from asciibench.common.models import ArtSample, Vote
 from asciibench.common.persistence import (
     append_jsonl,
@@ -360,6 +362,7 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
                     "id": str(sample_b.id),
                     "sanitized_output": sample_b.sanitized_output,
                 },
+                "prompt": sample_a.prompt_text,
             },
         )
     except Exception as e:
@@ -538,4 +541,316 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
             request,
             "partials/matchup.html",
             {"error": f"Error undoing vote: {e}"},
+        )
+
+
+# =============================================================================
+# Analytics Endpoints
+# =============================================================================
+
+
+class LeaderboardEntry(BaseModel):
+    """Single entry in the leaderboard."""
+
+    rank: int
+    model_id: str
+    elo: float
+
+
+class ConfidenceIntervalData(BaseModel):
+    """Confidence interval data for a model."""
+
+    ci_lower: float
+    ci_upper: float
+    ci_width: float
+
+
+class ModelStabilityData(BaseModel):
+    """Stability data for a single model."""
+
+    elo: float
+    confidence_interval: ConfidenceIntervalData | None
+    rank_stability_pct: float | None
+    is_converged: bool | None
+
+
+class StabilityData(BaseModel):
+    """Overall stability metrics."""
+
+    score: float
+    is_stable: bool
+    warnings: list[str]
+    models: dict[str, ModelStabilityData]
+
+
+class EloHistoryPoint(BaseModel):
+    """Single point in ELO history."""
+
+    vote_count: int
+    elo: float
+
+
+class HeadToHeadRecord(BaseModel):
+    """Win/loss record between two models."""
+
+    wins: int
+    losses: int
+
+
+class AnalyticsResponse(BaseModel):
+    """Complete analytics data response."""
+
+    leaderboard: list[LeaderboardEntry]
+    stability: StabilityData
+    elo_history: dict[str, list[EloHistoryPoint]]
+    head_to_head: dict[str, dict[str, HeadToHeadRecord]]
+    total_votes: int
+
+
+def _calculate_elo_history(
+    votes: list[Vote],
+    samples: list[ArtSample],
+    checkpoint_interval: int = 10,
+) -> dict[str, list[EloHistoryPoint]]:
+    """Calculate ELO rating history at checkpoints during vote processing."""
+    if not votes:
+        return {}
+
+    sorted_votes = sorted(votes, key=lambda v: v.timestamp)
+    history: dict[str, list[EloHistoryPoint]] = {}
+    n_votes = len(sorted_votes)
+
+    for i in range(checkpoint_interval, n_votes + 1, checkpoint_interval):
+        partial_votes = sorted_votes[:i]
+        ratings = calculate_elo(partial_votes, samples)
+
+        for model_id, rating in ratings.items():
+            if model_id not in history:
+                history[model_id] = []
+            history[model_id].append(EloHistoryPoint(vote_count=i, elo=rating))
+
+    # Add final checkpoint if not already included
+    if n_votes % checkpoint_interval != 0:
+        final_ratings = calculate_elo(sorted_votes, samples)
+        for model_id, rating in final_ratings.items():
+            if model_id not in history:
+                history[model_id] = []
+            history[model_id].append(EloHistoryPoint(vote_count=n_votes, elo=rating))
+
+    return history
+
+
+def _calculate_head_to_head(
+    votes: list[Vote],
+    samples: list[ArtSample],
+) -> dict[str, dict[str, HeadToHeadRecord]]:
+    """Calculate head-to-head win/loss records between all model pairs."""
+    sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
+
+    # Initialize win matrix
+    win_counts: dict[str, dict[str, int]] = {}
+
+    for vote in votes:
+        if vote.winner == "fail":
+            continue
+
+        model_a = sample_to_model.get(vote.sample_a_id)
+        model_b = sample_to_model.get(vote.sample_b_id)
+
+        if not model_a or not model_b or model_a == model_b:
+            continue
+
+        # Initialize nested dicts if needed
+        if model_a not in win_counts:
+            win_counts[model_a] = {}
+        if model_b not in win_counts:
+            win_counts[model_b] = {}
+
+        # Count wins
+        if vote.winner == "A":
+            win_counts[model_a][model_b] = win_counts[model_a].get(model_b, 0) + 1
+        elif vote.winner == "B":
+            win_counts[model_b][model_a] = win_counts[model_b].get(model_a, 0) + 1
+        # Ties don't count as wins for either
+
+    # Convert to HeadToHeadRecord format
+    result: dict[str, dict[str, HeadToHeadRecord]] = {}
+    all_models = set(win_counts.keys())
+
+    for model_a in all_models:
+        result[model_a] = {}
+        for model_b in all_models:
+            if model_a == model_b:
+                continue
+            wins = win_counts.get(model_a, {}).get(model_b, 0)
+            losses = win_counts.get(model_b, {}).get(model_a, 0)
+            result[model_a][model_b] = HeadToHeadRecord(wins=wins, losses=losses)
+
+    return result
+
+
+def _build_analytics_data(
+    votes: list[Vote],
+    samples: list[ArtSample],
+    n_bootstrap: int = 200,
+) -> AnalyticsResponse:
+    """Build complete analytics data from votes and samples."""
+    # Calculate current ELO ratings
+    elo_ratings = calculate_elo(votes, samples)
+
+    # Build leaderboard
+    sorted_ratings = sorted(elo_ratings.items(), key=lambda x: x[1], reverse=True)
+    leaderboard = [
+        LeaderboardEntry(rank=i + 1, model_id=model_id, elo=round(elo, 1))
+        for i, (model_id, elo) in enumerate(sorted_ratings)
+    ]
+
+    # Generate stability report (use fewer iterations for UI responsiveness)
+    stability_report = generate_stability_report(votes, samples, n_bootstrap=n_bootstrap, seed=42)
+
+    # Build per-model stability data
+    models_stability: dict[str, ModelStabilityData] = {}
+    for model_id, elo in elo_ratings.items():
+        ci = stability_report.confidence_intervals.get(model_id)
+        rs = stability_report.ranking_stability.get(model_id)
+        conv = stability_report.convergence.get(model_id)
+
+        models_stability[model_id] = ModelStabilityData(
+            elo=round(elo, 1),
+            confidence_interval=ConfidenceIntervalData(
+                ci_lower=round(ci.ci_lower, 1),
+                ci_upper=round(ci.ci_upper, 1),
+                ci_width=round(ci.ci_width, 1),
+            )
+            if ci
+            else None,
+            rank_stability_pct=round(rs.rank_stability_pct * 100, 1) if rs else None,
+            is_converged=conv.is_converged if conv else None,
+        )
+
+    stability = StabilityData(
+        score=round(stability_report.stability_score, 1),
+        is_stable=stability_report.is_stable_for_publication,
+        warnings=stability_report.stability_warnings,
+        models=models_stability,
+    )
+
+    # Calculate ELO history
+    elo_history = _calculate_elo_history(votes, samples)
+
+    # Calculate head-to-head matrix
+    head_to_head = _calculate_head_to_head(votes, samples)
+
+    return AnalyticsResponse(
+        leaderboard=leaderboard,
+        stability=stability,
+        elo_history=elo_history,
+        head_to_head=head_to_head,
+        total_votes=len(votes),
+    )
+
+
+@app.get("/api/analytics", response_model=AnalyticsResponse)
+async def get_analytics() -> AnalyticsResponse:
+    """Get complete analytics data for the leaderboard and stability metrics.
+
+    Returns leaderboard rankings, stability metrics, ELO history over time,
+    and head-to-head comparison matrix.
+    """
+    # Load all samples and votes
+    all_samples = read_jsonl(DATABASE_PATH, ArtSample)
+    valid_samples = [s for s in all_samples if s.is_valid]
+    votes = read_jsonl(VOTES_PATH, Vote)
+
+    if not votes:
+        # Return empty analytics if no votes
+        return AnalyticsResponse(
+            leaderboard=[],
+            stability=StabilityData(
+                score=0.0,
+                is_stable=False,
+                warnings=["No votes to analyze"],
+                models={},
+            ),
+            elo_history={},
+            head_to_head={},
+            total_votes=0,
+        )
+
+    return _build_analytics_data(votes, valid_samples)
+
+
+@app.get("/htmx/analytics", response_class=HTMLResponse)
+async def htmx_get_analytics(request: Request) -> HTMLResponse:
+    """HTMX endpoint to get analytics dashboard as HTML fragment."""
+    try:
+        # Load all samples and votes
+        all_samples = read_jsonl(DATABASE_PATH, ArtSample)
+        valid_samples = [s for s in all_samples if s.is_valid]
+        votes = read_jsonl(VOTES_PATH, Vote)
+
+        if not votes:
+            return templates.TemplateResponse(
+                request,
+                "partials/analytics.html",
+                {
+                    "error": None,
+                    "leaderboard": [],
+                    "stability": {
+                        "score": 0.0,
+                        "is_stable": False,
+                        "warnings": ["No votes to analyze yet"],
+                        "models": {},
+                    },
+                    "elo_history": {},
+                    "elo_history_json": "{}",
+                    "head_to_head": {},
+                    "models": [],
+                    "total_votes": 0,
+                },
+            )
+
+        analytics = _build_analytics_data(votes, valid_samples)
+
+        # Get sorted model list for head-to-head matrix
+        models = [entry.model_id for entry in analytics.leaderboard]
+
+        # Convert elo_history to JSON for Chart.js
+        import json
+
+        elo_history_json = json.dumps(
+            {
+                model_id: [{"x": p.vote_count, "y": p.elo} for p in points]
+                for model_id, points in analytics.elo_history.items()
+            }
+        )
+
+        return templates.TemplateResponse(
+            request,
+            "partials/analytics.html",
+            {
+                "error": None,
+                "leaderboard": analytics.leaderboard,
+                "stability": analytics.stability,
+                "elo_history": analytics.elo_history,
+                "elo_history_json": elo_history_json,
+                "head_to_head": analytics.head_to_head,
+                "models": models,
+                "total_votes": analytics.total_votes,
+            },
+        )
+    except Exception as e:
+        return templates.TemplateResponse(
+            request,
+            "partials/analytics.html",
+            {
+                "error": str(e),
+                "leaderboard": [],
+                "stability": {"score": 0, "is_stable": False, "warnings": [], "models": {}},
+                "elo_history": {},
+                "elo_history_json": "{}",
+                "head_to_head": {},
+                "models": [],
+                "total_votes": 0,
+            },
         )

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ASCIIBench Judge UI</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="/static/css/output.css">
     <style>
         .font-classic {
@@ -25,23 +26,16 @@
         .htmx-request.htmx-indicator {
             display: block;
         }
-        /* 
-         * Active state for vote buttons
-         * Note: !important is required because Tailwind utility classes (.bg-white, .text-slate-700, .border-slate-300)
-         * are applied to the button and take precedence in the CSS cascade. Even with increased selector
-         * specificity (button.vote-btn.active = 0,2,1), the utility classes override these styles.
-         * This is due to Tailwind's use of CSS custom properties and its utility-first approach.
-         */
-        button.vote-btn.active {
-            background-color: #2563eb !important;
-            border-color: #2563eb !important;
-            color: white !important;
+        .vote-btn.active {
+            background-color: #38bdf8 !important;
+            border-color: #38bdf8 !important;
+            color: #0f172a !important;
             transform: scale(0.95);
         }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 font-sans">
-    <div class="container max-w-6xl mx-auto px-4 py-8 bg-white rounded-xl shadow-md">
+<body class="bg-slate-900 text-slate-100 font-mono">
+    <div class="container max-w-6xl mx-auto px-4 py-8">
         {% block content %}{% endblock %}
     </div>
 </body>
