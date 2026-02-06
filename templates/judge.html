@@ -62,10 +62,10 @@
     </form>
 
     <div class="vote-buttons flex justify-center gap-3 mb-4">
-        <button id="btn-a" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="A">A wins</button>
-        <button id="btn-b" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="B">B wins</button>
-        <button id="btn-tie" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="tie">Tie</button>
-        <button id="btn-fail" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="fail">Both fail</button>
+        <button id="btn-a" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="A" aria-label="Vote for Sample A as winner">A wins</button>
+        <button id="btn-b" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="B" aria-label="Vote for Sample B as winner">B wins</button>
+        <button id="btn-tie" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="tie" aria-label="Vote for tie">Tie</button>
+        <button id="btn-fail" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="fail" aria-label="Mark both samples as failed">Both fail</button>
     </div>
     <div class="undo-container">
         <button id="btn-undo"
@@ -99,7 +99,7 @@
 <p><a href="/">Back to Home</a></p>
 
 <script>
-(function() {
+(() => {
     'use strict';
 
     // State
@@ -240,7 +240,7 @@
     }
 
     // Set processing state during HTMX requests
-    document.body.addEventListener('htmx:beforeRequest', function(event) {
+    document.body.addEventListener('htmx:beforeRequest', (event) => {
         isProcessing = true;
         // Disable buttons
         btnA.disabled = true;
@@ -250,7 +250,7 @@
         btnUndo.disabled = true;
     });
 
-    document.body.addEventListener('htmx:afterRequest', function(event) {
+    document.body.addEventListener('htmx:afterRequest', (event) => {
         isProcessing = false;
         // Re-enable buttons
         btnA.disabled = false;
@@ -261,14 +261,14 @@
     });
 
     // Trigger prompt update when matchup loads
-    document.body.addEventListener('htmx:afterSwap', function(event) {
+    document.body.addEventListener('htmx:afterSwap', (event) => {
         if (event.target.id === 'matchup-container') {
             htmx.trigger(document.body, 'matchup-loaded');
         }
     });
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', () => {
         // Add keyboard event listener
         document.addEventListener('keydown', handleKeydown);
 
