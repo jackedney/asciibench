@@ -672,6 +672,93 @@ class TestRetryValidation:
         result = dummy_func()
         assert result == "success"
 
+    def test_sync_sleep_func_with_sync_function_works(self) -> None:
+        """Example: decorating sync function with time.sleep works."""
+        sleep_calls = []
+
+        def custom_sync_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        attempt_count = 0
+
+        @retry(
+            max_retries=2,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=custom_sync_sleep,
+        )
+        def sync_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = sync_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+
+    def test_async_sleep_func_with_sync_function_raises_type_error(self) -> None:
+        """Negative case: decorating sync function with asyncio.sleep raises TypeError."""
+        with pytest.raises(
+            TypeError, match="sleep_func must be sync when decorating sync functions"
+        ):
+
+            @retry(
+                max_retries=2,
+                base_delay_seconds=0.1,
+                retryable_exceptions=(CustomRetryableError,),
+                sleep_func=asyncio.sleep,
+            )
+            def sync_call():
+                return "success"
+
+    def test_sync_sleep_func_with_async_function_raises_type_error(self) -> None:
+        """Negative case: decorating async function with time.sleep raises TypeError."""
+        with pytest.raises(
+            TypeError, match="sleep_func must be async when decorating async functions"
+        ):
+
+            @retry(
+                max_retries=2,
+                base_delay_seconds=0.1,
+                retryable_exceptions=(CustomRetryableError,),
+                sleep_func=time.sleep,
+            )
+            async def async_call():
+                return "success"
+
+    @pytest.mark.asyncio
+    async def test_async_sleep_func_with_async_function_works(self) -> None:
+        """Example: decorating async function with asyncio.sleep works."""
+        sleep_calls = []
+
+        async def custom_async_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        attempt_count = 0
+
+        @retry(
+            max_retries=2,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=custom_async_sleep,
+        )
+        async def async_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = await async_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+
 
 class TestRetryExamples:
     """Example tests from acceptance criteria."""

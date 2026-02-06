@@ -69,6 +69,14 @@ def retry(
     def decorator(func):
         is_async = inspect.iscoroutinefunction(func)
 
+        # Validate sleep_func matches async/sync nature of decorated function
+        if sleep_func is not None:
+            sleep_func_is_async = inspect.iscoroutinefunction(sleep_func)
+            if is_async and not sleep_func_is_async:
+                raise TypeError("sleep_func must be async when decorating async functions")
+            if not is_async and sleep_func_is_async:
+                raise TypeError("sleep_func must be sync when decorating sync functions")
+
         if is_async:
             if sleep_func is None:
                 actual_sleep_func = asyncio.sleep
