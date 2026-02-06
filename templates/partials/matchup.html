@@ -1,42 +1,30 @@
 {# HTMX partial template for matchup display #}
+{% macro render_sample(sample, label) -%}
+<div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+    <h2 class="text-xl font-semibold text-slate-800 mb-4">{{ label }}</h2>
+    <div class="font-variants">
+        <div class="font-variant">
+            <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Classic</span>
+            <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-classic">{{ sample.sanitized_output }}</div>
+        </div>
+        <div class="font-variant">
+            <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Modern</span>
+            <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-modern">{{ sample.sanitized_output }}</div>
+        </div>
+        <div class="font-variant">
+            <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Condensed</span>
+            <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-condensed">{{ sample.sanitized_output }}</div>
+        </div>
+    </div>
+</div>
+{%- endmacro %}
+
 {% if error %}
 <div id="matchup-error" class="error-message bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center mb-4" style="display: block;">{{ error }}</div>
 {% else %}
 <div class="comparison-container grid grid-cols-1 md:grid-cols-2 gap-6">
-    <div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
-        <h2 class="text-xl font-semibold text-slate-800 mb-4">Sample A</h2>
-        <div class="font-variants">
-            <div class="font-variant">
-                <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Classic</span>
-                <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-classic">{{ sample_a.sanitized_output }}</div>
-            </div>
-            <div class="font-variant">
-                <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Modern</span>
-                <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-modern">{{ sample_a.sanitized_output }}</div>
-            </div>
-            <div class="font-variant">
-                <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Condensed</span>
-                <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-condensed">{{ sample_a.sanitized_output }}</div>
-            </div>
-        </div>
-    </div>
-    <div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
-        <h2 class="text-xl font-semibold text-slate-800 mb-4">Sample B</h2>
-        <div class="font-variants">
-            <div class="font-variant">
-                <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Classic</span>
-                <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-classic">{{ sample_b.sanitized_output }}</div>
-            </div>
-            <div class="font-variant">
-                <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Modern</span>
-                <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-modern">{{ sample_b.sanitized_output }}</div>
-            </div>
-            <div class="font-variant">
-                <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Condensed</span>
-                <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-condensed">{{ sample_b.sanitized_output }}</div>
-            </div>
-        </div>
-    </div>
+    {{ render_sample(sample_a, "Sample A") }}
+    {{ render_sample(sample_b, "Sample B") }}
 </div>
 {# Hidden inputs to store current matchup IDs for JavaScript keyboard handlers #}
 <input type="hidden" id="sample-a-id" value="{{ sample_a.id }}" />
