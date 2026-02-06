@@ -256,12 +256,17 @@ class TestDecrementConcurrent:
     def test_concurrent_decrement_concurrent(self):
         """Test 10 concurrent decrements from 10 result in final count of 0."""
         state = SharedState()
-        state.current_tasks = 10
+
+        async def setup_state():
+            for _ in range(10):
+                await state.increment_concurrent()
 
         async def decrement():
             await state.decrement_concurrent()
 
         async def run_test():
+            await setup_state()
+            assert state.current_tasks == 10
             await asyncio.gather(*[decrement() for _ in range(10)])
             assert state.current_tasks == 0
 
