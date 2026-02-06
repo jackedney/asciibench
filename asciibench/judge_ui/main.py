@@ -1,4 +1,5 @@
 import json
+import logging
 import random
 from pathlib import Path
 from typing import Literal
@@ -839,8 +840,6 @@ async def htmx_get_analytics(request: Request) -> HTMLResponse:
             },
         )
     except Exception:
-        import logging
-
         logging.exception("Error generating analytics")
         return templates.TemplateResponse(
             request,
