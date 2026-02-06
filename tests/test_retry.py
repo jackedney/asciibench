@@ -1,10 +1,13 @@
 """Tests for retry decorator with exponential backoff."""
 
 import asyncio
+import json
 import time
+from pathlib import Path
 
 import pytest
 
+from asciibench.common.logging import JSONLogger
 from asciibench.common.retry import retry
 
 
@@ -201,9 +204,13 @@ class TestRetryDecorator:
 
         assert result == "Hi, World!"
 
-    def test_logs_retry_attempts(self, caplog) -> None:
+    def test_logs_retry_attempts(self, tmp_path: Path, monkeypatch) -> None:
         """Retry attempts are logged with attempt number and delay."""
+        log_path = tmp_path / "retry_test.jsonl"
+        test_logger = JSONLogger("asciibench.common.retry", log_path)
         attempt_count = 0
+
+        monkeypatch.setattr("asciibench.common.retry.logger", test_logger)
 
         @retry(max_retries=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
         def failing_call():
@@ -217,8 +224,21 @@ class TestRetryDecorator:
 
         assert attempt_count == 3
 
-    def test_logs_max_retries_exceeded(self) -> None:
+        log_content = log_path.read_text()
+        log_lines = [json.loads(line) for line in log_content.strip().split("\n") if line]
+
+        retry_logs = [entry for entry in log_lines if "Retry attempt" in entry["message"]]
+        assert len(retry_logs) == 2
+        assert retry_logs[0]["level"] == "warning"
+        assert "attempt" in retry_logs[0]["metadata"]
+        assert retry_logs[0]["metadata"]["attempt"] == 1
+
+    def test_logs_max_retries_exceeded(self, tmp_path: Path, monkeypatch) -> None:
         """Max retries exceeded is logged."""
+        log_path = tmp_path / "retry_max_exceeded.jsonl"
+        test_logger = JSONLogger("asciibench.common.retry", log_path)
+
+        monkeypatch.setattr("asciibench.common.retry.logger", test_logger)
 
         @retry(max_retries=2, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
         def always_failing_call():
@@ -227,8 +247,23 @@ class TestRetryDecorator:
         with pytest.raises(CustomRetryableError):
             always_failing_call()
 
-    def test_logs_non_retryable_exception(self) -> None:
+        log_content = log_path.read_text()
+        log_lines = [json.loads(line) for line in log_content.strip().split("\n") if line]
+
+        max_retries_logs = [
+            entry
+            for entry in log_lines
+            if "Max retries" in entry["message"] and "exceeded" in entry["message"]
+        ]
+        assert len(max_retries_logs) == 1
+        assert max_retries_logs[0]["level"] == "error"
+
+    def test_logs_non_retryable_exception(self, tmp_path: Path, monkeypatch) -> None:
         """Non-retryable exceptions are logged."""
+        log_path = tmp_path / "retry_non_retryable.jsonl"
+        test_logger = JSONLogger("asciibench.common.retry", log_path)
+
+        monkeypatch.setattr("asciibench.common.retry.logger", test_logger)
 
         @retry(max_retries=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,))
         def non_retryable_call():
@@ -236,6 +271,15 @@ class TestRetryDecorator:
 
         with pytest.raises(NonRetryableError):
             non_retryable_call()
+
+        log_content = log_path.read_text()
+        log_lines = [json.loads(line) for line in log_content.strip().split("\n") if line]
+
+        non_retryable_logs = [
+            entry for entry in log_lines if "Non-retryable exception" in entry["message"]
+        ]
+        assert len(non_retryable_logs) == 1
+        assert non_retryable_logs[0]["level"] == "error"
 
     def test_zero_retries(self) -> None:
         """Zero retries means function only runs once."""
