@@ -765,9 +765,19 @@ class TestRetryExamples:
 
     def test_429_response_example(self) -> None:
         """Example: 429 response triggers retry after 1s, then 2s, then 4s."""
+        sleep_calls = []
+
+        def instant_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
         attempt_count = 0
 
-        @retry(max_retries=3, base_delay_seconds=1, retryable_exceptions=(CustomRetryableError,))
+        @retry(
+            max_retries=3,
+            base_delay_seconds=1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=instant_sleep,
+        )
         def api_call():
             nonlocal attempt_count
             attempt_count += 1
@@ -781,7 +791,11 @@ class TestRetryExamples:
 
         assert result == "response"
         assert attempt_count == 4
-        assert elapsed_time >= 7 * 0.8  # 1 + 2 + 4 seconds minimum
+        assert len(sleep_calls) == 3
+        assert sleep_calls[0] == 1.0  # First retry delay
+        assert sleep_calls[1] == 2.0  # Second retry delay
+        assert sleep_calls[2] == 4.0  # Third retry delay
+        assert elapsed_time < 0.5  # Completes quickly without real sleeps
 
     def test_authentication_error_raises_immediately(self) -> None:
         """Negative case: Non-retryable exception raises immediately without retry."""
