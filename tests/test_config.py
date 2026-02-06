@@ -61,11 +61,11 @@ def test_settings_timeout_seconds_default():
     assert settings.timeout_seconds == 120
 
 
-def test_settings_timeout_seconds_from_env():
+def test_settings_timeout_seconds_from_env(tmp_path):
     """Test that timeout_seconds can be loaded from env file."""
     import os
 
-    env_file = Path(__file__).parent.parent / "test_env_timeout.env"
+    env_file = tmp_path / "test_env_timeout.env"
     env_file.write_text("OPENROUTER_API_KEY=test_key\nOPENROUTER_TIMEOUT_SECONDS=60")
 
     class TestSettings(Settings):
@@ -86,11 +86,11 @@ def test_settings_timeout_seconds_from_env():
             env_file.unlink()
 
 
-def test_settings_timeout_seconds_negative_uses_default():
+def test_settings_timeout_seconds_negative_uses_default(tmp_path):
     """Test that negative timeout_seconds uses default 120."""
     import os
 
-    env_file = Path(__file__).parent.parent / "test_env_negative.env"
+    env_file = tmp_path / "test_env_negative.env"
     env_file.write_text("OPENROUTER_API_KEY=test_key\nOPENROUTER_TIMEOUT_SECONDS=-10")
 
     class TestSettings(Settings):
@@ -111,11 +111,11 @@ def test_settings_timeout_seconds_negative_uses_default():
             env_file.unlink()
 
 
-def test_settings_timeout_seconds_non_numeric_uses_default():
+def test_settings_timeout_seconds_non_numeric_uses_default(tmp_path):
     """Test that non-numeric timeout_seconds uses default 120."""
     import os
 
-    env_file = Path(__file__).parent.parent / "test_env_invalid.env"
+    env_file = tmp_path / "test_env_invalid.env"
     env_file.write_text("OPENROUTER_API_KEY=test_key\nOPENROUTER_TIMEOUT_SECONDS=abc")
 
     class TestSettings(Settings):
