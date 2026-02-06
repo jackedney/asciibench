@@ -113,6 +113,28 @@ def _validate_output(raw_output: str, sanitized_output: str, max_tokens: int) ->
     return True
 
 
+def _create_error_sample(task: SampleTask) -> ArtSample:
+    """Create an ArtSample configured for error conditions.
+
+    Args:
+        task: Sample task with model, prompt, and attempt info
+
+    Returns:
+        ArtSample with error fields set (empty output, is_valid=False)
+    """
+    return ArtSample(
+        model_id=task.model.id,
+        prompt_text=task.prompt.text,
+        category=task.prompt.category,
+        attempt_number=task.attempt,
+        raw_output="",
+        sanitized_output="",
+        is_valid=False,
+        output_tokens=None,
+        cost=None,
+    )
+
+
 async def _generate_single_sample(
     client: OpenRouterClient,
     task: SampleTask,
@@ -173,17 +195,7 @@ async def _generate_single_sample(
                 cost=response.cost,
             )
         except RateLimitError as e:
-            sample = ArtSample(
-                model_id=task.model.id,
-                prompt_text=task.prompt.text,
-                category=task.prompt.category,
-                attempt_number=task.attempt,
-                raw_output="",
-                sanitized_output="",
-                is_valid=False,
-                output_tokens=None,
-                cost=None,
-            )
+            sample = _create_error_sample(task)
             logger.error(
                 "Rate limited after retries",
                 {
@@ -196,17 +208,7 @@ async def _generate_single_sample(
             if span is not None:
                 span.record_exception(e)
         except AuthenticationError as e:
-            sample = ArtSample(
-                model_id=task.model.id,
-                prompt_text=task.prompt.text,
-                category=task.prompt.category,
-                attempt_number=task.attempt,
-                raw_output="",
-                sanitized_output="",
-                is_valid=False,
-                output_tokens=None,
-                cost=None,
-            )
+            sample = _create_error_sample(task)
             logger.error(
                 "Authentication failed",
                 {
@@ -219,17 +221,7 @@ async def _generate_single_sample(
             if span is not None:
                 span.record_exception(e)
         except TransientError as e:
-            sample = ArtSample(
-                model_id=task.model.id,
-                prompt_text=task.prompt.text,
-                category=task.prompt.category,
-                attempt_number=task.attempt,
-                raw_output="",
-                sanitized_output="",
-                is_valid=False,
-                output_tokens=None,
-                cost=None,
-            )
+            sample = _create_error_sample(task)
             logger.error(
                 "Transient error encountered",
                 {
@@ -242,17 +234,7 @@ async def _generate_single_sample(
             if span is not None:
                 span.record_exception(e)
         except ModelError as e:
-            sample = ArtSample(
-                model_id=task.model.id,
-                prompt_text=task.prompt.text,
-                category=task.prompt.category,
-                attempt_number=task.attempt,
-                raw_output="",
-                sanitized_output="",
-                is_valid=False,
-                output_tokens=None,
-                cost=None,
-            )
+            sample = _create_error_sample(task)
             logger.error(
                 "Model error encountered",
                 {
@@ -265,17 +247,7 @@ async def _generate_single_sample(
             if span is not None:
                 span.record_exception(e)
         except OpenRouterClientError as e:
-            sample = ArtSample(
-                model_id=task.model.id,
-                prompt_text=task.prompt.text,
-                category=task.prompt.category,
-                attempt_number=task.attempt,
-                raw_output="",
-                sanitized_output="",
-                is_valid=False,
-                output_tokens=None,
-                cost=None,
-            )
+            sample = _create_error_sample(task)
             logger.error(
                 "OpenRouter client error",
                 {
@@ -288,17 +260,7 @@ async def _generate_single_sample(
             if span is not None:
                 span.record_exception(e)
         except Exception as e:
-            sample = ArtSample(
-                model_id=task.model.id,
-                prompt_text=task.prompt.text,
-                category=task.prompt.category,
-                attempt_number=task.attempt,
-                raw_output="",
-                sanitized_output="",
-                is_valid=False,
-                output_tokens=None,
-                cost=None,
-            )
+            sample = _create_error_sample(task)
             logger.error(
                 "Unexpected exception",
                 {
