@@ -50,7 +50,7 @@
                         <td class="py-3 px-4 text-right">
                             {% if model_data and model_data.rank_stability_pct is not none %}
                             <span class="{% if model_data.rank_stability_pct >= 90 %}text-green-400{% elif model_data.rank_stability_pct >= 70 %}text-yellow-400{% else %}text-red-400{% endif %}">
-                                {{ model_data.rank_stability_pct|round(0)|int }}%
+                                {% if model_data.rank_stability_pct >= 90 %}✓{% else %}⚠{% endif %} {{ model_data.rank_stability_pct|round(0)|int }}%
                             </span>
                             {% else %}
                             <span class="text-slate-500">-</span>
@@ -285,7 +285,7 @@
 </style>
 
 <script>
-(function() {
+(() => {
     // Apply gradient colors to h2h cells based on win rate
     document.querySelectorAll('.h2h-cell[data-winrate]').forEach(cell => {
         const winRate = parseInt(cell.dataset.winrate);
@@ -313,7 +313,7 @@
 
 {% if elo_history %}
 <script>
-(function() {
+(() => {
     const eloData = {{ elo_history_json|safe }};
     const ctx = document.getElementById('elo-chart');
 
@@ -374,9 +374,7 @@
                     borderColor: '#475569', // slate-600
                     borderWidth: 1,
                     callbacks: {
-                        title: function(context) {
-                            return 'After ' + context[0].parsed.x + ' comparisons';
-                        }
+                        title: (context) => 'After ' + context[0].parsed.x + ' comparisons'
                     }
                 }
             },
