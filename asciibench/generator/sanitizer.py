@@ -43,7 +43,7 @@ def extract_ascii_from_markdown(markdown: str) -> str:
     # Allow optional whitespace/tabs after backticks and before/after language specifier
     pattern = r"```[ \t]*(?:(?:text|ascii|plaintext)[ \t]*)?\n(.*?)```"
 
-    match = re.search(pattern, markdown, re.DOTALL)
+    match = re.search(pattern, markdown, re.DOTALL | re.IGNORECASE)
 
     if match:
         content = match.group(1)

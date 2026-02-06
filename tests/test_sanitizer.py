@@ -142,3 +142,21 @@ class TestExtractAsciiFromMarkdown:
         markdown = "```  text\n/_/\\\n( o.o )\n```"
         result = extract_ascii_from_markdown(markdown)
         assert result == "/_/\\\n( o.o )"
+
+    def test_uppercase_text_language_specifier(self):
+        """Handle uppercase TEXT language specifier."""
+        markdown = "```TEXT\n/_/\\\n( o.o )\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "/_/\\\n( o.o )"
+
+    def test_mixed_case_ascii_language_specifier(self):
+        """Handle mixed-case Ascii language specifier."""
+        markdown = "```Ascii\n/_/\\\n( o.o )\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "/_/\\\n( o.o )"
+
+    def test_uppercase_plaintext_language_specifier(self):
+        """Handle uppercase PLAINTEXT language specifier."""
+        markdown = "```PLAINTEXT\nHello World\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "Hello World"
