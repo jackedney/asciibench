@@ -11,6 +11,7 @@ fi
 PYTHON_SCRIPT="
 import json
 import sys
+from collections import Counter
 
 database_path = sys.argv[1]
 
@@ -30,8 +31,8 @@ for line in lines:
     sample = json.loads(line)
     sample_keys.append((sample['model_id'], sample['prompt_text'], sample['attempt_number']))
 
-unique_keys = set(sample_keys)
-duplicates = [(key, sample_keys.count(key)) for key in unique_keys if sample_keys.count(key) > 1]
+counts = Counter(sample_keys)
+duplicates = [(key, count) for key, count in counts.items() if count > 1]
 
 if duplicates:
     print(f'Found {len(duplicates)} duplicate key(s):')
