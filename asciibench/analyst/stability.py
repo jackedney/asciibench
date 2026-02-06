@@ -126,6 +126,9 @@ def bootstrap_confidence_intervals(
         - CIs shouldn't overlap for models claimed to be "different"
         - CI width < 150 points suggests reasonable stability
     """
+    if n_iterations < 2:
+        raise ValueError("n_iterations must be at least 2 for CI calculation")
+
     if not votes:
         return {}
 
