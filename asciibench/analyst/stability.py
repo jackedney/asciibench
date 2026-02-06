@@ -611,6 +611,9 @@ def generate_stability_report(
         - All models converged (changed <20 points in last 100 votes)
         - CI widths < 150 points for all models
     """
+    if n_bootstrap < 2:
+        raise ValueError("n_bootstrap must be at least 2 for CI calculation")
+
     if not votes:
         return StabilityReport(
             confidence_intervals={},
