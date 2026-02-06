@@ -193,7 +193,6 @@
     let isProcessing = false;
     let currentFont = 'classic';
     let currentTab = 'judge';
-    let analyticsLoaded = false;
 
     // Tab elements
     const tabJudge = document.getElementById('tab-judge');
@@ -236,7 +235,6 @@
             swap: 'innerHTML'
         }).then(function() {
             analyticsLoading.style.display = 'none';
-            analyticsLoaded = true;
         });
     }
 

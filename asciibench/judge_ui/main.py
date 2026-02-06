@@ -1,3 +1,4 @@
+import json
 import random
 from pathlib import Path
 from typing import Literal
@@ -816,8 +817,6 @@ async def htmx_get_analytics(request: Request) -> HTMLResponse:
         models = [entry.model_id for entry in analytics.leaderboard]
 
         # Convert elo_history to JSON for Chart.js
-        import json
-
         elo_history_json = json.dumps(
             {
                 model_id: [{"x": p.vote_count, "y": p.elo} for p in points]
@@ -839,12 +838,15 @@ async def htmx_get_analytics(request: Request) -> HTMLResponse:
                 "total_votes": analytics.total_votes,
             },
         )
-    except Exception as e:
+    except Exception:
+        import logging
+
+        logging.exception("Error generating analytics")
         return templates.TemplateResponse(
             request,
             "partials/analytics.html",
             {
-                "error": str(e),
+                "error": "An error occurred while generating analytics. Please try again.",
                 "leaderboard": [],
                 "stability": {"score": 0, "is_stable": False, "warnings": [], "models": {}},
                 "elo_history": {},
