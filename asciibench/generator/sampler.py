@@ -147,168 +147,181 @@ async def _generate_single_sample(
         )
         span.__enter__()
 
-    start_time = time.perf_counter()
-    error_message = None
-
     try:
-        response = await client.generate_async(
-            model_id=task.model.id,
-            prompt=task.prompt.text,
-            config=config,
-        )
-        raw_output = response.text
-        sanitized_output = extract_ascii_from_markdown(raw_output)
-        is_valid = _validate_output(raw_output, sanitized_output, config.max_tokens)
+        start_time = time.perf_counter()
+        error_message = None
 
-        sample = ArtSample(
-            model_id=task.model.id,
-            prompt_text=task.prompt.text,
-            category=task.prompt.category,
-            attempt_number=task.attempt,
-            raw_output=raw_output,
-            sanitized_output=sanitized_output,
-            is_valid=is_valid,
-            output_tokens=response.completion_tokens,
-            cost=response.cost,
-        )
-    except RateLimitError as e:
-        sample = ArtSample(
-            model_id=task.model.id,
-            prompt_text=task.prompt.text,
-            category=task.prompt.category,
-            attempt_number=task.attempt,
-            raw_output="",
-            sanitized_output="",
-            is_valid=False,
-            output_tokens=None,
-            cost=None,
-        )
-        logger.error(
-            "Rate limited after retries",
-            {
-                "model": task.model.id,
-                "attempt": task.attempt,
-                "error": str(e),
-            },
-        )
-        error_message = f"RateLimitError: {e}"
-    except AuthenticationError as e:
-        sample = ArtSample(
-            model_id=task.model.id,
-            prompt_text=task.prompt.text,
-            category=task.prompt.category,
-            attempt_number=task.attempt,
-            raw_output="",
-            sanitized_output="",
-            is_valid=False,
-            output_tokens=None,
-            cost=None,
-        )
-        logger.error(
-            "Authentication failed",
-            {
-                "model": task.model.id,
-                "attempt": task.attempt,
-                "error": str(e),
-            },
-        )
-        error_message = f"AuthenticationError: {e}"
-    except TransientError as e:
-        sample = ArtSample(
-            model_id=task.model.id,
-            prompt_text=task.prompt.text,
-            category=task.prompt.category,
-            attempt_number=task.attempt,
-            raw_output="",
-            sanitized_output="",
-            is_valid=False,
-            output_tokens=None,
-            cost=None,
-        )
-        logger.error(
-            "Transient error encountered",
-            {
-                "model": task.model.id,
-                "attempt": task.attempt,
-                "error": str(e),
-            },
-        )
-        error_message = f"TransientError: {e}"
-    except ModelError as e:
-        sample = ArtSample(
-            model_id=task.model.id,
-            prompt_text=task.prompt.text,
-            category=task.prompt.category,
-            attempt_number=task.attempt,
-            raw_output="",
-            sanitized_output="",
-            is_valid=False,
-            output_tokens=None,
-            cost=None,
-        )
-        logger.error(
-            "Model error encountered",
-            {
-                "model": task.model.id,
-                "attempt": task.attempt,
-                "error": str(e),
-            },
-        )
-        error_message = f"ModelError: {e}"
-    except OpenRouterClientError as e:
-        sample = ArtSample(
-            model_id=task.model.id,
-            prompt_text=task.prompt.text,
-            category=task.prompt.category,
-            attempt_number=task.attempt,
-            raw_output="",
-            sanitized_output="",
-            is_valid=False,
-            output_tokens=None,
-            cost=None,
-        )
-        logger.error(
-            "OpenRouter client error",
-            {
-                "model": task.model.id,
-                "attempt": task.attempt,
-                "error": str(e),
-            },
-        )
-        error_message = f"OpenRouterClientError: {e}"
-    except Exception as e:
-        sample = ArtSample(
-            model_id=task.model.id,
-            prompt_text=task.prompt.text,
-            category=task.prompt.category,
-            attempt_number=task.attempt,
-            raw_output="",
-            sanitized_output="",
-            is_valid=False,
-            output_tokens=None,
-            cost=None,
-        )
-        logger.error(
-            "Unexpected exception",
-            {
-                "model": task.model.id,
-                "attempt": task.attempt,
-                "error_type": type(e).__name__,
-                "error": str(e),
-                "traceback": traceback.format_exc(),
-            },
-        )
-        error_message = f"Unexpected {type(e).__name__}: {e}"
+        try:
+            response = await client.generate_async(
+                model_id=task.model.id,
+                prompt=task.prompt.text,
+                config=config,
+            )
+            raw_output = response.text
+            sanitized_output = extract_ascii_from_markdown(raw_output)
+            is_valid = _validate_output(raw_output, sanitized_output, config.max_tokens)
+
+            sample = ArtSample(
+                model_id=task.model.id,
+                prompt_text=task.prompt.text,
+                category=task.prompt.category,
+                attempt_number=task.attempt,
+                raw_output=raw_output,
+                sanitized_output=sanitized_output,
+                is_valid=is_valid,
+                output_tokens=response.completion_tokens,
+                cost=response.cost,
+            )
+        except RateLimitError as e:
+            sample = ArtSample(
+                model_id=task.model.id,
+                prompt_text=task.prompt.text,
+                category=task.prompt.category,
+                attempt_number=task.attempt,
+                raw_output="",
+                sanitized_output="",
+                is_valid=False,
+                output_tokens=None,
+                cost=None,
+            )
+            logger.error(
+                "Rate limited after retries",
+                {
+                    "model": task.model.id,
+                    "attempt": task.attempt,
+                    "error": str(e),
+                },
+            )
+            error_message = f"RateLimitError: {e}"
+            if span is not None:
+                span.record_exception(e)
+        except AuthenticationError as e:
+            sample = ArtSample(
+                model_id=task.model.id,
+                prompt_text=task.prompt.text,
+                category=task.prompt.category,
+                attempt_number=task.attempt,
+                raw_output="",
+                sanitized_output="",
+                is_valid=False,
+                output_tokens=None,
+                cost=None,
+            )
+            logger.error(
+                "Authentication failed",
+                {
+                    "model": task.model.id,
+                    "attempt": task.attempt,
+                    "error": str(e),
+                },
+            )
+            error_message = f"AuthenticationError: {e}"
+            if span is not None:
+                span.record_exception(e)
+        except TransientError as e:
+            sample = ArtSample(
+                model_id=task.model.id,
+                prompt_text=task.prompt.text,
+                category=task.prompt.category,
+                attempt_number=task.attempt,
+                raw_output="",
+                sanitized_output="",
+                is_valid=False,
+                output_tokens=None,
+                cost=None,
+            )
+            logger.error(
+                "Transient error encountered",
+                {
+                    "model": task.model.id,
+                    "attempt": task.attempt,
+                    "error": str(e),
+                },
+            )
+            error_message = f"TransientError: {e}"
+            if span is not None:
+                span.record_exception(e)
+        except ModelError as e:
+            sample = ArtSample(
+                model_id=task.model.id,
+                prompt_text=task.prompt.text,
+                category=task.prompt.category,
+                attempt_number=task.attempt,
+                raw_output="",
+                sanitized_output="",
+                is_valid=False,
+                output_tokens=None,
+                cost=None,
+            )
+            logger.error(
+                "Model error encountered",
+                {
+                    "model": task.model.id,
+                    "attempt": task.attempt,
+                    "error": str(e),
+                },
+            )
+            error_message = f"ModelError: {e}"
+            if span is not None:
+                span.record_exception(e)
+        except OpenRouterClientError as e:
+            sample = ArtSample(
+                model_id=task.model.id,
+                prompt_text=task.prompt.text,
+                category=task.prompt.category,
+                attempt_number=task.attempt,
+                raw_output="",
+                sanitized_output="",
+                is_valid=False,
+                output_tokens=None,
+                cost=None,
+            )
+            logger.error(
+                "OpenRouter client error",
+                {
+                    "model": task.model.id,
+                    "attempt": task.attempt,
+                    "error": str(e),
+                },
+            )
+            error_message = f"OpenRouterClientError: {e}"
+            if span is not None:
+                span.record_exception(e)
+        except Exception as e:
+            sample = ArtSample(
+                model_id=task.model.id,
+                prompt_text=task.prompt.text,
+                category=task.prompt.category,
+                attempt_number=task.attempt,
+                raw_output="",
+                sanitized_output="",
+                is_valid=False,
+                output_tokens=None,
+                cost=None,
+            )
+            logger.error(
+                "Unexpected exception",
+                {
+                    "model": task.model.id,
+                    "attempt": task.attempt,
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                    "traceback": traceback.format_exc(),
+                },
+            )
+            error_message = f"Unexpected {type(e).__name__}: {e}"
+            if span is not None:
+                span.record_exception(e)
+
+        end_time = time.perf_counter()
+        duration_ms = (end_time - start_time) * 1000
+
         if span is not None:
-            span.record_exception(e)
-
-    end_time = time.perf_counter()
-    duration_ms = (end_time - start_time) * 1000
-
-    if span is not None:
-        if error_message:
-            span.set_attribute("error_message", error_message)
-        span.__exit__(None, None, None)
+            if error_message:
+                span.set_attribute("error_message", error_message)
+    finally:
+        if span is not None:
+            span.__exit__(None, None, None)
 
     return sample, duration_ms, error_message
 
@@ -571,18 +584,23 @@ def generate_samples(
         span.__enter__()
 
     try:
-        return asyncio.run(
-            generate_samples_async(
-                models=models,
-                prompts=prompts,
-                config=config,
-                database_path=database_path,
-                client=client,
-                settings=settings,
-                progress_callback=progress_callback,
-                stats_callback=stats_callback,
+        try:
+            return asyncio.run(
+                generate_samples_async(
+                    models=models,
+                    prompts=prompts,
+                    config=config,
+                    database_path=database_path,
+                    client=client,
+                    settings=settings,
+                    progress_callback=progress_callback,
+                    stats_callback=stats_callback,
+                )
             )
-        )
+        except Exception as e:
+            if span is not None:
+                span.record_exception(e)
+            raise
     finally:
         if span is not None:
             span.__exit__(None, None, None)
