@@ -629,6 +629,7 @@ class TestGenerateSamples:
 
     def test_generate_samples_sets_run_id(
         self,
+        monkeypatch: pytest.MonkeyPatch,
         mock_client: MagicMock,
         sample_models: list[Model],
         sample_prompts: list[Prompt],
@@ -643,9 +644,9 @@ class TestGenerateSamples:
         # Clear any previous run_id
         set_run_id(None)
 
-        # Configure logger to use custom log_path
+        # Configure logger to use custom log_path via monkeypatch for isolation
         logger = get_logger("generator.sampler")
-        logger.log_path = log_path
+        monkeypatch.setattr(logger, "log_path", log_path)
 
         config = GenerationConfig(attempts_per_prompt=2)
         generate_samples(
@@ -683,6 +684,7 @@ class TestGenerateSamples:
 
     def test_each_sample_has_unique_request_id_in_context(
         self,
+        monkeypatch: pytest.MonkeyPatch,
         mock_client: MagicMock,
         sample_models: list[Model],
         sample_prompts: list[Prompt],
@@ -697,9 +699,9 @@ class TestGenerateSamples:
         # Clear any previous request_id
         set_request_id(None)
 
-        # Configure logger to use custom log_path
+        # Configure logger to use custom log_path via monkeypatch for isolation
         logger = get_logger("generator.sampler")
-        logger.log_path = log_path
+        monkeypatch.setattr(logger, "log_path", log_path)
 
         attempts_per_prompt = 2
         config = GenerationConfig(attempts_per_prompt=attempts_per_prompt)
