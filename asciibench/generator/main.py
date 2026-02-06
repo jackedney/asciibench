@@ -189,10 +189,9 @@ def main() -> None:
         actual_cost = cost if cost is not None else 0.0
         loader.record_result(is_valid, actual_cost)
 
-        # Increment progress only for successful generations
-        if is_valid:
-            total_completed += 1
-            loader.update(total_completed)
+        # Increment progress for every completed attempt (both success and failure)
+        total_completed += 1
+        loader.update(total_completed)
 
     # Generate samples with progress and stats callbacks
     try:
