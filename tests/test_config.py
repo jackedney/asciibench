@@ -1,6 +1,8 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
 from pydantic_settings import SettingsConfigDict
 
 from asciibench.common.config import GenerationConfig, Settings
@@ -173,9 +175,6 @@ def test_generation_config_max_concurrent_requests_custom():
 
 def test_generation_config_max_concurrent_requests_negative():
     """Test that negative max_concurrent_requests raises validation error."""
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError) as exc_info:
         GenerationConfig(max_concurrent_requests=-1)
     assert "max_concurrent_requests must be greater than 0" in str(exc_info.value)
@@ -183,9 +182,6 @@ def test_generation_config_max_concurrent_requests_negative():
 
 def test_generation_config_max_concurrent_requests_zero():
     """Test that max_concurrent_requests=0 raises validation error."""
-    import pytest
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError) as exc_info:
         GenerationConfig(max_concurrent_requests=0)
     assert "max_concurrent_requests must be greater than 0" in str(exc_info.value)
