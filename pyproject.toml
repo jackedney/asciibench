@@ -22,6 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-asyncio>=0.23.0",
     "pytest-cov",
     "ruff",
     "ty",
@@ -41,6 +42,9 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.ty]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [dependency-groups]
 dev = [
