@@ -31,16 +31,16 @@ def test_single_model_whitespace():
         base_url=settings.base_url,
     )
 
-    response = client.generate('openai/gpt-oss-120b', 'Draw a skeleton in ASCII art', config=config)
+    response = client.generate("openai/gpt-oss-120b", "Draw a skeleton in ASCII art", config=config)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("RAW OUTPUT (first 200 chars):")
     print(repr(response.text[:200]))
 
     extracted = extract_ascii_from_markdown(response.text)
     lines = extracted.split("\n")
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("EXTRACTED (first 10 lines):")
     print(f"{'Line':>4} | {'Spaces':>6} | Content")
     print("-" * 60)

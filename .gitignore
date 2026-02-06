@@ -10,6 +10,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Node modules
+node_modules/
+
 # Testing
 .pytest_cache/
 .coverage
@@ -36,6 +39,12 @@ htmlcov/
 # macOS
 .DS_Store
 *.DS_Store
+
+# Temporary files
+tmp/
+
+# Internal planning documents
+docs/plans/
 
 data/
 coverage.json

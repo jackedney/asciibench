@@ -61,7 +61,10 @@ class TestWhitespaceFromSavedData:
             # Truncate first line for display
             first_line_display = first_line[:30] + "..." if len(first_line) > 30 else first_line
 
-            print(f"{model_name:<40} | {first_line_spaces:>15} | {max_spaces:>10} | {first_line_display!r}")
+            print(
+                f"{model_name:<40} | {first_line_spaces:>15} | "
+                f"{max_spaces:>10} | {first_line_display!r}"
+            )
 
             # Track models with the problem
             if first_line_spaces == 0 and max_spaces > 0:
@@ -106,10 +109,10 @@ class TestWhitespaceFromSavedData:
             print("\nNo model with the whitespace issue found in saved data.")
             return
 
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f"DETAILED ANALYSIS: {problem_result.get('model_name', 'Unknown')}")
         print(f"Model ID: {problem_result.get('model_id', 'Unknown')}")
-        print(f"{'='*80}")
+        print(f"{'=' * 80}")
 
         ascii_output = problem_result.get("ascii_output", "")
         lines = ascii_output.split("\n")
@@ -151,6 +154,7 @@ class TestWhitespaceFromSavedData:
 
             # Find the code block in raw output
             import re
+
             pattern = r"```(?:(?:text|ascii|plaintext)\s*\n|\n)(.*?)```"
             match = re.search(pattern, raw_output, re.DOTALL)
 

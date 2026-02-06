@@ -18,12 +18,16 @@ from rich.panel import Panel
 from rich.text import Text
 
 from asciibench.common.config import Settings
-from asciibench.common.display import get_console, success_badge
-from asciibench.common.loader import RuneScapeLoader
+from asciibench.common.display import get_console, get_stderr_console, success_badge
 from asciibench.common.models import ArtSample
-from asciibench.common.simple_display import create_loader, show_banner, show_prompt
+from asciibench.common.observability import init_logfire
+from asciibench.common.persistence import read_jsonl
+from asciibench.common.simple_display import create_loader, show_banner
 from asciibench.common.yaml_config import load_generation_config, load_models, load_prompts
 from asciibench.generator.sampler import generate_samples
+
+# Default database path (same as sampler)
+DEFAULT_DATABASE_PATH = "data/database.jsonl"
 
 
 def show_stats(success_count: int, failure_count: int, running_cost: float) -> None:
@@ -60,8 +64,11 @@ def _print_progress(model_id: str, prompt_text: str, attempt: int, remaining: in
         attempt: Current attempt number
         remaining: Number of samples remaining to process
     """
+    console = get_console()
     prompt_display = prompt_text[:50] + "..." if len(prompt_text) > 50 else prompt_text
-    print(f"[{remaining} remaining] {model_id} | Attempt {attempt} | {prompt_display}")
+    console.print(
+        f"[info][{remaining} remaining] {model_id} | Attempt {attempt} | {prompt_display}[/info]"
+    )
 
 
 def main() -> None:
@@ -81,8 +88,6 @@ def main() -> None:
     # Show ASCII banner at startup
     show_banner()
 
-    console.print("\n[info]Loading configuration...[/info]\n")
-
     # Load settings from .env
     try:
         settings = Settings()
@@ -90,14 +95,17 @@ def main() -> None:
         console.print(f"[error]Error loading settings: {e}[/error]")
         sys.exit(1)
 
+    # Initialize Logfire if enabled
+    init_logfire(settings)
+
     # Check for API key
     if not settings.openrouter_api_key:
-        print(
-            "Error: Missing OpenRouter API key.\n\n"
+        console = get_stderr_console()
+        console.print(
+            "[error]Error: Missing OpenRouter API key.\n\n"
             "Please set the OPENROUTER_API_KEY environment variable or add it to your .env file:\n"
             "  OPENROUTER_API_KEY=your-api-key-here\n\n"
-            "You can get an API key from: https://openrouter.ai/keys",
-            file=sys.stderr,
+            "You can get an API key from: https://openrouter.ai/keys[/error]"
         )
         sys.exit(1)
 
@@ -128,10 +136,10 @@ def main() -> None:
         console.print(f"[error]Error loading prompts.yaml: {e}[/error]")
         sys.exit(1)
 
-    # Calculate expected samples
-    total_expected = len(models) * len(prompts) * config.attempts_per_prompt
+    # Calculate total combinations
+    total_combinations = len(models) * len(prompts) * config.attempts_per_prompt
 
-    if total_expected == 0:
+    if total_combinations == 0:
         console.print(
             Panel(
                 "[warning]Nothing to generate![/warning]\n\nNo models or prompts configured.",
@@ -140,70 +148,80 @@ def main() -> None:
         )
         return
 
-    # Track state for the RuneScape loader
-    current_model_id: str | None = None
-    current_prompt_text: str | None = None
-    samples_for_current_model = 0
-    total_samples_per_model = len(prompts) * config.attempts_per_prompt
-    loader: RuneScapeLoader | None = None
+    # Load existing samples to count how many will be skipped when resuming
+    existing_samples = read_jsonl(DEFAULT_DATABASE_PATH, ArtSample)
+    existing_keys = {(s.model_id, s.prompt_text, s.attempt_number) for s in existing_samples}
+
+    # Count how many planned combinations already exist in the database
+    existing_count = sum(
+        1
+        for model in models
+        for prompt in prompts
+        for attempt in range(1, config.attempts_per_prompt + 1)
+        if (model.id, prompt.text, attempt) in existing_keys
+    )
+
+    # Calculate samples that actually need to be generated
+    total_expected = total_combinations - existing_count
+
+    # Display loaded configuration like demo.py
+    console.print()
+    console.print(
+        f"  [dim]•[/dim] [bold cyan]{len(models)}[/bold cyan] "
+        f"[dim]models loaded from[/dim] [white]models.yaml[/white]"
+    )
+    console.print(
+        f"  [dim]•[/dim] [bold cyan]{len(prompts)}[/bold cyan] "
+        f"[dim]prompts loaded from[/dim] [white]prompts.yaml[/white]"
+    )
+    if existing_count > 0:
+        console.print(
+            f"  [dim]•[/dim] [bold yellow]{total_expected}[/bold yellow] "
+            f"[dim]samples to generate[/dim] [dim]({existing_count} existing, skipped)[/dim]"
+        )
+    else:
+        console.print(
+            f"  [dim]•[/dim] [bold yellow]{total_expected}[/bold yellow] "
+            f"[dim]total samples to generate[/dim]"
+        )
+    console.print()
+
+    # Track samples generated
     samples_generated: list[ArtSample] = []
 
-    # Track stats across all samples
-    success_count = 0
-    failure_count = 0
-    running_cost = 0.0
-    current_model_cost = 0.0
+    # Build model_id -> model.name mapping for display
+    model_names = {m.id: m.name for m in models}
+
+    # Track total progress across all samples
+    total_completed = 0
+
+    # Create a single loader for total progress
+    loader = create_loader("Generating", total_expected)
 
     def _loader_progress_callback(
         model_id: str, prompt_text: str, attempt: int, remaining: int
     ) -> None:
-        """Progress callback using RuneScape loader."""
-        nonlocal \
-            current_model_id, \
-            current_prompt_text, \
-            samples_for_current_model, \
-            loader, \
-            current_model_cost
+        """Progress callback - updates model name and prompt display."""
+        # Update model name (use display name from mapping, without resetting progress)
+        display_name = model_names.get(model_id, model_id)
+        loader.set_model_name(display_name)
 
-        # Detect model change
-        if model_id != current_model_id:
-            # Complete previous loader if exists
-            if loader is not None:
-                loader.complete(success=True, cost=current_model_cost)
-                loader.stop()
-                current_model_cost = 0.0
-
-            # Reset for new model
-            current_model_id = model_id
-            samples_for_current_model = 0
-
-            # Show first prompt for this model batch
-            show_prompt(prompt_text)
-            current_prompt_text = prompt_text
-
-            # Create and start new loader for this model
-            loader = create_loader(model_id, total_samples_per_model)
-            loader.start()
-
-        # Update progress
-        samples_for_current_model += 1
-        if loader is not None:
-            loader.update(samples_for_current_model)
+        # Update the current prompt in the loader (in-place update)
+        loader.set_prompt(prompt_text)
 
     def _stats_callback(is_valid: bool, cost: float | None) -> None:
-        """Stats callback called after each sample generation."""
-        nonlocal success_count, failure_count, running_cost, current_model_cost
-
+        """Stats callback - updates success/failure/cost counters and progress."""
+        nonlocal total_completed
         actual_cost = cost if cost is not None else 0.0
-        if is_valid:
-            success_count += 1
-            running_cost += actual_cost
-            current_model_cost += actual_cost
-        else:
-            failure_count += 1
+        loader.record_result(is_valid, actual_cost)
+
+        # Increment progress for every completed attempt (both success and failure)
+        total_completed += 1
+        loader.update(total_completed)
 
     # Generate samples with progress and stats callbacks
     try:
+        loader.start()
         samples_generated = generate_samples(
             models=models,
             prompts=prompts,
@@ -212,24 +230,16 @@ def main() -> None:
             progress_callback=_loader_progress_callback,
             stats_callback=_stats_callback,
         )
-
-        # Complete the final loader
-        if loader is not None:
-            loader.complete(success=True, cost=current_model_cost)
-            loader.stop()
+        loader.stop()
 
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
-        if loader is not None:
-            loader.complete(success=False, cost=current_model_cost)
-            loader.stop()
+        loader.stop()
         console.print("\n[warning]Generation interrupted by user.[/warning]")
         sys.exit(0)
     except Exception as e:
         # Handle other errors
-        if loader is not None:
-            loader.complete(success=False, cost=current_model_cost)
-            loader.stop()
+        loader.stop()
         console.print(f"\n[error]Error during generation: {e}[/error]")
         sys.exit(1)
 

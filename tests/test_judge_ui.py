@@ -17,12 +17,6 @@ from asciibench.judge_ui.main import (
     VoteRequest,
     VoteResponse,
     _calculate_progress_by_category,
-    _calculate_total_possible_pairs,
-    _get_model_pair_comparison_counts,
-    _get_pair_comparison_counts,
-    _get_unique_model_pairs_judged,
-    _make_sorted_pair,
-    _select_matchup,
     app,
 )
 from asciibench.judge_ui.matchup_service import MatchupService
@@ -51,6 +45,15 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(main_module, "matchup_service", matchup_service)
     monkeypatch.setattr(main_module, "undo_service", undo_service)
     return tmp_path
+
+
+@pytest.fixture
+def matchup_service(temp_data_dir: Path) -> MatchupService:
+    """Create a MatchupService instance for tests."""
+    return MatchupService(
+        database_path=temp_data_dir / "database.jsonl",
+        votes_path=temp_data_dir / "votes.jsonl",
+    )
 
 
 @pytest.fixture
@@ -341,35 +344,37 @@ class TestMatchupEndpoint:
 class TestComparisonPrioritization:
     """Tests for the comparison count prioritization logic."""
 
-    def test_get_pair_comparison_counts_empty(self) -> None:
+    def test_get_pair_comparison_counts_empty(self, matchup_service: MatchupService) -> None:
         """Test counting comparisons with no votes."""
-        counts = _get_pair_comparison_counts([])
+        counts = matchup_service._get_pair_comparison_counts([])
         assert len(counts) == 0
 
-    def test_get_pair_comparison_counts_single_vote(self) -> None:
+    def test_get_pair_comparison_counts_single_vote(self, matchup_service: MatchupService) -> None:
         """Test counting comparisons with a single vote."""
         vote = Vote(
             sample_a_id="sample-1",
             sample_b_id="sample-2",
             winner="A",
         )
-        counts = _get_pair_comparison_counts([vote])
+        counts = matchup_service._get_pair_comparison_counts([vote])
         # Pair should be stored in sorted order
-        expected_pair = _make_sorted_pair("sample-1", "sample-2")
+        expected_pair = matchup_service._make_sorted_pair("sample-1", "sample-2")
         assert counts[expected_pair] == 1
 
-    def test_get_pair_comparison_counts_normalizes_order(self) -> None:
+    def test_get_pair_comparison_counts_normalizes_order(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test that (A,B) and (B,A) are counted as the same pair."""
         votes = [
             Vote(sample_a_id="sample-1", sample_b_id="sample-2", winner="A"),
             Vote(sample_a_id="sample-2", sample_b_id="sample-1", winner="B"),
         ]
-        counts = _get_pair_comparison_counts(votes)
-        expected_pair = _make_sorted_pair("sample-1", "sample-2")
+        counts = matchup_service._get_pair_comparison_counts(votes)
+        expected_pair = matchup_service._make_sorted_pair("sample-1", "sample-2")
         assert counts[expected_pair] == 2
         assert len(counts) == 1  # Only one unique pair
 
-    def test_get_model_pair_comparison_counts(self) -> None:
+    def test_get_model_pair_comparison_counts(self, matchup_service: MatchupService) -> None:
         """Test counting comparisons by model pairs."""
         samples = [
             ArtSample(
@@ -398,11 +403,13 @@ class TestComparisonPrioritization:
             sample_b_id=str(samples[1].id),
             winner="A",
         )
-        counts = _get_model_pair_comparison_counts([vote], samples)
-        expected_pair = _make_sorted_pair("model-a", "model-b")
+        counts = matchup_service._get_model_pair_comparison_counts([vote], samples)
+        expected_pair = matchup_service._make_sorted_pair("model-a", "model-b")
         assert counts[expected_pair] == 1
 
-    def test_select_matchup_prioritizes_less_compared(self) -> None:
+    def test_select_matchup_prioritizes_less_compared(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test that matchup selection prioritizes model pairs with fewer comparisons."""
         # Create samples from 3 models
         samples = []
@@ -434,22 +441,22 @@ class TestComparisonPrioritization:
         # Run many selections and track which model pairs are selected
         pair_counts: dict[tuple[str, str], int] = {}
         for _ in range(100):
-            sample_a, sample_b = _select_matchup(samples, votes)
-            pair = _make_sorted_pair(sample_a.model_id, sample_b.model_id)
+            sample_a, sample_b = matchup_service._select_matchup(samples, votes)
+            pair = matchup_service._make_sorted_pair(sample_a.model_id, sample_b.model_id)
             pair_counts[pair] = pair_counts.get(pair, 0) + 1
 
         # model-a vs model-b should be selected less often than other pairs
         # because they already have 10 comparisons
-        ab_pair = _make_sorted_pair("model-a", "model-b")
-        ac_pair = _make_sorted_pair("model-a", "model-c")
-        bc_pair = _make_sorted_pair("model-b", "model-c")
+        ab_pair = matchup_service._make_sorted_pair("model-a", "model-b")
+        ac_pair = matchup_service._make_sorted_pair("model-a", "model-c")
+        bc_pair = matchup_service._make_sorted_pair("model-b", "model-c")
 
         # The less-compared pairs should dominate
         assert ab_pair not in pair_counts or pair_counts.get(ab_pair, 0) == 0
         # At least one of the less-compared pairs should be selected frequently
         assert pair_counts.get(ac_pair, 0) > 0 or pair_counts.get(bc_pair, 0) > 0
 
-    def test_select_matchup_with_single_model(self) -> None:
+    def test_select_matchup_with_single_model(self, matchup_service: MatchupService) -> None:
         """Test matchup selection when all samples are from one model."""
         samples = [
             ArtSample(
@@ -475,10 +482,12 @@ class TestComparisonPrioritization:
         ]
 
         # Should still work, returning two different samples from same model
-        sample_a, sample_b = _select_matchup(samples, [])
+        sample_a, sample_b = matchup_service._select_matchup(samples, [])
         assert sample_a.id != sample_b.id
 
-    def test_select_matchup_raises_with_insufficient_samples(self) -> None:
+    def test_select_matchup_raises_with_insufficient_samples(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test that matchup selection raises error with fewer than 2 samples."""
         samples = [
             ArtSample(
@@ -494,7 +503,7 @@ class TestComparisonPrioritization:
         ]
 
         with pytest.raises(ValueError, match="Not enough valid samples"):
-            _select_matchup(samples, [])
+            matchup_service._select_matchup(samples, [])
 
 
 class TestPositionRandomization:
@@ -1569,11 +1578,13 @@ class TestProgressEndpoint:
 class TestProgressHelperFunctions:
     """Tests for progress calculation helper functions."""
 
-    def test_calculate_total_possible_pairs_empty(self) -> None:
+    def test_calculate_total_possible_pairs_empty(self, matchup_service: MatchupService) -> None:
         """Test total pairs calculation with no samples."""
-        assert _calculate_total_possible_pairs([]) == 0
+        assert matchup_service._calculate_total_possible_pairs([]) == 0
 
-    def test_calculate_total_possible_pairs_single_model(self) -> None:
+    def test_calculate_total_possible_pairs_single_model(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test total pairs calculation with single model (no cross-model pairs)."""
         samples = [
             ArtSample(
@@ -1589,9 +1600,11 @@ class TestProgressHelperFunctions:
             for i in range(5)
         ]
         # All samples from same model, so no valid cross-model pairs
-        assert _calculate_total_possible_pairs(samples) == 0
+        assert matchup_service._calculate_total_possible_pairs(samples) == 0
 
-    def test_calculate_total_possible_pairs_two_models(self) -> None:
+    def test_calculate_total_possible_pairs_two_models(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test total pairs calculation with two models."""
         samples = []
         # 3 samples from model-a, 2 samples from model-b
@@ -1622,9 +1635,11 @@ class TestProgressHelperFunctions:
                 )
             )
         # Cross-model pairs: 3 * 2 = 6
-        assert _calculate_total_possible_pairs(samples) == 6
+        assert matchup_service._calculate_total_possible_pairs(samples) == 6
 
-    def test_calculate_total_possible_pairs_three_models(self) -> None:
+    def test_calculate_total_possible_pairs_three_models(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test total pairs calculation with three models."""
         samples = []
         # 2 samples each from 3 models
@@ -1643,13 +1658,15 @@ class TestProgressHelperFunctions:
                     )
                 )
         # Cross-model pairs: (2*2) + (2*2) + (2*2) = 4 + 4 + 4 = 12
-        assert _calculate_total_possible_pairs(samples) == 12
+        assert matchup_service._calculate_total_possible_pairs(samples) == 12
 
-    def test_get_unique_model_pairs_judged_empty(self) -> None:
+    def test_get_unique_model_pairs_judged_empty(self, matchup_service: MatchupService) -> None:
         """Test unique pairs judged with no votes."""
-        assert _get_unique_model_pairs_judged([], []) == 0
+        assert matchup_service.get_unique_model_pairs_judged([], []) == 0
 
-    def test_get_unique_model_pairs_judged_single_pair(self) -> None:
+    def test_get_unique_model_pairs_judged_single_pair(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test unique pairs judged with one model pair compared."""
         samples = [
             ArtSample(
@@ -1686,9 +1703,11 @@ class TestProgressHelperFunctions:
             ),
         ]
         # Two votes but only one unique model pair
-        assert _get_unique_model_pairs_judged(votes, samples) == 1
+        assert matchup_service.get_unique_model_pairs_judged(votes, samples) == 1
 
-    def test_get_unique_model_pairs_judged_multiple_pairs(self) -> None:
+    def test_get_unique_model_pairs_judged_multiple_pairs(
+        self, matchup_service: MatchupService
+    ) -> None:
         """Test unique pairs judged with multiple model pairs compared."""
         samples = [
             ArtSample(
@@ -1735,7 +1754,7 @@ class TestProgressHelperFunctions:
             ),
         ]
         # Two votes comparing two different model pairs
-        assert _get_unique_model_pairs_judged(votes, samples) == 2
+        assert matchup_service.get_unique_model_pairs_judged(votes, samples) == 2
 
     def test_calculate_progress_by_category_empty(self) -> None:
         """Test category progress with no samples."""

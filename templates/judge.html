@@ -1,15 +1,18 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h1>ASCIIBench Judge Interface</h1>
-<p id="prompt-display"
-   hx-get="/htmx/prompt"
-   hx-trigger="load, matchup-loaded from:body"
-   hx-swap="innerHTML">
-    Loading prompt...
-</p>
+<header class="bg-gradient-to-br from-indigo-500 to-purple-600 text-white p-10 rounded-xl shadow-lg mb-8">
+    <h1 class="text-3xl font-bold text-white tracking-tight mb-2">ASCIIBench Judge Interface</h1>
+    <p id="prompt-display"
+       hx-get="/htmx/prompt"
+       hx-trigger="load, matchup-loaded from:body"
+       hx-swap="innerHTML"
+       class="text-white/80 text-lg">
+        Loading prompt...
+    </p>
+</header>
 
-<div id="loading-indicator" class="loading-indicator htmx-indicator">
+<div id="loading-indicator" class="loading-indicator htmx-indicator text-center py-8 text-slate-500 text-base">
     Loading matchup...
 </div>
 
@@ -19,31 +22,31 @@
      hx-swap="innerHTML"
      hx-indicator="#loading-indicator">
     {# Initial content will be replaced by HTMX #}
-    <div class="comparison-container">
-        <div class="sample">
-            <h2>Sample A</h2>
+    <div class="comparison-container grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <h2 class="text-xl font-semibold text-slate-800 mb-4">Sample A</h2>
             <div class="font-variants">
                 <div class="font-variant">
-                    <span class="font-label">Classic</span>
-                    <div class="art-display font-classic">Loading...</div>
+                    <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Classic</span>
+                    <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-classic">Loading...</div>
                 </div>
             </div>
         </div>
-        <div class="sample">
-            <h2>Sample B</h2>
+        <div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+            <h2 class="text-xl font-semibold text-slate-800 mb-4">Sample B</h2>
             <div class="font-variants">
                 <div class="font-variant">
-                    <span class="font-label">Classic</span>
-                    <div class="art-display font-classic">Loading...</div>
+                    <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Classic</span>
+                    <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-classic">Loading...</div>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-<div id="error-message" class="error-message" style="display: none;"></div>
+<div id="error-message" class="error-message bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center mb-4" style="display: none;"></div>
 
-<div class="controls">
+<div class="controls text-center mt-8">
     <h3>Which sample do you prefer?</h3>
 
     {# Vote form with HTMX - hidden form that gets submitted via JavaScript #}
@@ -58,15 +61,15 @@
         <input type="hidden" name="winner" id="form-winner" value="" />
     </form>
 
-    <div class="vote-buttons">
-        <button id="btn-a" class="vote-btn" data-winner="A">A wins</button>
-        <button id="btn-b" class="vote-btn" data-winner="B">B wins</button>
-        <button id="btn-tie" class="vote-btn" data-winner="tie">Tie</button>
-        <button id="btn-fail" class="vote-btn" data-winner="fail">Both fail</button>
+    <div class="vote-buttons flex justify-center gap-3 mb-4">
+        <button id="btn-a" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="A" aria-label="Vote for Sample A as winner">A wins</button>
+        <button id="btn-b" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="B" aria-label="Vote for Sample B as winner">B wins</button>
+        <button id="btn-tie" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="tie" aria-label="Vote for tie">Tie</button>
+        <button id="btn-fail" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="fail" aria-label="Mark both samples as failed">Both fail</button>
     </div>
     <div class="undo-container">
         <button id="btn-undo"
-                class="undo-btn"
+                class="undo-btn bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium transition-colors"
                 hx-post="/htmx/undo"
                 hx-target="#matchup-container"
                 hx-swap="innerHTML"
@@ -75,18 +78,18 @@
             Undo (Z)
         </button>
     </div>
-    <p class="keyboard-hint">
+    <p class="keyboard-hint text-slate-500 text-sm mt-4">
         Keyboard shortcuts:
-        <span class="keyboard-key">A</span> left wins
-        <span class="keyboard-key">D</span> right wins
-        <span class="keyboard-key">S</span> tie
-        <span class="keyboard-key">F</span> fail
-        <span class="keyboard-key">Z</span> undo
+        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">A</span> left wins
+        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">D</span> right wins
+        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">S</span> tie
+        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">F</span> fail
+        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">Z</span> undo
     </p>
 </div>
 
 <div id="progress-display"
-     class="progress-display"
+     class="progress-display text-center mt-6 p-3 bg-slate-100 rounded-lg text-sm text-slate-600 font-medium"
      hx-get="/htmx/progress"
      hx-trigger="load, vote-submitted from:body, undo-completed from:body"
      hx-swap="innerHTML">
@@ -96,7 +99,7 @@
 <p><a href="/">Back to Home</a></p>
 
 <script>
-(function() {
+(() => {
     'use strict';
 
     // State
@@ -237,7 +240,7 @@
     }
 
     // Set processing state during HTMX requests
-    document.body.addEventListener('htmx:beforeRequest', function(event) {
+    document.body.addEventListener('htmx:beforeRequest', (event) => {
         isProcessing = true;
         // Disable buttons
         btnA.disabled = true;
@@ -247,7 +250,7 @@
         btnUndo.disabled = true;
     });
 
-    document.body.addEventListener('htmx:afterRequest', function(event) {
+    document.body.addEventListener('htmx:afterRequest', (event) => {
         isProcessing = false;
         // Re-enable buttons
         btnA.disabled = false;
@@ -258,14 +261,14 @@
     });
 
     // Trigger prompt update when matchup loads
-    document.body.addEventListener('htmx:afterSwap', function(event) {
+    document.body.addEventListener('htmx:afterSwap', (event) => {
         if (event.target.id === 'matchup-container') {
             htmx.trigger(document.body, 'matchup-loaded');
         }
     });
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', () => {
         // Add keyboard event listener
         document.addEventListener('keydown', handleKeydown);
 

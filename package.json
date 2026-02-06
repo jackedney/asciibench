@@ -1,0 +1,14 @@
+{
+  "name": "asciibench",
+  "version": "0.1.0",
+  "description": "ASCIIBench - Elo-based LLM benchmark system",
+  "scripts": {
+    "build:css": "npx tailwindcss -i ./input.css -o ./static/css/output.css --minify",
+    "watch:css": "npx tailwindcss -i ./input.css -o ./static/css/output.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0"
+  }
+}

@@ -1,5 +1,6 @@
 """Tests for the generator main module."""
 
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,12 @@ from asciibench.common.models import ArtSample, Model, Prompt
 from asciibench.generator.main import _print_progress, main
 
 
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape codes from text."""
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    return ansi_escape.sub("", text)
+
+
 class TestPrintProgress:
     """Tests for the _print_progress helper function."""
 
@@ -18,10 +25,11 @@ class TestPrintProgress:
         _print_progress("openai/gpt-4o", "Draw a cat", 1, 100)
 
         captured = capsys.readouterr()
-        assert "[100 remaining]" in captured.out
-        assert "openai/gpt-4o" in captured.out
-        assert "Attempt 1" in captured.out
-        assert "Draw a cat" in captured.out
+        stripped_output = strip_ansi(captured.out)
+        assert "[100 remaining]" in stripped_output
+        assert "openai/gpt-4o" in stripped_output
+        assert "Attempt 1" in stripped_output
+        assert "Draw a cat" in stripped_output
 
     def test_truncates_long_prompt(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Long prompts are truncated."""
@@ -29,10 +37,11 @@ class TestPrintProgress:
         _print_progress("model", long_prompt, 1, 50)
 
         captured = capsys.readouterr()
-        assert "..." in captured.out
+        stripped_output = strip_ansi(captured.out)
+        assert "..." in stripped_output
         # Should be truncated to 50 chars + "..."
-        assert "A" * 50 in captured.out
-        assert "A" * 51 not in captured.out
+        assert "A" * 50 in stripped_output
+        assert "A" * 51 not in stripped_output
 
 
 class TestMain:
@@ -92,7 +101,7 @@ class TestMain:
         assert "OPENROUTER_API_KEY" in captured.err
         assert "openrouter.ai" in captured.err
 
-    def test_main_shows_banner_and_loading_message(
+    def test_main_shows_banner_and_config_summary(
         self,
         mock_settings: MagicMock,
         mock_config: GenerationConfig,
@@ -101,7 +110,7 @@ class TestMain:
         capsys: pytest.CaptureFixture[str],
         tmp_path: Path,
     ) -> None:
-        """Main shows banner and loading message."""
+        """Main shows banner and configuration summary."""
         with (
             patch("asciibench.generator.main.Settings", return_value=mock_settings),
             patch(
@@ -115,9 +124,12 @@ class TestMain:
             main()
 
         captured = capsys.readouterr()
+        stripped_output = strip_ansi(captured.out)
         # Check for banner (contains ASCII art with these patterns)
-        assert "___" in captured.out  # Part of the ASCII art banner
-        assert "Loading configuration" in captured.out
+        assert "___" in stripped_output  # Part of the ASCII art banner
+        # Check for config summary (like demo.py)
+        assert "models loaded from" in stripped_output
+        assert "models.yaml" in stripped_output
 
     def test_main_calls_generate_samples_with_correct_args(
         self,

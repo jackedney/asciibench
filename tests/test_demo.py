@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 
@@ -13,6 +13,7 @@ from asciibench.generator.demo import (
     generate_html,
     get_completed_model_ids,
     load_demo_results,
+    log_generation_error,
     save_demo_results,
     show_stats,
 )
@@ -372,7 +373,7 @@ class TestGenerateDemoSample:
         assert isinstance(result.timestamp, datetime)
 
         mock_client_class.assert_called_once_with(
-            api_key="test-api-key", base_url="https://openrouter.ai/api/v1"
+            api_key="test-api-key", base_url="https://openrouter.ai/api/v1", timeout=ANY
         )
         mock_client_instance.generate.assert_called_once()
 
@@ -862,3 +863,157 @@ class TestShowStats:
         assert "✓ 100" in captured.out
         assert "✗ 5" in captured.out
         assert "$1.234567" in captured.out
+
+
+class TestLogGenerationError:
+    """Tests for log_generation_error function."""
+
+    def test_log_generation_error_with_traceback(self, tmp_path: Path) -> None:
+        """Test log_generation_error captures full traceback from exception."""
+        import asciibench.generator.demo as demo_module
+
+        log_path = tmp_path / "test_log.jsonl"
+        from asciibench.common.logging import JSONLogger
+
+        logger = JSONLogger("generator.demo", log_path)
+        demo_module.logger = logger
+
+        try:
+            raise ValueError("Test error with traceback")
+        except Exception as e:
+            log_generation_error(
+                model_id="openai/gpt-4o-mini",
+                model_name="GPT-4o Mini",
+                error_reason="Test error",
+                exception=e,
+            )
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert entry["level"] == "error"
+        assert entry["message"] == "Demo generation failed"
+        assert entry["metadata"]["exception_type"] == "ValueError"
+        assert entry["metadata"]["exception_message"] == "Test error with traceback"
+        assert "Traceback" in entry["metadata"]["traceback"]
+        assert "test_log_generation_error_with_traceback" in entry["metadata"]["traceback"]
+        assert "ValueError: Test error with traceback" in entry["metadata"]["traceback"]
+        assert entry["metadata"]["model"] == "GPT-4o Mini"
+        assert entry["metadata"]["model_id"] == "openai/gpt-4o-mini"
+        assert entry["metadata"]["error_reason"] == "Test error"
+
+    def test_log_generation_error_without_traceback(self, tmp_path: Path) -> None:
+        """Test log_generation_error handles exception without __traceback__."""
+        import asciibench.generator.demo as demo_module
+
+        log_path = tmp_path / "test_log.jsonl"
+        from asciibench.common.logging import JSONLogger
+
+        logger = JSONLogger("generator.demo", log_path)
+        demo_module.logger = logger
+
+        exception = ValueError("Test error without traceback")
+        assert exception.__traceback__ is None
+
+        log_generation_error(
+            model_id="anthropic/claude-sonnet-4.5",
+            model_name="Claude 4.5 Sonnet",
+            error_reason="Test error",
+            exception=exception,
+        )
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert entry["level"] == "error"
+        assert entry["message"] == "Demo generation failed"
+        assert entry["metadata"]["exception_type"] == "ValueError"
+        assert entry["metadata"]["exception_message"] == "Test error without traceback"
+        assert entry["metadata"]["traceback"] == ""
+        assert entry["metadata"]["model"] == "Claude 4.5 Sonnet"
+        assert entry["metadata"]["model_id"] == "anthropic/claude-sonnet-4.5"
+        assert entry["metadata"]["error_reason"] == "Test error"
+
+    def test_log_generation_error_with_raw_output(self, tmp_path: Path) -> None:
+        """Test log_generation_error includes raw output preview."""
+        import asciibench.generator.demo as demo_module
+
+        log_path = tmp_path / "test_log.jsonl"
+        from asciibench.common.logging import JSONLogger
+
+        logger = JSONLogger("generator.demo", log_path)
+        demo_module.logger = logger
+
+        try:
+            raise RuntimeError("Test error")
+        except Exception as e:
+            log_generation_error(
+                model_id="openai/gpt-4o-mini",
+                model_name="GPT-4o Mini",
+                error_reason="Test error",
+                raw_output="This is a test output with some content",
+                exception=e,
+            )
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert entry["metadata"]["raw_output_length"] == "39"
+        assert entry["metadata"]["raw_output_preview"] == "This is a test output with some content"
+
+    def test_log_generation_error_with_long_raw_output(self, tmp_path: Path) -> None:
+        """Test log_generation_error truncates long raw output."""
+        import asciibench.generator.demo as demo_module
+
+        log_path = tmp_path / "test_log.jsonl"
+        from asciibench.common.logging import JSONLogger
+
+        logger = JSONLogger("generator.demo", log_path)
+        demo_module.logger = logger
+
+        long_output = "x" * 3000
+        try:
+            raise RuntimeError("Test error")
+        except Exception as e:
+            log_generation_error(
+                model_id="openai/gpt-4o-mini",
+                model_name="GPT-4o Mini",
+                error_reason="Test error",
+                raw_output=long_output,
+                exception=e,
+            )
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert entry["metadata"]["raw_output_length"] == "3000"
+        assert entry["metadata"]["raw_output_preview"] == "x" * 2000 + "..."
+        assert len(entry["metadata"]["raw_output_preview"]) == 2003
+
+    def test_log_generation_error_without_exception(self, tmp_path: Path) -> None:
+        """Test log_generation_error works without exception parameter."""
+        import asciibench.generator.demo as demo_module
+
+        log_path = tmp_path / "test_log.jsonl"
+        from asciibench.common.logging import JSONLogger
+
+        logger = JSONLogger("generator.demo", log_path)
+        demo_module.logger = logger
+
+        log_generation_error(
+            model_id="openai/gpt-4o-mini",
+            model_name="GPT-4o Mini",
+            error_reason="Generic error",
+        )
+
+        content = log_path.read_text()
+        entry = json.loads(content.strip())
+
+        assert entry["level"] == "error"
+        assert entry["message"] == "Demo generation failed"
+        assert "exception_type" not in entry["metadata"]
+        assert "exception_message" not in entry["metadata"]
+        assert "traceback" not in entry["metadata"]
+        assert entry["metadata"]["model"] == "GPT-4o Mini"
+        assert entry["metadata"]["model_id"] == "openai/gpt-4o-mini"
+        assert entry["metadata"]["error_reason"] == "Generic error"

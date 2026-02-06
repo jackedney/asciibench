@@ -1,0 +1,436 @@
+{% if error %}
+<div class="bg-red-950 border-2 border-red-500 text-red-400 p-4 text-center">
+    Error loading analytics: {{ error }}
+</div>
+{% else %}
+
+<div class="analytics-dashboard space-y-8">
+
+    <!-- Leaderboard Table -->
+    <div class="leaderboard border-2 border-slate-600 p-6 brutalist-shadow bg-slate-800">
+        <h3 class="text-xl text-slate-200 mb-4 border-b border-slate-700 pb-2">// LEADERBOARD</h3>
+
+        {% if leaderboard %}
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-slate-600">
+                        <th class="text-left py-3 px-4 text-slate-400 font-normal">RANK</th>
+                        <th class="text-left py-3 px-4 text-slate-400 font-normal">MODEL</th>
+                        <th class="text-right py-3 px-4 text-slate-400 font-normal">ELO</th>
+                        <th class="text-right py-3 px-4 text-slate-400 font-normal">95% CI</th>
+                        <th class="text-right py-3 px-4 text-slate-400 font-normal">RANK STABILITY</th>
+                        <th class="text-center py-3 px-4 text-slate-400 font-normal">CONVERGED</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in leaderboard %}
+                    {% set model_data = stability.models[entry.model_id] %}
+                    <tr class="border-b border-slate-700 hover:bg-slate-700 transition-colors">
+                        <td class="py-3 px-4 text-slate-300">
+                            {% if entry.rank == 1 %}
+                            <span class="text-yellow-400">#{{ entry.rank }}</span>
+                            {% elif entry.rank == 2 %}
+                            <span class="text-slate-300">#{{ entry.rank }}</span>
+                            {% elif entry.rank == 3 %}
+                            <span class="text-orange-400">#{{ entry.rank }}</span>
+                            {% else %}
+                            #{{ entry.rank }}
+                            {% endif %}
+                        </td>
+                        <td class="py-3 px-4 text-slate-200 font-medium">{{ entry.model_id }}</td>
+                        <td class="py-3 px-4 text-right text-slate-200">{{ entry.elo }}</td>
+                        <td class="py-3 px-4 text-right text-slate-400 text-sm">
+                            {% if model_data and model_data.confidence_interval %}
+                            {{ model_data.confidence_interval.ci_lower|round(0)|int }} - {{ model_data.confidence_interval.ci_upper|round(0)|int }}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                        <td class="py-3 px-4 text-right">
+                            {% if model_data and model_data.rank_stability_pct is not none %}
+                            <span class="{% if model_data.rank_stability_pct >= 90 %}text-green-400{% elif model_data.rank_stability_pct >= 70 %}text-yellow-400{% else %}text-red-400{% endif %}">
+                                {% if model_data.rank_stability_pct >= 90 %}✓{% else %}⚠{% endif %} {{ model_data.rank_stability_pct|round(0)|int }}%
+                            </span>
+                            {% else %}
+                            <span class="text-slate-500">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 px-4 text-center">
+                            {% if model_data and model_data.is_converged is not none %}
+                                {% if model_data.is_converged %}
+                                <span class="text-green-400">YES</span>
+                                {% else %}
+                                <span class="text-yellow-400">NO</span>
+                                {% endif %}
+                            {% else %}
+                            <span class="text-slate-500">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-slate-500 text-center py-8">No models ranked yet. Start judging to see the leaderboard.</p>
+        {% endif %}
+    </div>
+
+    <!-- ELO Over Time Chart -->
+    <div class="elo-chart border-2 border-slate-600 p-6 brutalist-shadow bg-slate-800">
+        <h3 class="text-xl text-slate-200 mb-4 border-b border-slate-700 pb-2">// ELO OVER TIME</h3>
+
+        {% if elo_history %}
+        <div class="relative" style="height: 400px;">
+            <canvas id="elo-chart"></canvas>
+        </div>
+        {% else %}
+        <p class="text-slate-500 text-center py-8">Not enough data for ELO progression chart.</p>
+        {% endif %}
+    </div>
+
+    <!-- Rank Stability Card -->
+    <div class="rank-stability border-2 border-slate-600 p-6 brutalist-shadow bg-slate-800">
+        <h3 class="text-xl text-slate-200 mb-4 border-b border-slate-700 pb-2">// RANK STABILITY</h3>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Overall Score -->
+            <div class="bg-slate-900 border border-slate-700 p-4 rounded-lg">
+                <p class="text-slate-400 text-sm mb-2">Overall Score</p>
+                <div class="flex items-baseline gap-2">
+                    <span class="text-3xl font-bold {% if stability.score >= 80 %}text-green-400{% elif stability.score >= 50 %}text-yellow-400{% else %}text-red-400{% endif %}">
+                        {{ stability.score }}
+                    </span>
+                    <span class="text-slate-500 text-lg">/100</span>
+                </div>
+                <p class="text-slate-500 text-xs mt-2">
+                    {% if stability.is_stable %}
+                    Ready for publication
+                    {% else %}
+                    More data needed
+                    {% endif %}
+                </p>
+            </div>
+
+            <!-- Average CI Width -->
+            <div class="bg-slate-900 border border-slate-700 p-4 rounded-lg">
+                <p class="text-slate-400 text-sm mb-2">Avg CI Width</p>
+                <div class="flex items-baseline gap-2">
+                    {% set avg_ci_width = namespace(total=0, count=0) %}
+                    {% for entry in leaderboard %}
+                        {% set model_data = stability.models[entry.model_id] %}
+                        {% if model_data and model_data.confidence_interval %}
+                            {% set avg_ci_width.total = avg_ci_width.total + (model_data.confidence_interval.ci_upper - model_data.confidence_interval.ci_lower) %}
+                            {% set avg_ci_width.count = avg_ci_width.count + 1 %}
+                        {% endif %}
+                    {% endfor %}
+                    {% if avg_ci_width.count > 0 %}
+                        {% set width = (avg_ci_width.total / avg_ci_width.count)|round(0)|int %}
+                        <span class="text-3xl font-bold {% if width <= 50 %}text-green-400{% elif width <= 100 %}text-yellow-400{% else %}text-red-400{% endif %}">
+                            ±{{ (width / 2)|round(0)|int }}
+                        </span>
+                        <span class="text-slate-500 text-lg">ELO</span>
+                    {% else %}
+                        <span class="text-3xl font-bold text-slate-500">-</span>
+                    {% endif %}
+                </div>
+                <p class="text-slate-500 text-xs mt-2">95% confidence interval</p>
+            </div>
+
+            <!-- Total Comparisons -->
+            <div class="bg-slate-900 border border-slate-700 p-4 rounded-lg">
+                <p class="text-slate-400 text-sm mb-2">Total Comparisons</p>
+                <div class="flex items-baseline gap-2">
+                    <span class="text-3xl font-bold text-slate-200">{{ total_votes }}</span>
+                </div>
+                <p class="text-slate-500 text-xs mt-2">
+                    {% set converged_count = namespace(val=0) %}
+                    {% for entry in leaderboard %}
+                        {% set model_data = stability.models[entry.model_id] %}
+                        {% if model_data and model_data.is_converged %}
+                            {% set converged_count.val = converged_count.val + 1 %}
+                        {% endif %}
+                    {% endfor %}
+                    {{ converged_count.val }}/{{ leaderboard|length }} models converged
+                </p>
+            </div>
+        </div>
+
+        {% if stability.warnings %}
+        <div class="mt-4 p-3 bg-slate-900 border border-yellow-900 rounded-lg">
+            <p class="text-yellow-400 text-sm font-medium mb-2">Warnings</p>
+            <ul class="space-y-1">
+                {% for warning in stability.warnings %}
+                <li class="text-slate-400 text-sm">• {{ warning }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Head-to-Head Matrix -->
+    <div class="head-to-head border-2 border-slate-600 p-6 brutalist-shadow bg-slate-800">
+        <h3 class="text-xl text-slate-200 mb-4 border-b border-slate-700 pb-2">// HEAD-TO-HEAD</h3>
+        <p class="text-slate-500 text-sm mb-4">Row model win rate vs column model (hover for details)</p>
+
+        {% if models and models|length > 1 %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm h2h-matrix">
+                <thead>
+                    <tr class="border-b border-slate-600">
+                        <th class="text-left py-2 px-2 text-slate-400 font-normal"></th>
+                        {% for model in models %}
+                        <th class="text-center py-2 px-2 text-slate-400 font-normal" style="writing-mode: vertical-rl; text-orientation: mixed; max-width: 40px;">
+                            {{ model[:12] }}{% if model|length > 12 %}...{% endif %}
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row_model in models %}
+                    <tr class="border-b border-slate-700">
+                        <td class="py-2 px-2 text-slate-300 font-medium whitespace-nowrap">{{ row_model[:15] }}{% if row_model|length > 15 %}...{% endif %}</td>
+                        {% for col_model in models %}
+                        <td class="text-center py-1 px-1">
+                            {% if row_model == col_model %}
+                            <div class="h2h-cell h2h-diagonal" title="Same model">
+                                <span class="h2h-value">-</span>
+                            </div>
+                            {% else %}
+                                {% set record = head_to_head.get(row_model, {}).get(col_model) %}
+                                {% if record %}
+                                    {% set total = record.wins + record.losses %}
+                                    {% if total > 0 %}
+                                        {% set win_rate = (record.wins / total * 100)|round(0)|int %}
+                                        <div class="h2h-cell"
+                                             data-winrate="{{ win_rate }}"
+                                             tabindex="0"
+                                             title="{{ row_model }} vs {{ col_model }}: {{ record.wins }}W - {{ record.losses }}L ({{ win_rate }}%)">
+                                            <span class="h2h-value">{{ record.wins }}-{{ record.losses }}</span>
+                                        </div>
+                                    {% else %}
+                                        <div class="h2h-cell h2h-nodata" title="No data">
+                                            <span class="h2h-value">-</span>
+                                        </div>
+                                    {% endif %}
+                                {% else %}
+                                    <div class="h2h-cell h2h-nodata" title="No data">
+                                        <span class="h2h-value">-</span>
+                                    </div>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-slate-500 text-center py-8">Need at least 2 models with comparisons for head-to-head matrix.</p>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.h2h-cell {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    margin: auto;
+    cursor: default;
+    transition: transform 0.1s ease;
+}
+
+.h2h-cell:hover {
+    transform: scale(1.1);
+    z-index: 10;
+    position: relative;
+}
+
+.h2h-value {
+    font-size: 9px;
+    opacity: 1;
+    color: #64748b;
+    transition: opacity 0.15s ease, font-size 0.15s ease, color 0.15s ease;
+}
+
+.h2h-cell:hover .h2h-value,
+.h2h-cell:focus .h2h-value {
+    font-size: 10px;
+    opacity: 1;
+    color: #1e293b;
+    font-weight: 600;
+}
+
+.h2h-cell:focus {
+    outline: 2px solid #38bdf8;
+    outline-offset: 1px;
+}
+
+@media (hover: none) {
+    .h2h-cell:hover {
+        transform: none;
+    }
+
+    .h2h-cell:hover .h2h-value {
+        font-size: 9px;
+        color: #64748b;
+        font-weight: normal;
+    }
+}
+
+.h2h-diagonal {
+    background-color: #334155;
+}
+
+.h2h-diagonal .h2h-value,
+.h2h-diagonal:hover .h2h-value {
+    color: #64748b;
+}
+
+.h2h-nodata {
+    background-color: #1e293b;
+    border: 1px dashed #475569;
+}
+
+.h2h-nodata .h2h-value,
+.h2h-nodata:hover .h2h-value {
+    color: #64748b;
+}
+</style>
+
+<script>
+(() => {
+    // Apply gradient colors to h2h cells based on win rate
+    document.querySelectorAll('.h2h-cell[data-winrate]').forEach(cell => {
+        const winRate = parseInt(cell.dataset.winrate);
+
+        // Calculate color: red (0%) -> white (50%) -> green (100%)
+        let r, g, b;
+        if (winRate <= 50) {
+            // Red to white: 0% = red, 50% = white
+            const t = winRate / 50;
+            r = 239;  // Keep red high
+            g = Math.round(68 + (255 - 68) * t);   // 68 -> 255
+            b = Math.round(68 + (255 - 68) * t);   // 68 -> 255
+        } else {
+            // White to green: 50% = white, 100% = green
+            const t = (winRate - 50) / 50;
+            r = Math.round(255 - (255 - 74) * t);  // 255 -> 74
+            g = Math.round(255 - (255 - 222) * t); // 255 -> 222
+            b = Math.round(255 - (255 - 128) * t); // 255 -> 128
+        }
+
+        cell.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+    });
+})();
+</script>
+
+{% if elo_history %}
+<script>
+(() => {
+    const eloData = {{ elo_history_json|safe }};
+    const ctx = document.getElementById('elo-chart');
+
+    if (!ctx || !window.Chart) {
+        console.error('Chart.js not loaded or canvas not found');
+        return;
+    }
+
+    // Color palette for models
+    const colors = [
+        '#38bdf8', // sky-400
+        '#f472b6', // pink-400
+        '#a78bfa', // violet-400
+        '#4ade80', // green-400
+        '#fb923c', // orange-400
+        '#facc15', // yellow-400
+        '#2dd4bf', // teal-400
+        '#f87171', // red-400
+        '#818cf8', // indigo-400
+        '#34d399', // emerald-400
+    ];
+
+    const datasets = Object.entries(eloData).map(([modelId, points], index) => ({
+        label: modelId,
+        data: points,
+        borderColor: colors[index % colors.length],
+        backgroundColor: colors[index % colors.length] + '20',
+        borderWidth: 2,
+        fill: false,
+        tension: 0.1,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+    }));
+
+    new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: '#94a3b8', // slate-400
+                        padding: 20,
+                        usePointStyle: true,
+                    }
+                },
+                tooltip: {
+                    backgroundColor: '#1e293b', // slate-800
+                    titleColor: '#e2e8f0', // slate-200
+                    bodyColor: '#cbd5e1', // slate-300
+                    borderColor: '#475569', // slate-600
+                    borderWidth: 1,
+                    callbacks: {
+                        title: (context) => 'After ' + context[0].parsed.x + ' comparisons'
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    title: {
+                        display: true,
+                        text: 'Number of Comparisons',
+                        color: '#94a3b8',
+                    },
+                    ticks: {
+                        color: '#64748b', // slate-500
+                    },
+                    grid: {
+                        color: '#334155', // slate-700
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'ELO Rating',
+                        color: '#94a3b8',
+                    },
+                    ticks: {
+                        color: '#64748b',
+                    },
+                    grid: {
+                        color: '#334155',
+                    }
+                }
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+
+{% endif %}

@@ -1,5 +1,7 @@
 """Tests for the OpenRouter client module."""
 
+import json
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,6 +13,8 @@ from asciibench.generator.client import (
     ModelError,
     OpenRouterClient,
     OpenRouterClientError,
+    RateLimitError,
+    TransientError,
 )
 
 
@@ -59,7 +63,7 @@ class TestOpenRouterClientGenerate:
             api_key="test-key",
             temperature=0.0,
             max_tokens=1000,
-            client_kwargs={"max_retries": 0, "timeout": 120},
+            client_kwargs={"max_retries": 0, "timeout": 180},
             retry=False,
         )
 
@@ -88,7 +92,7 @@ class TestOpenRouterClientGenerate:
             api_key="test-key",
             temperature=0.7,
             max_tokens=500,
-            client_kwargs={"max_retries": 0, "timeout": 120},
+            client_kwargs={"max_retries": 0, "timeout": 180},
             retry=False,
         )
 
@@ -202,29 +206,190 @@ class TestOpenRouterClientErrors:
             client.generate("fake/model", "Draw a cat")
 
     @patch("asciibench.generator.client.LiteLLMModelWithCost")
-    def test_generate_raises_client_error_on_other_errors(self, mock_model_class):
-        """Generate raises OpenRouterClientError on other API errors."""
+    def test_generate_raises_transient_error_on_connection_timeout(self, mock_model_class):
+        """Generate raises TransientError on connection timeout (retryable)."""
         mock_model_instance = MagicMock()
         mock_model_instance.side_effect = Exception("Connection timeout")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        from asciibench.generator.client import TransientError
+
+        with pytest.raises(TransientError) as exc_info:
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert "Transient error" in str(exc_info.value)
+        assert "Connection timeout" in str(exc_info.value)
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_generate_raises_rate_limit_error_on_429(self, mock_model_class):
+        """Generate raises RateLimitError on 429 response (retryable)."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("429 Too Many Requests")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        from asciibench.generator.client import RateLimitError
+
+        with pytest.raises(RateLimitError) as exc_info:
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert "Rate limit exceeded" in str(exc_info.value)
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_generate_raises_transient_error_on_503(self, mock_model_class):
+        """Generate raises TransientError on 503 response (service unavailable)."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("503 Service Unavailable")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        with pytest.raises(TransientError) as exc_info:
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert "Transient error" in str(exc_info.value)
+        assert "503" in str(exc_info.value)
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_generate_raises_transient_error_on_502(self, mock_model_class):
+        """Generate raises TransientError on 502 response (bad gateway)."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("502 Bad Gateway")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        with pytest.raises(TransientError) as exc_info:
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        assert "Transient error" in str(exc_info.value)
+        assert "502" in str(exc_info.value)
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_generate_raises_client_error_on_400(self, mock_model_class):
+        """Generate raises OpenRouterClientError on 400 response (not retryable)."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("400 Bad Request")
         mock_model_class.return_value = mock_model_instance
 
         client = OpenRouterClient(api_key="test-key")
         with pytest.raises(OpenRouterClientError) as exc_info:
             client.generate("openai/gpt-4o", "Draw a cat")
 
-        assert "API error" in str(exc_info.value)
-        assert "Connection timeout" in str(exc_info.value)
+        assert "Bad request" in str(exc_info.value)
+        assert "400" in str(exc_info.value)
+
+
+class TestOpenRouterClientRetryBehavior:
+    """Tests for retry behavior with rate limit and transient errors."""
 
     @patch("asciibench.generator.client.LiteLLMModelWithCost")
-    def test_generate_raises_client_error_on_rate_limit(self, mock_model_class):
-        """Generate raises OpenRouterClientError on rate limit."""
+    def test_rate_limit_retries_3_times_then_raises(self, mock_model_class):
+        """429 response retries 3 times before raising RateLimitError."""
         mock_model_instance = MagicMock()
         mock_model_instance.side_effect = Exception("429 Too Many Requests")
         mock_model_class.return_value = mock_model_instance
 
         client = OpenRouterClient(api_key="test-key")
+
+        start_time = time.time()
+        with pytest.raises(RateLimitError):
+            client.generate("openai/gpt-4o", "Draw a cat")
+        elapsed_time = time.time() - start_time
+
+        # Should have been called 4 times (initial + 3 retries)
+        assert mock_model_instance.call_count == 4
+
+        # Should have waited at least 1 + 2 + 4 = 7 seconds (with some tolerance)
+        assert elapsed_time >= 7 * 0.8
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_transient_error_retries_3_times_then_raises(self, mock_model_class):
+        """503 response retries 3 times before raising TransientError."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("503 Service Unavailable")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+
+        with pytest.raises(TransientError):
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have been called 4 times (initial + 3 retries)
+        assert mock_model_instance.call_count == 4
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_authentication_error_does_not_retry(self, mock_model_class):
+        """401 raises AuthenticationError immediately without retry."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("401 Unauthorized")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+
+        with pytest.raises(AuthenticationError):
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have been called only once (no retries)
+        assert mock_model_instance.call_count == 1
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_model_error_does_not_retry(self, mock_model_class):
+        """404 raises ModelError immediately without retry."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("404 Model not found")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+
+        with pytest.raises(ModelError):
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have been called only once (no retries)
+        assert mock_model_instance.call_count == 1
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_bad_request_error_does_not_retry(self, mock_model_class):
+        """400 raises OpenRouterClientError immediately without retry."""
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("400 Bad Request")
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+
         with pytest.raises(OpenRouterClientError):
             client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have been called only once (no retries)
+        assert mock_model_instance.call_count == 1
+
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_rate_limit_succeeds_on_third_retry(self, mock_model_class):
+        """429 response succeeds after 2 retries (3rd attempt)."""
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "Generated art"
+        mock_response.token_usage = None
+        mock_response.raw = None
+
+        # Fail first 2 times, succeed on 3rd
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise Exception("429 Too Many Requests")
+            return mock_response
+
+        mock_model_instance.side_effect = side_effect
+        mock_model_class.return_value = mock_model_instance
+
+        client = OpenRouterClient(api_key="test-key")
+        result = client.generate("openai/gpt-4o", "Draw a cat")
+
+        # Should have succeeded on 3rd attempt
+        assert result.text == "Generated art"
+        assert mock_model_instance.call_count == 3
 
 
 class TestOpenRouterClientUsageMetadata:
@@ -342,6 +507,187 @@ class TestOpenRouterClientExceptionHierarchy:
         """ModelError inherits from OpenRouterClientError."""
         assert issubclass(ModelError, OpenRouterClientError)
 
+    def test_rate_limit_error_is_client_error(self):
+        """RateLimitError inherits from OpenRouterClientError."""
+        assert issubclass(RateLimitError, OpenRouterClientError)
+
+    def test_transient_error_is_client_error(self):
+        """TransientError inherits from OpenRouterClientError."""
+        assert issubclass(TransientError, OpenRouterClientError)
+
     def test_client_error_is_exception(self):
         """OpenRouterClientError inherits from Exception."""
         assert issubclass(OpenRouterClientError, Exception)
+
+
+class TestOpenRouterClientLogfireInstrumentation:
+    """Tests for Logfire span instrumentation."""
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_created_when_logfire_enabled(self, mock_model_class, mock_is_enabled):
+        """Span is created when Logfire is enabled."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "ASCII art"
+        mock_response.token_usage = None
+        mock_response.raw = None
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+            mock_logfire_span.assert_called_once()
+            call_kwargs = mock_logfire_span.call_args[1]
+            assert call_kwargs["model_id"] == "openai/gpt-4o"
+            assert "temperature" in call_kwargs
+            assert "max_tokens" in call_kwargs
+            assert "timeout" in call_kwargs
+            assert "reasoning_enabled" in call_kwargs
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_sets_response_attributes(self, mock_model_class, mock_is_enabled):
+        """Span sets response attributes when Logfire is enabled."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "ASCII art"
+        mock_token_usage = MagicMock()
+        mock_token_usage.input_tokens = 10
+        mock_token_usage.output_tokens = 20
+        mock_token_usage.total_tokens = 30
+        mock_response.token_usage = mock_token_usage
+        mock_raw = MagicMock()
+        mock_raw._litellm_cost = 0.001
+        mock_response.raw = mock_raw
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            config = GenerationConfig(temperature=0.5, max_tokens=500)
+            client.generate("openai/gpt-4o", "Draw a cat", config=config)
+
+            mock_span.set_attribute.assert_any_call("llm.response", "ASCII art")
+            mock_span.set_attribute.assert_any_call("prompt_tokens", 10)
+            mock_span.set_attribute.assert_any_call("completion_tokens", 20)
+            mock_span.set_attribute.assert_any_call("total_tokens", 30)
+            mock_span.set_attribute.assert_any_call("llm.cost", 0.001)
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_sets_messages_attribute(self, mock_model_class, mock_is_enabled):
+        """Span sets messages attribute as JSON when Logfire is enabled."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "Response"
+        mock_response.token_usage = None
+        mock_response.raw = None
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            config = GenerationConfig(system_prompt="You are an artist")
+            client.generate("openai/gpt-4o", "Draw a cat", config=config)
+
+            mock_span.set_attribute.assert_any_call(
+                "llm.messages",
+                json.dumps(
+                    [
+                        {
+                            "role": "system",
+                            "content": [{"type": "text", "text": "You are an artist"}],
+                        },
+                        {"role": "user", "content": [{"type": "text", "text": "Draw a cat"}]},
+                    ]
+                ),
+            )
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_records_exception_on_error(self, mock_model_class, mock_is_enabled):
+        """Span records exception and sets error status when LLM call fails."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_model_instance.side_effect = Exception("API error")
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            with pytest.raises(OpenRouterClientError):
+                client.generate("openai/gpt-4o", "Draw a cat")
+
+            mock_span.record_exception.assert_called_once()
+            mock_span.__exit__.assert_called_once()
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=False)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_no_span_when_logfire_disabled(self, mock_model_class, mock_is_enabled):
+        """No span is created when Logfire is disabled."""
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "ASCII art"
+        mock_response.token_usage = None
+        mock_response.raw = None
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            client = OpenRouterClient(api_key="test-key")
+            client.generate("openai/gpt-4o", "Draw a cat")
+
+            mock_logfire_span.assert_not_called()
+
+    @patch("asciibench.generator.client.is_logfire_enabled", return_value=True)
+    @patch("asciibench.generator.client.LiteLLMModelWithCost")
+    def test_span_includes_reasoning_enabled_for_reasoning_models(
+        self, mock_model_class, mock_is_enabled
+    ):
+        """Span includes reasoning_enabled=True when using reasoning models."""
+        mock_span = MagicMock()
+        mock_span.__enter__ = MagicMock(return_value=None)
+        mock_span.__exit__ = MagicMock(return_value=None)
+
+        mock_model_instance = MagicMock()
+        mock_response = MagicMock()
+        mock_response.content = "Reasoning response"
+        mock_response.token_usage = None
+        mock_response.raw = None
+        mock_model_instance.return_value = mock_response
+        mock_model_class.return_value = mock_model_instance
+
+        with patch("logfire.span") as mock_logfire_span:
+            mock_logfire_span.return_value = mock_span
+
+            client = OpenRouterClient(api_key="test-key")
+            config = GenerationConfig(reasoning=True)
+            client.generate("openai/o1-preview", "Draw a cat", config=config)
+
+            call_kwargs = mock_logfire_span.call_args[1]
+            assert call_kwargs["reasoning_enabled"] is True

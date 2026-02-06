@@ -142,3 +142,41 @@ class TestExtractAsciiFromMarkdown:
         markdown = "```  text\n/_/\\\n( o.o )\n```"
         result = extract_ascii_from_markdown(markdown)
         assert result == "/_/\\\n( o.o )"
+
+    def test_uppercase_text_language_specifier(self):
+        """Handle uppercase TEXT language specifier."""
+        markdown = "```TEXT\n/_/\\\n( o.o )\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "/_/\\\n( o.o )"
+
+    def test_mixed_case_ascii_language_specifier(self):
+        """Handle mixed-case Ascii language specifier."""
+        markdown = "```Ascii\n/_/\\\n( o.o )\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "/_/\\\n( o.o )"
+
+    def test_uppercase_plaintext_language_specifier(self):
+        """Handle uppercase PLAINTEXT language specifier."""
+        markdown = "```PLAINTEXT\nHello World\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "Hello World"
+
+    def test_crlf_line_endings(self):
+        """Handle Windows CRLF line endings after opening code fence."""
+        # Windows uses \r\n instead of \n
+        markdown = "```\r\n/_/\\\r\n( o.o )\r\n```"
+        result = extract_ascii_from_markdown(markdown)
+        # CRLF line endings are normalized to LF
+        assert result == "/_/\\\n( o.o )"
+
+    def test_crlf_with_language_specifier(self):
+        """Handle CRLF line endings with language specifier."""
+        markdown = "```text\r\n/_/\\\r\n( o.o )\r\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "/_/\\\n( o.o )"
+
+    def test_mixed_line_endings(self):
+        """Handle mixed line endings (CRLF opening, LF content)."""
+        markdown = "```\r\n/_/\\\n( o.o )\n```"
+        result = extract_ascii_from_markdown(markdown)
+        assert result == "/_/\\\n( o.o )"

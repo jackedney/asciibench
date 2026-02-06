@@ -14,8 +14,8 @@ def extract_ascii_from_markdown(markdown: str) -> str:
     """Extract ASCII art content from markdown code blocks.
 
     This function searches for code blocks in markdown format
-    (e.g., ```text...``` or ```...```) and extracts the content exactly
-    as it appears between the backticks without any manipulation.
+    (e.g., ```text...``` or ```...```) and extracts the content
+    with stripping leading/trailing blank lines and normalizing whitespace.
 
     Supported code block formats:
         - ```text...```
@@ -27,7 +27,7 @@ def extract_ascii_from_markdown(markdown: str) -> str:
         markdown: Markdown text potentially containing ASCII art in code blocks
 
     Returns:
-        Extracted ASCII art content exactly as it appears between backticks,
+        Extracted ASCII art content with leading/trailing blank lines stripped,
         or empty string if no code blocks found.
 
     Examples:
@@ -39,15 +39,40 @@ def extract_ascii_from_markdown(markdown: str) -> str:
         >>> extract_ascii_from_markdown(markdown)
         ''
     """
-    # Match everything between ``` delimiters
-    # Allow optional language specifier after opening backticks
-    # Use \n? to only consume the newline after language specifier, not leading spaces
-    pattern = r"```(?:[a-z]*\n)?(.*?)```"
+    # Match code blocks with optional language specifier (text, ascii, plaintext, or none)
+    # Allow optional whitespace/tabs after backticks and before/after language specifier
+    # Support both Unix LF (\n) and Windows CRLF (\r\n) line endings
+    pattern = r"```[ \t]*(?:(?:text|ascii|plaintext)[ \t]*)?\r?\n(.*?)```"
 
-    match = re.search(pattern, markdown, re.DOTALL)
+    match = re.search(pattern, markdown, re.DOTALL | re.IGNORECASE)
 
     if match:
-        # Return content exactly as is, without any whitespace manipulation
-        return match.group(1)
+        content = match.group(1)
+
+        # Normalize CRLF to LF throughout content
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Strip trailing newline (the one right before closing ```)
+        if content.endswith("\n"):
+            content = content[:-1]
+
+        # Strip leading and trailing blank lines (empty or whitespace-only)
+        lines = content.split("\n")
+
+        # Remove leading blank lines
+        while lines and not lines[0].strip():
+            lines.pop(0)
+
+        # Remove trailing blank lines
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+        result = "\n".join(lines)
+
+        # If result is only whitespace, return empty string
+        if not result.strip():
+            return ""
+
+        return result
 
     return ""

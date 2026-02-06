@@ -82,6 +82,62 @@ The Analyst module calculates rankings from comparison data. It:
   - Category-specific rankings
   - Consistency scores across attempts
 
+## Observability
+
+ASCIIBench integrates with [Logfire](https://logfire.pydantic.dev) for observability and monitoring of LLM API calls. Logfire provides a dashboard to view traces, metrics, and performance data.
+
+### Setup
+
+Logfire is optional and disabled by default. To enable it:
+
+1. Sign up for a Logfire account at [https://logfire.pydantic.dev](https://logfire.pydantic.dev)
+2. Create a new project and copy your API token
+3. Add the following to your `.env` file:
+
+```bash
+LOGFIRE_TOKEN=your_logfire_token_here
+LOGFIRE_SERVICE_NAME=asciibench
+LOGFIRE_ENVIRONMENT=development
+```
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LOGFIRE_TOKEN` | Optional | - | Your Logfire API token from the dashboard. Presence enables Logfire monitoring |
+| `LOGFIRE_SERVICE_NAME` | Optional | `asciibench` | Name of the service in Logfire |
+| `LOGFIRE_ENVIRONMENT` | Optional | `development` | Environment identifier (e.g., `development`, `staging`, `production`) |
+
+### Data Captured
+
+When Logfire is enabled, it captures the following data for each LLM API call:
+
+- **Request details**: model ID, temperature, max_tokens, timeout, reasoning_enabled
+- **Full prompt messages**: Complete prompt sent to the LLM (including system prompt if configured)
+- **Full response content**: Complete text response from the LLM
+- **Token usage**: prompt_tokens, completion_tokens, total_tokens
+- **Cost**: Cost of the API call in USD (provided by LiteLLM)
+- **Latency**: Response time in milliseconds
+- **Error details**: Full exception trace if an API call fails
+
+### Traces
+
+Logfire automatically creates nested spans for batch operations:
+
+- **Batch span** (`batch.generate`): Wraps an entire batch generation job
+  - Attributes: total_tasks, max_concurrent_requests, model_ids
+- **Sample span** (`sample.generate`): Wraps individual sample generation
+  - Attributes: prompt_id, model_id, attempt_number, run_id, request_id
+- **LLM span** (`llm.generate`): Wraps the actual LLM API call
+  - Attributes: model_id, temperature, max_tokens, timeout, reasoning_enabled
+  - Captures all request/response data, tokens, and cost
+
+This nested structure allows you to drill down from batch operations to individual API calls for debugging and analysis.
+
+### Privacy Note
+
+Logfire captures full prompt and response content. Ensure you only enable Logfire with data that complies with your privacy and security requirements.
+
 ## Quality Gates
 
 Run all quality checks:

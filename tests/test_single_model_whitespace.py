@@ -106,7 +106,10 @@ class TestSingleModelWhitespaceDiagnosis:
             if leading_spaces == 0:
                 print("\n>>> DIAGNOSIS: Model is NOT outputting leading spaces on first line <<<")
             else:
-                print(f"\n>>> DIAGNOSIS: Model IS outputting {leading_spaces} leading spaces on first line <<<")
+                print(
+                    f"\n>>> DIAGNOSIS: Model IS outputting "
+                    f"{leading_spaces} leading spaces on first line <<<"
+                )
 
         assert ascii_art, "Should extract some ASCII art"
 

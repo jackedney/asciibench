@@ -1,6 +1,8 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
 from pydantic_settings import SettingsConfigDict
 
 from asciibench.common.config import GenerationConfig, Settings
@@ -47,9 +49,93 @@ def test_settings_missing_env_file_loads_defaults():
         settings = TestSettings()
         assert settings.openrouter_api_key == ""
         assert settings.base_url == "https://openrouter.ai/api/v1"
+        assert settings.openrouter_timeout_seconds == 120
+        assert settings.timeout_seconds == 120
     finally:
         if original_env is not None:
             os.environ["OPENROUTER_API_KEY"] = original_env
+
+
+def test_settings_timeout_seconds_default():
+    """Test that timeout_seconds defaults to 120."""
+    settings = Settings()
+    assert settings.openrouter_timeout_seconds == 120
+    assert settings.timeout_seconds == 120
+
+
+def test_settings_timeout_seconds_from_env(tmp_path):
+    """Test that timeout_seconds can be loaded from env file."""
+    import os
+
+    env_file = tmp_path / "test_env_timeout.env"
+    env_file.write_text("OPENROUTER_API_KEY=test_key\nOPENROUTER_TIMEOUT_SECONDS=60")
+
+    class TestSettings(Settings):
+        model_config = SettingsConfigDict(
+            env_file=env_file, env_file_encoding="utf-8", extra="ignore"
+        )
+
+    original_env = os.environ.pop("OPENROUTER_TIMEOUT_SECONDS", None)
+
+    try:
+        settings = TestSettings()
+        assert settings.openrouter_timeout_seconds == 60
+        assert settings.timeout_seconds == 60
+    finally:
+        if original_env is not None:
+            os.environ["OPENROUTER_TIMEOUT_SECONDS"] = original_env
+        if env_file.exists():
+            env_file.unlink()
+
+
+def test_settings_timeout_seconds_negative_uses_default(tmp_path):
+    """Test that negative timeout_seconds uses default 120."""
+    import os
+
+    env_file = tmp_path / "test_env_negative.env"
+    env_file.write_text("OPENROUTER_API_KEY=test_key\nOPENROUTER_TIMEOUT_SECONDS=-10")
+
+    class TestSettings(Settings):
+        model_config = SettingsConfigDict(
+            env_file=env_file, env_file_encoding="utf-8", extra="ignore"
+        )
+
+    original_env = os.environ.pop("OPENROUTER_TIMEOUT_SECONDS", None)
+
+    try:
+        settings = TestSettings()
+        assert settings.openrouter_timeout_seconds == 120
+        assert settings.timeout_seconds == 120
+    finally:
+        if original_env is not None:
+            os.environ["OPENROUTER_TIMEOUT_SECONDS"] = original_env
+        if env_file.exists():
+            env_file.unlink()
+
+
+def test_settings_timeout_seconds_non_numeric_uses_default(tmp_path):
+    """Test that non-numeric timeout_seconds uses default 120."""
+    import os
+
+    env_file = tmp_path / "test_env_invalid.env"
+    env_file.write_text("OPENROUTER_API_KEY=test_key\nOPENROUTER_TIMEOUT_SECONDS=abc")
+
+    class TestSettings(Settings):
+        model_config = SettingsConfigDict(
+            env_file=env_file, env_file_encoding="utf-8", extra="ignore"
+        )
+
+    original_env = os.environ.pop("OPENROUTER_TIMEOUT_SECONDS", None)
+
+    try:
+        settings = TestSettings()
+        assert settings.openrouter_timeout_seconds == 120
+        assert settings.timeout_seconds == 120
+    finally:
+        if original_env is not None:
+            os.environ["OPENROUTER_TIMEOUT_SECONDS"] = original_env
+        if env_file.exists():
+            env_file.unlink()
 
 
 def test_generation_config():
@@ -59,6 +145,7 @@ def test_generation_config():
     assert config.max_tokens == 1000
     assert config.provider == "openrouter"
     assert config.system_prompt == ""
+    assert config.max_concurrent_requests == 10
 
     config_custom = GenerationConfig(
         attempts_per_prompt=10,
@@ -72,6 +159,32 @@ def test_generation_config():
     assert config_custom.max_tokens == 2000
     assert config_custom.provider == "custom"
     assert config_custom.system_prompt == "You are a helpful assistant."
+
+
+def test_generation_config_max_concurrent_requests_default():
+    """Test that max_concurrent_requests defaults to 10."""
+    config = GenerationConfig()
+    assert config.max_concurrent_requests == 10
+
+
+def test_generation_config_max_concurrent_requests_custom():
+    """Test that max_concurrent_requests can be set to a custom value."""
+    config = GenerationConfig(max_concurrent_requests=5)
+    assert config.max_concurrent_requests == 5
+
+
+def test_generation_config_max_concurrent_requests_negative():
+    """Test that negative max_concurrent_requests raises validation error."""
+    with pytest.raises(ValidationError) as exc_info:
+        GenerationConfig(max_concurrent_requests=-1)
+    assert "max_concurrent_requests must be greater than 0" in str(exc_info.value)
+
+
+def test_generation_config_max_concurrent_requests_zero():
+    """Test that max_concurrent_requests=0 raises validation error."""
+    with pytest.raises(ValidationError) as exc_info:
+        GenerationConfig(max_concurrent_requests=0)
+    assert "max_concurrent_requests must be greater than 0" in str(exc_info.value)
 
 
 def test_load_models():
