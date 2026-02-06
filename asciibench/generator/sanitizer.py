@@ -41,7 +41,8 @@ def extract_ascii_from_markdown(markdown: str) -> str:
     """
     # Match code blocks with optional language specifier (text, ascii, plaintext, or none)
     # Allow optional whitespace/tabs after backticks and before/after language specifier
-    pattern = r"```[ \t]*(?:(?:text|ascii|plaintext)[ \t]*)?\n(.*?)```"
+    # Support both Unix LF (\n) and Windows CRLF (\r\n) line endings
+    pattern = r"```[ \t]*(?:(?:text|ascii|plaintext)[ \t]*)?\r?\n(.*?)```"
 
     match = re.search(pattern, markdown, re.DOTALL | re.IGNORECASE)
 
