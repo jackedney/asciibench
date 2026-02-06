@@ -273,6 +273,10 @@ class RuneScapeLoader:
 
         Thread-safe method to update success/failure counts and cost.
 
+        Note: This method is mutually exclusive with complete() for the same
+        result. Do not call both record_result() and complete() for the same
+        operation, as this would double-increment counters.
+
         Args:
             success: True if generation was successful, False otherwise.
             cost: Cost to add to total (default 0.0).
@@ -362,6 +366,10 @@ class RuneScapeLoader:
 
         Calling complete multiple times does not stack flashes - if a flash is
         already in progress, subsequent calls are ignored.
+
+        Note: This method is mutually exclusive with record_result() for the
+        same result. Do not call both complete() and record_result() for the same
+        operation, as this would double-increment counters.
 
         Args:
             success: True for green (success) flash, False for red (failure) flash.
