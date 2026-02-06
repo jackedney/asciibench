@@ -1,111 +1,298 @@
 {% extends "base.html" %}
 
 {% block content %}
-<header class="bg-gradient-to-br from-indigo-500 to-purple-600 text-white p-10 rounded-xl shadow-lg mb-8">
-    <h1 class="text-3xl font-bold text-white tracking-tight mb-2">ASCIIBench Judge Interface</h1>
-    <p id="prompt-display"
-       hx-get="/htmx/prompt"
-       hx-trigger="load, matchup-loaded from:body"
-       hx-swap="innerHTML"
-       class="text-white/80 text-lg">
-        Loading prompt...
-    </p>
+<style>
+@keyframes rainbow-cycle {
+    0% { color: #FF0000; }
+    8% { color: #FF7F00; }
+    16% { color: #FFFF00; }
+    25% { color: #00FF00; }
+    33% { color: #00FFFF; }
+    41% { color: #0000FF; }
+    50% { color: #4000FF; }
+    58% { color: #8000FF; }
+    66% { color: #FF00FF; }
+    75% { color: #FF00BF; }
+    83% { color: #FF007F; }
+    91% { color: #9400D3; }
+    100% { color: #FF0000; }
+}
+
+.rainbow-text {
+    animation: rainbow-cycle 3s linear infinite;
+    text-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
+}
+
+.brutalist-shadow {
+    box-shadow: 4px 4px 0 0 #e2e8f0;
+}
+
+.brutalist-shadow-sm {
+    box-shadow: 2px 2px 0 0 #e2e8f0;
+}
+
+.font-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+
+.font-toggle:hover {
+    color: #38bdf8;
+}
+
+.art-display {
+    transition: font-family 0.15s ease;
+}
+
+/* Tab styles */
+.tab-btn {
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.tab-btn:hover {
+    color: #38bdf8;
+}
+
+.tab-btn.active {
+    color: #38bdf8;
+    border-color: #38bdf8;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+</style>
+
+<header class="mb-6 overflow-hidden">
+    <pre class="ascii-banner text-xs sm:text-sm leading-none text-center mb-4 overflow-x-auto" aria-hidden="true"><span class="rainbow-text">    ___    _____   ______   ____    ____     ____     ____     _   __   ______   __  __
+   /   |  / ___/  / ____/  /  _/   /  _/    / __ )   / __/    / | / /  / ____/  / / / /
+  / /| |  \__ \  / /       / /     / /     / __  |  / _/     /  |/ /  / /      / /_/ /
+ / ___ | ___/ / / /___   _/ /    _/ /     / /_/ /  / /___   / /|  /  / /___   / __  /
+/_/  |_|/____/  \____/  /___/   /___/    /_____/  /_____/  /_/ |_/   \____/  /_/ /_/</span></pre>
 </header>
 
-<div id="loading-indicator" class="loading-indicator htmx-indicator text-center py-8 text-slate-500 text-base">
-    Loading matchup...
-</div>
+<!-- Tab Navigation -->
+<nav class="tab-navigation flex justify-center gap-4 mb-8" role="tablist">
+    <button id="tab-judge" class="tab-btn px-6 py-2 text-base border-2 border-slate-500 bg-slate-800 text-slate-200 brutalist-shadow-sm active" data-tab="judge" role="tab" aria-selected="true" aria-controls="judge-content">
+        [J] JUDGE
+    </button>
+    <button id="tab-analytics" class="tab-btn px-6 py-2 text-base border-2 border-slate-500 bg-slate-800 text-slate-200 brutalist-shadow-sm" data-tab="analytics" role="tab" aria-selected="false" aria-controls="analytics-content">
+        [L] ANALYTICS
+    </button>
+</nav>
 
-<div id="matchup-container"
-     hx-get="/htmx/matchup"
-     hx-trigger="load"
-     hx-swap="innerHTML"
-     hx-indicator="#loading-indicator">
-    {# Initial content will be replaced by HTMX #}
-    <div class="comparison-container grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
-            <h2 class="text-xl font-semibold text-slate-800 mb-4">Sample A</h2>
-            <div class="font-variants">
-                <div class="font-variant">
-                    <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Classic</span>
-                    <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-classic">Loading...</div>
-                </div>
-            </div>
-        </div>
-        <div class="sample bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
-            <h2 class="text-xl font-semibold text-slate-800 mb-4">Sample B</h2>
-            <div class="font-variants">
-                <div class="font-variant">
-                    <span class="font-label bg-slate-100 text-slate-600 px-3 py-1.5 text-sm font-medium rounded-t-lg block mb-0">Classic</span>
-                    <div class="art-display bg-slate-50 p-4 rounded-b-lg min-h-32 overflow-x-auto font-mono text-sm leading-relaxed text-slate-700 font-classic">Loading...</div>
-                </div>
-            </div>
-        </div>
+<!-- Judge Tab Content -->
+<div id="judge-content" class="tab-content active">
+    <div class="text-center mb-6">
+        <span class="text-slate-500 mr-4">FONT:</span>
+        <label class="font-toggle mr-4" id="font-classic-label">
+            <span class="font-bracket">[</span><span id="font-classic-check">X</span><span class="font-bracket">]</span> Classic
+        </label>
+        <label class="font-toggle mr-4" id="font-modern-label">
+            <span class="font-bracket">[</span><span id="font-modern-check"> </span><span class="font-bracket">]</span> Modern
+        </label>
+        <label class="font-toggle" id="font-condensed-label">
+            <span class="font-bracket">[</span><span id="font-condensed-check"> </span><span class="font-bracket">]</span> Condensed
+        </label>
     </div>
-</div>
 
-<div id="error-message" class="error-message bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg text-center mb-4" style="display: none;"></div>
-
-<div class="controls text-center mt-8">
-    <h3>Which sample do you prefer?</h3>
-
-    {# Vote form with HTMX - hidden form that gets submitted via JavaScript #}
-    <form id="vote-form"
-          hx-post="/htmx/vote"
-          hx-target="#matchup-container"
-          hx-swap="innerHTML"
-          hx-indicator="#loading-indicator"
-          hx-on::after-request="htmx.trigger(document.body, 'vote-submitted')">
-        <input type="hidden" name="sample_a_id" id="form-sample-a-id" value="" />
-        <input type="hidden" name="sample_b_id" id="form-sample-b-id" value="" />
-        <input type="hidden" name="winner" id="form-winner" value="" />
-    </form>
-
-    <div class="vote-buttons flex justify-center gap-3 mb-4">
-        <button id="btn-a" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="A" aria-label="Vote for Sample A as winner">A wins</button>
-        <button id="btn-b" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="B" aria-label="Vote for Sample B as winner">B wins</button>
-        <button id="btn-tie" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="tie" aria-label="Vote for tie">Tie</button>
-        <button id="btn-fail" class="vote-btn px-6 py-3 text-base font-semibold border-2 border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="fail" aria-label="Mark both samples as failed">Both fail</button>
-    </div>
-    <div class="undo-container">
-        <button id="btn-undo"
-                class="undo-btn bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium transition-colors"
-                hx-post="/htmx/undo"
-                hx-target="#matchup-container"
-                hx-swap="innerHTML"
-                hx-indicator="#loading-indicator"
-                hx-on::after-request="htmx.trigger(document.body, 'undo-completed')">
-            Undo (Z)
-        </button>
-    </div>
-    <p class="keyboard-hint text-slate-500 text-sm mt-4">
-        Keyboard shortcuts:
-        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">A</span> left wins
-        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">D</span> right wins
-        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">S</span> tie
-        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">F</span> fail
-        <span class="keyboard-key inline-block px-2 py-1 bg-slate-200 border border-slate-300 rounded text-xs font-mono text-slate-700 mx-1">Z</span> undo
+    <p id="prompt-display"
+       class="text-slate-300 text-lg text-center border border-slate-700 p-3 mb-8">
+        Loading prompt...
     </p>
+
+    <div id="loading-indicator" class="loading-indicator htmx-indicator text-center py-8 text-slate-500 text-base">
+        Loading matchup...
+    </div>
+
+    <div id="matchup-container"
+         hx-get="/htmx/matchup"
+         hx-trigger="load"
+         hx-swap="innerHTML"
+         hx-indicator="#loading-indicator">
+        {# Initial content will be replaced by HTMX #}
+        <div class="comparison-container grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="sample border-2 border-slate-600 p-4 brutalist-shadow">
+                <h2 class="text-lg text-slate-400 mb-3 border-b border-slate-700 pb-2">// SAMPLE A</h2>
+                <pre class="art-display bg-slate-950 p-4 min-h-32 overflow-x-auto text-sm leading-none text-slate-200 font-classic border border-slate-700">Loading...</pre>
+            </div>
+            <div class="sample border-2 border-slate-600 p-4 brutalist-shadow">
+                <h2 class="text-lg text-slate-400 mb-3 border-b border-slate-700 pb-2">// SAMPLE B</h2>
+                <pre class="art-display bg-slate-950 p-4 min-h-32 overflow-x-auto text-sm leading-none text-slate-200 font-classic border border-slate-700">Loading...</pre>
+            </div>
+        </div>
+    </div>
+
+    <div id="error-message" class="error-message bg-red-950 border-2 border-red-500 text-red-400 p-4 text-center mb-4" style="display: none;"></div>
+
+    <div class="controls text-center mt-8">
+        <p class="text-slate-500 mb-4">// WHICH SAMPLE DO YOU PREFER?</p>
+
+        {# Vote form with HTMX - hidden form that gets submitted via JavaScript #}
+        <form id="vote-form"
+              hx-post="/htmx/vote"
+              hx-target="#matchup-container"
+              hx-swap="innerHTML"
+              hx-indicator="#loading-indicator"
+              hx-on::after-request="htmx.trigger(document.body, 'vote-submitted')">
+            <input type="hidden" name="sample_a_id" id="form-sample-a-id" value="" />
+            <input type="hidden" name="sample_b_id" id="form-sample-b-id" value="" />
+            <input type="hidden" name="winner" id="form-winner" value="" />
+        </form>
+
+        <div class="vote-buttons flex justify-center gap-3 mb-4">
+            <button id="btn-a" class="vote-btn px-6 py-3 text-base border-2 border-slate-500 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:border-slate-400 brutalist-shadow-sm transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="A">[A] LEFT</button>
+            <button id="btn-b" class="vote-btn px-6 py-3 text-base border-2 border-slate-500 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:border-slate-400 brutalist-shadow-sm transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="B">[D] RIGHT</button>
+            <button id="btn-tie" class="vote-btn px-6 py-3 text-base border-2 border-slate-500 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:border-slate-400 brutalist-shadow-sm transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="tie">[S] TIE</button>
+            <button id="btn-fail" class="vote-btn px-6 py-3 text-base border-2 border-slate-500 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:border-slate-400 brutalist-shadow-sm transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed" data-winner="fail">[F] FAIL</button>
+        </div>
+        <div class="undo-container">
+            <button id="btn-undo"
+                    class="undo-btn px-6 py-2 text-sm border border-slate-600 bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300 transition-colors"
+                    hx-post="/htmx/undo"
+                    hx-target="#matchup-container"
+                    hx-swap="innerHTML"
+                    hx-indicator="#loading-indicator"
+                    hx-on::after-request="htmx.trigger(document.body, 'undo-completed')">
+                [Z] UNDO
+            </button>
+        </div>
+    </div>
+
+    <div id="progress-display"
+         class="progress-display text-center mt-6 p-3 border border-slate-700 text-sm text-slate-500"
+         hx-get="/htmx/progress"
+         hx-trigger="load, vote-submitted from:body, undo-completed from:body"
+         hx-swap="innerHTML">
+        <span id="progress-text">Loading progress...</span>
+    </div>
 </div>
 
-<div id="progress-display"
-     class="progress-display text-center mt-6 p-3 bg-slate-100 rounded-lg text-sm text-slate-600 font-medium"
-     hx-get="/htmx/progress"
-     hx-trigger="load, vote-submitted from:body, undo-completed from:body"
-     hx-swap="innerHTML">
-    <span id="progress-text">Loading progress...</span>
+<!-- Analytics Tab Content -->
+<div id="analytics-content" class="tab-content">
+    <div id="analytics-loading" class="text-center py-8 text-slate-500 text-base">
+        Loading analytics...
+    </div>
+    <div id="analytics-container">
+        {# Will be populated by HTMX when tab is activated #}
+    </div>
 </div>
 
-<p><a href="/">Back to Home</a></p>
+<p class="mt-6"><a href="/" class="text-slate-500 hover:text-slate-300 border-b border-slate-600 hover:border-slate-400">&lt;- Back to Home</a></p>
 
 <script>
-(() => {
+(function() {
     'use strict';
 
     // State
     let isProcessing = false;
+    let currentFont = 'classic';
+    let currentTab = 'judge';
 
-    // DOM Elements
+    // Tab elements
+    const tabJudge = document.getElementById('tab-judge');
+    const tabAnalytics = document.getElementById('tab-analytics');
+    const judgeContent = document.getElementById('judge-content');
+    const analyticsContent = document.getElementById('analytics-content');
+    const analyticsContainer = document.getElementById('analytics-container');
+    const analyticsLoading = document.getElementById('analytics-loading');
+
+    /**
+     * Switch between tabs
+     */
+    function switchTab(tabName) {
+        currentTab = tabName;
+
+        // Update tab button styles and ARIA states
+        tabJudge.classList.toggle('active', tabName === 'judge');
+        tabAnalytics.classList.toggle('active', tabName === 'analytics');
+        tabJudge.setAttribute('aria-selected', tabName === 'judge' ? 'true' : 'false');
+        tabAnalytics.setAttribute('aria-selected', tabName === 'analytics' ? 'true' : 'false');
+
+        // Show/hide tab content
+        judgeContent.classList.toggle('active', tabName === 'judge');
+        analyticsContent.classList.toggle('active', tabName === 'analytics');
+
+        // Load analytics data when switching to analytics tab
+        if (tabName === 'analytics') {
+            loadAnalytics();
+        }
+    }
+
+    /**
+     * Load analytics data via HTMX
+     */
+    function loadAnalytics() {
+        // Always reload when switching to analytics tab
+        analyticsLoading.style.display = 'block';
+        analyticsContainer.innerHTML = '';
+
+        htmx.ajax('GET', '/htmx/analytics', {
+            target: '#analytics-container',
+            swap: 'innerHTML'
+        }).then(function() {
+            analyticsLoading.style.display = 'none';
+        }).catch(function(error) {
+            analyticsLoading.style.display = 'none';
+            analyticsContainer.innerHTML = '<p class="text-red-400 text-center py-4">Failed to load analytics. Please try again.</p>';
+            console.error('Analytics loading error:', error);
+        });
+    }
+
+    // Tab click handlers
+    tabJudge.addEventListener('click', () => switchTab('judge'));
+    tabAnalytics.addEventListener('click', () => switchTab('analytics'));
+
+    // Font toggle elements
+    const fontLabels = {
+        classic: document.getElementById('font-classic-label'),
+        modern: document.getElementById('font-modern-label'),
+        condensed: document.getElementById('font-condensed-label')
+    };
+    const fontChecks = {
+        classic: document.getElementById('font-classic-check'),
+        modern: document.getElementById('font-modern-check'),
+        condensed: document.getElementById('font-condensed-check')
+    };
+
+    /**
+     * Switch the active font for all art displays
+     */
+    function setFont(fontName) {
+        currentFont = fontName;
+
+        // Update toggle display
+        Object.keys(fontChecks).forEach(key => {
+            fontChecks[key].textContent = key === fontName ? 'X' : ' ';
+        });
+
+        // Update all art displays
+        document.querySelectorAll('.art-display').forEach(el => {
+            el.classList.remove('font-classic', 'font-modern', 'font-condensed');
+            el.classList.add('font-' + fontName);
+        });
+
+        // Save preference
+        localStorage.setItem('asciibench-font', fontName);
+    }
+
+    // Initialize font toggles
+    Object.keys(fontLabels).forEach(fontName => {
+        fontLabels[fontName].addEventListener('click', () => setFont(fontName));
+    });
+
+    // Load saved font preference
+    const savedFont = localStorage.getItem('asciibench-font');
+    if (savedFont && ['classic', 'modern', 'condensed'].includes(savedFont)) {
+        setFont(savedFont);
+    }
+
+    // DOM Elements for voting
     const voteForm = document.getElementById('vote-form');
     const formSampleAId = document.getElementById('form-sample-a-id');
     const formSampleBId = document.getElementById('form-sample-b-id');
@@ -198,10 +385,25 @@
             return;
         }
 
+        const key = event.key;
+
+        // Tab switching with J and L keys
+        if (key === 'j' || key === 'J') {
+            switchTab('judge');
+            return;
+        }
+        if (key === 'l' || key === 'L') {
+            switchTab('analytics');
+            return;
+        }
+
+        // Only handle vote keys if on judge tab
+        if (currentTab !== 'judge') {
+            return;
+        }
+
         // Ignore if processing
         if (isProcessing) return;
-
-        const key = event.key;
 
         // Handle Ctrl+Z for undo
         if ((event.ctrlKey || event.metaKey) && (key === 'z' || key === 'Z')) {
@@ -240,35 +442,43 @@
     }
 
     // Set processing state during HTMX requests
-    document.body.addEventListener('htmx:beforeRequest', (event) => {
-        isProcessing = true;
-        // Disable buttons
-        btnA.disabled = true;
-        btnB.disabled = true;
-        btnTie.disabled = true;
-        btnFail.disabled = true;
-        btnUndo.disabled = true;
+    document.body.addEventListener('htmx:beforeRequest', function(event) {
+        // Only set processing state for judge-related requests
+        if (event.target.closest('#judge-content')) {
+            isProcessing = true;
+            // Disable buttons
+            btnA.disabled = true;
+            btnB.disabled = true;
+            btnTie.disabled = true;
+            btnFail.disabled = true;
+            btnUndo.disabled = true;
+        }
     });
 
-    document.body.addEventListener('htmx:afterRequest', (event) => {
-        isProcessing = false;
-        // Re-enable buttons
-        btnA.disabled = false;
-        btnB.disabled = false;
-        btnTie.disabled = false;
-        btnFail.disabled = false;
-        btnUndo.disabled = false;
+    document.body.addEventListener('htmx:afterRequest', function(event) {
+        // Only update processing state for judge-related requests
+        if (event.target.closest('#judge-content')) {
+            isProcessing = false;
+            // Re-enable buttons
+            btnA.disabled = false;
+            btnB.disabled = false;
+            btnTie.disabled = false;
+            btnFail.disabled = false;
+            btnUndo.disabled = false;
+        }
     });
 
-    // Trigger prompt update when matchup loads
-    document.body.addEventListener('htmx:afterSwap', (event) => {
+    // Trigger prompt update when matchup loads and apply current font
+    document.body.addEventListener('htmx:afterSwap', function(event) {
         if (event.target.id === 'matchup-container') {
             htmx.trigger(document.body, 'matchup-loaded');
+            // Re-apply current font to newly loaded art displays
+            setFont(currentFont);
         }
     });
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', function() {
         // Add keyboard event listener
         document.addEventListener('keydown', handleKeydown);
 
