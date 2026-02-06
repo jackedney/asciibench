@@ -1,10 +1,12 @@
 import logging
+import threading
 
 from asciibench.common.config import Settings
 
 logger = logging.getLogger(__name__)
 
 _LOGFIRE_INITIALIZED = False
+_LOGFIRE_INIT_LOCK = threading.Lock()
 
 
 def init_logfire(settings: Settings) -> bool:
@@ -34,29 +36,33 @@ def init_logfire(settings: Settings) -> bool:
     if _LOGFIRE_INITIALIZED:
         return True
 
-    if not settings.logfire.is_enabled:
-        return False
+    with _LOGFIRE_INIT_LOCK:
+        if _LOGFIRE_INITIALIZED:
+            return True
 
-    try:
-        import logfire
+        if not settings.logfire.is_enabled:
+            return False
 
-        logfire.configure(
-            token=settings.logfire.token,
-            service_name=settings.logfire.service_name,
-            environment=settings.logfire.environment,
-        )
+        try:
+            import logfire
 
-        logfire.instrument_openai()
+            logfire.configure(
+                token=settings.logfire.token,
+                service_name=settings.logfire.service_name,
+                environment=settings.logfire.environment,
+            )
 
-        _LOGFIRE_INITIALIZED = True
-        logger.info(
-            f"Logfire initialized: service={settings.logfire.service_name}, "
-            f"environment={settings.logfire.environment}"
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Failed to initialize Logfire: {e}")
-        return False
+            logfire.instrument_openai()
+
+            _LOGFIRE_INITIALIZED = True
+            logger.info(
+                f"Logfire initialized: service={settings.logfire.service_name}, "
+                f"environment={settings.logfire.environment}"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize Logfire: {e}")
+            return False
 
 
 def is_logfire_enabled() -> bool:

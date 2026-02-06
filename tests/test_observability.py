@@ -180,3 +180,33 @@ class TestIsLogfireEnabled:
         observability.init_logfire(settings)
 
         assert observability.is_logfire_enabled() is False
+
+    def test_init_logfire_is_thread_safe(self):
+        """Concurrent calls to init_logfire don't cause issues."""
+        import threading
+
+        mock_logfire = MagicMock()
+        mock_logfire.configure = MagicMock()
+        mock_logfire.instrument_openai = MagicMock()
+        sys.modules["logfire"] = mock_logfire
+
+        settings = Settings(
+            logfire=LogfireConfig(token="test-token-123", service_name="test-service")
+        )
+
+        results = []
+
+        def init_in_thread():
+            result = observability.init_logfire(settings)
+            results.append(result)
+
+        threads = [threading.Thread(target=init_in_thread) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert all(results)
+        assert observability.is_logfire_enabled() is True
+        mock_logfire.configure.assert_called_once()
+        mock_logfire.instrument_openai.assert_called_once()
