@@ -85,14 +85,10 @@ def retry(
 
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
-                last_exception = None
-
                 for attempt in range(max_retries + 1):
                     try:
                         return await func(*args, **kwargs)
                     except retryable_exceptions as e:
-                        last_exception = e
-
                         if attempt < max_retries:
                             delay = base_delay_seconds * (2**attempt)
                             logger.warning(
@@ -118,9 +114,6 @@ def retry(
                         )
                         raise
 
-                if last_exception:
-                    raise last_exception
-
             return async_wrapper
         else:
             if sleep_func is None:
@@ -130,14 +123,10 @@ def retry(
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
-                last_exception = None
-
                 for attempt in range(max_retries + 1):
                     try:
                         return func(*args, **kwargs)
                     except retryable_exceptions as e:
-                        last_exception = e
-
                         if attempt < max_retries:
                             delay = base_delay_seconds * (2**attempt)
                             logger.warning(
@@ -162,9 +151,6 @@ def retry(
                             {"function": func.__name__, "exception": str(e)},
                         )
                         raise
-
-                if last_exception:
-                    raise last_exception
 
             return wrapper
 

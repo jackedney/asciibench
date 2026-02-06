@@ -129,6 +129,9 @@ def bootstrap_confidence_intervals(
     if n_iterations < 2:
         raise ValueError("n_iterations must be at least 2 for CI calculation")
 
+    if not (0 < confidence_level <= 1.0):
+        raise ValueError("confidence_level must be in (0, 1]")
+
     if not votes:
         return {}
 
@@ -163,8 +166,8 @@ def bootstrap_confidence_intervals(
     for model_id in model_ids:
         dist = sorted(distributions[model_id])
         n = len(dist)
-        lower_idx = int(lower_pct * n)
-        upper_idx = int(upper_pct * n) - 1
+        lower_idx = max(0, int(lower_pct * n))
+        upper_idx = min(n - 1, int(upper_pct * n) - 1)
 
         ci_lower = dist[lower_idx]
         ci_upper = dist[upper_idx]
@@ -474,7 +477,7 @@ def calculate_convergence(
         return {}
 
     # Final ratings
-    final_ratings = calculate_elo(votes, samples)
+    final_ratings = calculate_elo(sorted_votes, samples)
 
     results: dict[str, ConvergenceMetrics] = {}
     for model_id, checkpoints in history.items():
@@ -488,8 +491,13 @@ def calculate_convergence(
             )
             continue
 
-        # Calculate max change in recent window
-        recent_checkpoints = checkpoints[-10:]  # Last ~10 checkpoints
+        # Calculate max change in recent window based on window_size
+        cutoff_vote_idx = max(0, len(sorted_votes) - window_size)
+        recent_checkpoints = [
+            (idx, rating) for idx, rating in checkpoints if idx >= cutoff_vote_idx
+        ]
+        if len(recent_checkpoints) < 2:
+            recent_checkpoints = checkpoints[-2:] if len(checkpoints) >= 2 else checkpoints
         if len(recent_checkpoints) >= 2:
             recent_ratings = [r for _, r in recent_checkpoints]
             max_change = max(recent_ratings) - min(recent_ratings)

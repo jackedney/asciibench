@@ -166,16 +166,14 @@ class TestExtractAsciiFromMarkdown:
         # Windows uses \r\n instead of \n
         markdown = "```\r\n/_/\\\r\n( o.o )\r\n```"
         result = extract_ascii_from_markdown(markdown)
-        # Result should still work (CRLF in content becomes \r\n in lines)
-        assert "/_/\\" in result
-        assert "( o.o )" in result
+        # CRLF line endings are normalized to LF
+        assert result == "/_/\\\n( o.o )"
 
     def test_crlf_with_language_specifier(self):
         """Handle CRLF line endings with language specifier."""
         markdown = "```text\r\n/_/\\\r\n( o.o )\r\n```"
         result = extract_ascii_from_markdown(markdown)
-        assert "/_/\\" in result
-        assert "( o.o )" in result
+        assert result == "/_/\\\n( o.o )"
 
     def test_mixed_line_endings(self):
         """Handle mixed line endings (CRLF opening, LF content)."""

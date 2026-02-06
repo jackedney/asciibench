@@ -49,6 +49,9 @@ def extract_ascii_from_markdown(markdown: str) -> str:
     if match:
         content = match.group(1)
 
+        # Normalize CRLF to LF throughout content
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
+
         # Strip trailing newline (the one right before closing ```)
         if content.endswith("\n"):
             content = content[:-1]

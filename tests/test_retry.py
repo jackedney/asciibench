@@ -116,7 +116,7 @@ class TestRetryDecorator:
         attempt_count = 0
         timestamps = []
 
-        @retry(max_retries=2, base_delay_seconds=1.0, retryable_exceptions=(CustomRetryableError,))
+        @retry(max_retries=2, retryable_exceptions=(CustomRetryableError,))
         def failing_call():
             nonlocal attempt_count
             attempt_count += 1

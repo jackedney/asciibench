@@ -205,6 +205,7 @@
                                         {% set win_rate = (record.wins / total * 100)|round(0)|int %}
                                         <div class="h2h-cell"
                                              data-winrate="{{ win_rate }}"
+                                             tabindex="0"
                                              title="{{ row_model }} vs {{ col_model }}: {{ record.wins }}W - {{ record.losses }}L ({{ win_rate }}%)">
                                             <span class="h2h-value">{{ record.wins }}-{{ record.losses }}</span>
                                         </div>
@@ -252,16 +253,35 @@
 }
 
 .h2h-value {
-    font-size: 0;
-    opacity: 0;
-    transition: opacity 0.15s ease, font-size 0.15s ease;
+    font-size: 9px;
+    opacity: 1;
+    color: #64748b;
+    transition: opacity 0.15s ease, font-size 0.15s ease, color 0.15s ease;
 }
 
-.h2h-cell:hover .h2h-value {
+.h2h-cell:hover .h2h-value,
+.h2h-cell:focus .h2h-value {
     font-size: 10px;
     opacity: 1;
     color: #1e293b;
     font-weight: 600;
+}
+
+.h2h-cell:focus {
+    outline: 2px solid #38bdf8;
+    outline-offset: 1px;
+}
+
+@media (hover: none) {
+    .h2h-cell:hover {
+        transform: none;
+    }
+
+    .h2h-cell:hover .h2h-value {
+        font-size: 9px;
+        color: #64748b;
+        font-weight: normal;
+    }
 }
 
 .h2h-diagonal {

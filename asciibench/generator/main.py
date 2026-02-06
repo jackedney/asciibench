@@ -21,9 +21,13 @@ from asciibench.common.config import Settings
 from asciibench.common.display import get_console, get_stderr_console, success_badge
 from asciibench.common.models import ArtSample
 from asciibench.common.observability import init_logfire
+from asciibench.common.persistence import read_jsonl
 from asciibench.common.simple_display import create_loader, show_banner
 from asciibench.common.yaml_config import load_generation_config, load_models, load_prompts
 from asciibench.generator.sampler import generate_samples
+
+# Default database path (same as sampler)
+DEFAULT_DATABASE_PATH = "data/database.jsonl"
 
 
 def show_stats(success_count: int, failure_count: int, running_cost: float) -> None:
@@ -132,10 +136,10 @@ def main() -> None:
         console.print(f"[error]Error loading prompts.yaml: {e}[/error]")
         sys.exit(1)
 
-    # Calculate expected samples
-    total_expected = len(models) * len(prompts) * config.attempts_per_prompt
+    # Calculate total combinations
+    total_combinations = len(models) * len(prompts) * config.attempts_per_prompt
 
-    if total_expected == 0:
+    if total_combinations == 0:
         console.print(
             Panel(
                 "[warning]Nothing to generate![/warning]\n\nNo models or prompts configured.",
@@ -143,6 +147,22 @@ def main() -> None:
             )
         )
         return
+
+    # Load existing samples to count how many will be skipped when resuming
+    existing_samples = read_jsonl(DEFAULT_DATABASE_PATH, ArtSample)
+    existing_keys = {(s.model_id, s.prompt_text, s.attempt_number) for s in existing_samples}
+
+    # Count how many planned combinations already exist in the database
+    existing_count = sum(
+        1
+        for model in models
+        for prompt in prompts
+        for attempt in range(1, config.attempts_per_prompt + 1)
+        if (model.id, prompt.text, attempt) in existing_keys
+    )
+
+    # Calculate samples that actually need to be generated
+    total_expected = total_combinations - existing_count
 
     # Display loaded configuration like demo.py
     console.print()
@@ -154,10 +174,16 @@ def main() -> None:
         f"  [dim]•[/dim] [bold cyan]{len(prompts)}[/bold cyan] "
         f"[dim]prompts loaded from[/dim] [white]prompts.yaml[/white]"
     )
-    console.print(
-        f"  [dim]•[/dim] [bold yellow]{total_expected}[/bold yellow] "
-        f"[dim]total samples to generate[/dim]"
-    )
+    if existing_count > 0:
+        console.print(
+            f"  [dim]•[/dim] [bold yellow]{total_expected}[/bold yellow] "
+            f"[dim]samples to generate[/dim] [dim]({existing_count} existing, skipped)[/dim]"
+        )
+    else:
+        console.print(
+            f"  [dim]•[/dim] [bold yellow]{total_expected}[/bold yellow] "
+            f"[dim]total samples to generate[/dim]"
+        )
     console.print()
 
     # Track samples generated
