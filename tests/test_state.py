@@ -7,14 +7,6 @@ import pytest
 from asciibench.generator.state import BatchMetrics, SharedState
 
 
-@pytest.fixture
-def event_loop():
-    """Create an event loop for async tests."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
 class TestSharedState:
     """Test SharedState class initialization and basic functionality."""
 
