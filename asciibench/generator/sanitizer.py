@@ -14,8 +14,8 @@ def extract_ascii_from_markdown(markdown: str) -> str:
     """Extract ASCII art content from markdown code blocks.
 
     This function searches for code blocks in markdown format
-    (e.g., ```text...``` or ```...```) and extracts the content exactly
-    as it appears between the backticks without any manipulation.
+    (e.g., ```text...``` or ```...```) and extracts the content
+    with stripping leading/trailing blank lines and normalizing whitespace.
 
     Supported code block formats:
         - ```text...```
