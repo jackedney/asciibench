@@ -25,7 +25,14 @@
         .htmx-request.htmx-indicator {
             display: block;
         }
-        .vote-btn.active {
+        /* 
+         * Active state for vote buttons
+         * Note: !important is required because Tailwind utility classes (.bg-white, .text-slate-700, .border-slate-300)
+         * are applied to the button and take precedence in the CSS cascade. Even with increased selector
+         * specificity (button.vote-btn.active = 0,2,1), the utility classes override these styles.
+         * This is due to Tailwind's use of CSS custom properties and its utility-first approach.
+         */
+        button.vote-btn.active {
             background-color: #2563eb !important;
             border-color: #2563eb !important;
             color: white !important;
