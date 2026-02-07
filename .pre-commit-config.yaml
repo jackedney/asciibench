@@ -16,7 +16,7 @@ repos:
         types: [python]
       - id: ty
         name: ty
-        entry: uv run ty check
+        entry: uv run ty check asciibench
         language: system
-        types: [python]
-        pass_filenames: true
+        pass_filenames: false
+        always_run: true

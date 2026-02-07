@@ -122,6 +122,7 @@ class TestRenderer:
         with Image.open(result_io) as img:
             assert img.format == "PNG"
             pixel = img.getpixel((0, 0))
+            assert isinstance(pixel, tuple)
             assert pixel[0] == 0
 
     def test_wide_ascii_art(self):

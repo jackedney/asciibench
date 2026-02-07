@@ -10,7 +10,7 @@
     {% if data and correlation_coefficient is not none %}
     <div class="mb-4 text-center">
         <span class="text-slate-400">Correlation coefficient: </span>
-        <span class="{% if correlation_coefficient >= 0.7 %}text-green-400{% elif correlation_coefficient >= 0.4 %}text-yellow-400{% else %}text-red-400{% endif %} font-bold text-lg">
+        <span class="{% if correlation_coefficient|abs >= 0.7 %}text-green-400{% elif correlation_coefficient|abs >= 0.4 %}text-yellow-400{% else %}text-red-400{% endif %} font-bold text-lg">
             r = {{ correlation_coefficient|round(2) }}
         </span>
     </div>

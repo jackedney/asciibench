@@ -170,7 +170,9 @@ class EmbeddingClient:
             text2: Second text string
 
         Returns:
-            Similarity score in range [0, 1], where 1 means identical meaning
+            Similarity score in range [-1, 1], where 1 means identical meaning
+            and -1 means opposite meaning. In practice, OpenAI text embeddings
+            typically produce non-negative similarities.
 
         Examples:
             >>> similarity = await client.compute_similarity('cat', 'kitty')
@@ -260,7 +262,9 @@ async def compute_similarity(text1: str, text2: str) -> float:
         text2: Second text string
 
     Returns:
-        Similarity score in range [0, 1]
+        Similarity score in range [-1, 1], where 1 means identical meaning
+        and -1 means opposite meaning. In practice, OpenAI text embeddings
+        typically produce non-negative similarities.
 
     Examples:
         >>> similarity = await compute_similarity('cat', 'kitty')
