@@ -121,5 +121,5 @@ def load_evaluator_config(path: str = "evaluator_config.yaml") -> EvaluatorConfi
         return EvaluatorConfig(**evaluator_data)
     except FileNotFoundError as e:
         raise FileNotFoundError(
-            "evaluator_config.yaml not found. Please create an evaluator configuration file."
+            f"{path!r} not found. Please create an evaluator configuration file."
         ) from e

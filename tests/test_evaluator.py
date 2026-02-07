@@ -82,15 +82,21 @@ class TestRenderer:
     def test_multiline_ascii_preserves_spacing(self):
         """Multi-line ASCII art preserves line breaks and spacing."""
         config = RendererConfig()
-        ascii_text = "  /\\_/\\  \n ( o.o ) \n  > ^ <"
+        multiline_text = "  /\\_/\\  \n ( o.o ) \n  > ^ <"
+        baseline_text = "X"
 
-        result = render_ascii_to_image(ascii_text, config)
+        baseline_result = render_ascii_to_image(baseline_text, config)
+        baseline_io = BytesIO(baseline_result)
+        with Image.open(baseline_io) as baseline_img:
+            baseline_height = baseline_img.height
+
+        result = render_ascii_to_image(multiline_text, config)
 
         assert isinstance(result, bytes)
         result_io = BytesIO(result)
         with Image.open(result_io) as img:
             assert img.format == "PNG"
-            assert img.height > 50
+            assert img.height > baseline_height
 
     def test_custom_font_config(self):
         """Custom font configuration is respected."""

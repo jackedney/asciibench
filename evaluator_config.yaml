@@ -2,7 +2,7 @@ evaluator:
   vlm_models:
     - openai/gpt-4o
     - anthropic/claude-3.5-sonnet
-    - google/gemini-pro-vision
+    - google/gemini-2.0-flash-001
   similarity_threshold: 0.7
   max_concurrency: 5
   font:

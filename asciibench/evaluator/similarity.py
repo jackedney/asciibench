@@ -21,6 +21,9 @@ logger = get_logger(__name__)
 # Maximum number of embeddings to cache (each is ~1536 floats * 8 bytes = ~12KB)
 MAX_CACHE_SIZE = 1000
 
+# Small epsilon for floating-point comparisons (e.g., zero-norm checks)
+EPS = 1e-8
+
 
 class EmbeddingClientError(Exception):
     """Base exception for embedding client errors."""
@@ -63,14 +66,14 @@ class EmbeddingClient:
             embedding2: Second embedding vector
 
         Returns:
-            Cosine similarity score in range [0, 1]
+            Cosine similarity score in range [-1, 1]
         """
         dot_product = sum(a * b for a, b in zip(embedding1, embedding2, strict=True))
 
         norm1 = sum(a * a for a in embedding1) ** 0.5
         norm2 = sum(b * b for b in embedding2) ** 0.5
 
-        if norm1 == 0 or norm2 == 0:
+        if norm1 < EPS or norm2 < EPS:
             return 0.0
 
         return dot_product / (norm1 * norm2)

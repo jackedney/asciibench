@@ -41,8 +41,18 @@
     const sumXY = scatterData.reduce((sum, p) => sum + p.x * p.y, 0);
     const sumX2 = scatterData.reduce((sum, p) => sum + p.x * p.x, 0);
 
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-    const intercept = (sumY - slope * sumX) / n;
+    const denominator = n * sumX2 - sumX * sumX;
+    const epsilon = 1e-10;
+
+    let slope, intercept;
+    if (Math.abs(denominator) < epsilon) {
+        // Degenerate case: all x values are identical, use horizontal line at mean y
+        slope = 0;
+        intercept = sumY / n;
+    } else {
+        slope = (n * sumXY - sumX * sumY) / denominator;
+        intercept = (sumY - slope * sumX) / n;
+    }
 
     const minX = Math.min(...scatterData.map(p => p.x));
     const maxX = Math.max(...scatterData.map(p => p.x));

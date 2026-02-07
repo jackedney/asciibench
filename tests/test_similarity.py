@@ -28,7 +28,7 @@ class TestComputeCosineSimilarity:
         assert result == pytest.approx(1.0)
 
     def test_opposite_vectors(self):
-        """Opposite vectors should have similarity of -1.0 (clamped to 0.0)."""
+        """Opposite vectors should have similarity of -1.0."""
         client = EmbeddingClient(MagicMock())
         vec1 = [1.0, 2.0, 3.0]
         vec2 = [-1.0, -2.0, -3.0]

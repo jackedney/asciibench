@@ -49,7 +49,9 @@ def render_ascii_to_image(text: str | None, config: RendererConfig) -> bytes:
 
     max_width = int(max((size[2] for size in line_sizes), default=1))
     line_heights = [int(size[3] - size[1]) for size in line_sizes]
-    total_height = int(sum(line_heights) if line_heights else config.font.size)
+    total_height = int(
+        sum(max(h, config.font.size) for h in line_heights) if line_heights else config.font.size
+    )
 
     padding = 10
     width = int(max_width + padding * 2)
