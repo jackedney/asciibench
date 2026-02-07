@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from asciibench.analyst.elo import calculate_elo
 from asciibench.analyst.stability import generate_stability_report
-from asciibench.common.models import ArtSample, Vote
+from asciibench.common.models import ArtSample, VLMEvaluation, Vote
 from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
@@ -31,6 +31,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 DATA_DIR = Path("data")
 DATABASE_PATH = DATA_DIR / "database.jsonl"
 VOTES_PATH = DATA_DIR / "votes.jsonl"
+VLM_EVALUATIONS_PATH = DATA_DIR / "vlm_evaluations.jsonl"
 
 # Service instances
 matchup_service = MatchupService(database_path=DATABASE_PATH, votes_path=VOTES_PATH)
@@ -609,6 +610,29 @@ class AnalyticsResponse(BaseModel):
     total_votes: int
 
 
+class ModelAccuracyStats(BaseModel):
+    """Accuracy statistics for a single model."""
+
+    total: int
+    correct: int
+    accuracy: float
+
+
+class CategoryAccuracyStats(BaseModel):
+    """Accuracy statistics for a single category."""
+
+    total: int
+    correct: int
+    accuracy: float
+
+
+class VLMAccuracyResponse(BaseModel):
+    """VLM accuracy statistics response."""
+
+    by_model: dict[str, ModelAccuracyStats]
+    by_category: dict[str, CategoryAccuracyStats]
+
+
 def _calculate_elo_history(
     votes: list[Vote],
     samples: list[ArtSample],
@@ -780,6 +804,122 @@ async def get_analytics() -> AnalyticsResponse:
         )
 
     return _build_analytics_data(votes, valid_samples)
+
+
+def _calculate_vlm_accuracy(
+    evaluations: list[VLMEvaluation],
+    samples: list[ArtSample],
+) -> dict[str, ModelAccuracyStats]:
+    """Calculate VLM accuracy statistics per ASCII-generating model.
+
+    Args:
+        evaluations: List of VLM evaluations
+        samples: List of all samples from database
+
+    Returns:
+        Dictionary mapping model_id to accuracy statistics
+    """
+    sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
+
+    by_model: dict[str, dict[str, int]] = {}
+
+    for evaluation in evaluations:
+        sample = sample_lookup.get(evaluation.sample_id)
+        if not sample:
+            continue
+
+        model_id = sample.model_id
+        if model_id not in by_model:
+            by_model[model_id] = {"total": 0, "correct": 0}
+
+        by_model[model_id]["total"] += 1
+        if evaluation.is_correct:
+            by_model[model_id]["correct"] += 1
+
+    result: dict[str, ModelAccuracyStats] = {}
+    for model_id, stats in by_model.items():
+        accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
+        result[model_id] = ModelAccuracyStats(
+            total=stats["total"],
+            correct=stats["correct"],
+            accuracy=round(accuracy, 2),
+        )
+
+    return result
+
+
+def _calculate_category_accuracy(
+    evaluations: list[VLMEvaluation],
+    samples: list[ArtSample],
+) -> dict[str, CategoryAccuracyStats]:
+    """Calculate VLM accuracy statistics per category.
+
+    Args:
+        evaluations: List of VLM evaluations
+        samples: List of all samples from database
+
+    Returns:
+        Dictionary mapping category to accuracy statistics
+    """
+    sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
+
+    by_category: dict[str, dict[str, int]] = {}
+
+    for evaluation in evaluations:
+        sample = sample_lookup.get(evaluation.sample_id)
+        if not sample:
+            continue
+
+        category = sample.category
+        if category not in by_category:
+            by_category[category] = {"total": 0, "correct": 0}
+
+        by_category[category]["total"] += 1
+        if evaluation.is_correct:
+            by_category[category]["correct"] += 1
+
+    result: dict[str, CategoryAccuracyStats] = {}
+    for category, stats in by_category.items():
+        accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
+        result[category] = CategoryAccuracyStats(
+            total=stats["total"],
+            correct=stats["correct"],
+            accuracy=round(accuracy, 2),
+        )
+
+    return result
+
+
+@app.get("/api/vlm-accuracy", response_model=VLMAccuracyResponse)
+async def get_vlm_accuracy() -> VLMAccuracyResponse:
+    """Get VLM accuracy statistics per model and category.
+
+    Returns accuracy metrics for ASCII-generating models based on VLM evaluations.
+    Reads from vlm_evaluations.jsonl joined with database.jsonl.
+
+    Returns:
+        VLMAccuracyResponse with by_model and by_category accuracy stats
+
+    Raises:
+        HTTPException: 500 if vlm_evaluations.jsonl is malformed
+    """
+    try:
+        evaluations = read_jsonl(VLM_EVALUATIONS_PATH, VLMEvaluation)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error reading vlm_evaluations.jsonl: {e}",
+        ) from e
+
+    samples = read_jsonl(DATABASE_PATH, ArtSample)
+
+    if not evaluations:
+        return VLMAccuracyResponse(by_model={}, by_category={})
+
+    by_model = _calculate_vlm_accuracy(evaluations, samples)
+    by_category = _calculate_category_accuracy(evaluations, samples)
+
+    return VLMAccuracyResponse(by_model=by_model, by_category=by_category)
 
 
 @app.get("/htmx/analytics", response_class=HTMLResponse)
