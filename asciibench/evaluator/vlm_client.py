@@ -21,31 +21,21 @@ logger = get_logger(__name__)
 class ModelNotFoundError(Exception):
     """Raised when the specified VLM model ID is not found or invalid."""
 
-    pass
-
 
 class VLMClientError(Exception):
     """Base exception for VLM client errors."""
-
-    pass
 
 
 class AuthenticationError(VLMClientError):
     """Raised when API authentication fails."""
 
-    pass
-
 
 class RateLimitError(VLMClientError):
     """Raised when API rate limit is exceeded."""
 
-    pass
-
 
 class TransientError(VLMClientError):
     """Raised for transient API errors that can be retried (5xx, connection errors)."""
-
-    pass
 
 
 class VLMClient:
@@ -125,21 +115,14 @@ class VLMClient:
                 if choice.get("message") and choice["message"].get("content"):
                     response_text = choice["message"]["content"]
 
+            # OpenRouter returns cost directly in usage field
             if "usage" in data:
                 usage = data["usage"]
-                if "prompt_tokens" in usage and "completion_tokens" in usage:
-                    prompt_tokens = usage["prompt_tokens"]
-                    completion_tokens = usage["completion_tokens"]
-                    if data.get("prompt_tokens_details") and data["prompt_tokens_details"].get(
-                        "image_tokens"
-                    ):
-                        image_tokens = data["prompt_tokens_details"]["image_tokens"]
-                        prompt_tokens += image_tokens
-                    if data.get("completion_tokens_details"):
-                        completion_details = data.get("completion_tokens_details")
-                        if completion_details and "reasoning_tokens" in completion_details:
-                            completion_tokens += completion_details["reasoning_tokens"]
-                    cost = (prompt_tokens * 0.0000025 + completion_tokens * 0.00001) * 0.001
+                # Use the cost returned by OpenRouter (preferred, as it's model-specific)
+                if "cost" in usage:
+                    cost = float(usage["cost"])
+                elif "total_cost" in usage:
+                    cost = float(usage["total_cost"])
 
             logger.info(
                 "VLM analysis complete",

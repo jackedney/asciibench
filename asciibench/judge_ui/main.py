@@ -940,7 +940,7 @@ def _calculate_pearson_correlation(x: list[float], y: list[float]) -> float | No
 
     denominator = (sum_sq_x * sum_sq_y) ** 0.5
 
-    if denominator == 0:
+    if denominator < 1e-10:
         return None
 
     return numerator / denominator

@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 from asciibench.common.config import RendererConfig
 
 
-def render_ascii_to_image(text: str, config: RendererConfig) -> bytes:
+def render_ascii_to_image(text: str | None, config: RendererConfig) -> bytes:
     """Render ASCII art text to a PNG image.
 
     Args:

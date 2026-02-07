@@ -7,6 +7,7 @@ Dependencies:
     - httpx: Async HTTP client for API requests
 """
 
+from collections import OrderedDict
 from typing import ClassVar
 
 import httpx
@@ -17,29 +18,24 @@ from asciibench.common.retry import retry
 
 logger = get_logger(__name__)
 
+# Maximum number of embeddings to cache (each is ~1536 floats * 8 bytes = ~12KB)
+MAX_CACHE_SIZE = 1000
+
 
 class EmbeddingClientError(Exception):
     """Base exception for embedding client errors."""
-
-    pass
 
 
 class AuthenticationError(EmbeddingClientError):
     """Raised when API authentication fails."""
 
-    pass
-
 
 class RateLimitError(EmbeddingClientError):
     """Raised when API rate limit is exceeded."""
 
-    pass
-
 
 class TransientError(EmbeddingClientError):
     """Raised for transient API errors that can be retried (5xx, connection errors)."""
-
-    pass
 
 
 class EmbeddingClient:
@@ -56,7 +52,8 @@ class EmbeddingClient:
         self.api_key = settings.openrouter_api_key
         self.base_url = settings.base_url
         self.timeout = settings.openrouter_timeout_seconds
-        self._cache: dict[str, list[float]] = {}
+        self._cache: OrderedDict[str, list[float]] = OrderedDict()
+        self._max_cache_size = MAX_CACHE_SIZE
 
     def _compute_cosine_similarity(self, embedding1: list[float], embedding2: list[float]) -> float:
         """Compute cosine similarity between two embeddings.
@@ -198,6 +195,8 @@ class EmbeddingClient:
             return 1.0
 
         if text1 in self._cache:
+            # Move to end for LRU ordering
+            self._cache.move_to_end(text1)
             embedding1 = self._cache[text1]
             logger.debug(
                 "Using cached embedding for text1",
@@ -206,12 +205,17 @@ class EmbeddingClient:
         else:
             embedding1 = await self._get_embedding(text1)
             self._cache[text1] = embedding1
+            # Evict oldest entries if cache exceeds max size
+            while len(self._cache) > self._max_cache_size:
+                self._cache.popitem(last=False)
             logger.debug(
                 "Cached new embedding for text1",
                 {"text": text1[:50] if len(text1) > 50 else text1},
             )
 
         if text2 in self._cache:
+            # Move to end for LRU ordering
+            self._cache.move_to_end(text2)
             embedding2 = self._cache[text2]
             logger.debug(
                 "Using cached embedding for text2",
@@ -220,6 +224,9 @@ class EmbeddingClient:
         else:
             embedding2 = await self._get_embedding(text2)
             self._cache[text2] = embedding2
+            # Evict oldest entries if cache exceeds max size
+            while len(self._cache) > self._max_cache_size:
+                self._cache.popitem(last=False)
             logger.debug(
                 "Cached new embedding for text2",
                 {"text": text2[:50] if len(text2) > 50 else text2},

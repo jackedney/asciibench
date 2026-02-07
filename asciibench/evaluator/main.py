@@ -11,26 +11,37 @@ Dependencies:
 import asyncio
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from asciibench.common.display import get_console
-from asciibench.common.models import ArtSample
+from asciibench.common.models import ArtSample, VLMEvaluation
 from asciibench.common.persistence import read_jsonl
 from asciibench.common.yaml_config import load_evaluator_config
 from asciibench.evaluator.orchestrator import run_evaluation
 
 app = typer.Typer()
 
+DEFAULT_DATABASE_PATH = Path("data/database.jsonl")
+DEFAULT_EVALUATIONS_PATH = Path("data/vlm_evaluations.jsonl")
+
 
 @app.command()
 def main(
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Show what would be evaluated without making API calls"
-    ),
-    limit: int | None = typer.Option(
-        None, "--limit", help="Limit to first N samples (for testing)"
-    ),
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show what would be evaluated without making API calls"),
+    ] = False,
+    limit: Annotated[
+        int | None, typer.Option("--limit", help="Limit to first N samples (for testing)")
+    ] = None,
+    database_path: Annotated[
+        Path, typer.Option("--database-path", help="Path to database.jsonl file")
+    ] = DEFAULT_DATABASE_PATH,
+    evaluations_path: Annotated[
+        Path, typer.Option("--evaluations-path", help="Path to vlm_evaluations.jsonl file")
+    ] = DEFAULT_EVALUATIONS_PATH,
 ) -> None:
     """Run VLM evaluator on ASCII art samples.
 
@@ -51,7 +62,6 @@ def main(
         console.print(f"[error]Error loading evaluator config: {e}[/error]")
         sys.exit(1)
 
-    database_path = Path("data/database.jsonl")
     if not database_path.exists():
         console.print(f"[error]Database file not found: {database_path}[/error]")
         sys.exit(1)
@@ -69,11 +79,8 @@ def main(
 
     console.print(f"[dim]Found {len(valid_samples)} valid samples[/dim]")
 
-    evaluations_path = Path("data/vlm_evaluations.jsonl")
     existing_evaluations = []
     if evaluations_path.exists():
-        from asciibench.common.models import VLMEvaluation
-
         existing_evaluations = read_jsonl(evaluations_path, VLMEvaluation)
 
     existing_eval_keys = {(str(ev.sample_id), ev.vlm_model_id) for ev in existing_evaluations}

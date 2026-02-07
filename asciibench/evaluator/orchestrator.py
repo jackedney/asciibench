@@ -10,10 +10,18 @@ Dependencies:
 """
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from pathlib import Path
+from typing import Any
 
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeRemainingColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 from asciibench.common.config import EvaluatorConfig, RendererConfig, Settings
 from asciibench.common.logging import get_logger
@@ -249,10 +257,10 @@ async def run_evaluation(
 
 
 async def _async_generator_with_progress(
-    coroutines: list,
+    coroutines: list[Coroutine[Any, Any, VLMEvaluation | None]],
     progress: Progress,
-    task_id,
-):
+    task_id: TaskID,
+) -> AsyncGenerator[VLMEvaluation | None, None]:
     """Execute coroutines concurrently and yield results as they complete.
 
     Args:

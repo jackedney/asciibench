@@ -75,6 +75,14 @@ class EvaluatorConfig(BaseModel):
     max_concurrency: int = 5
     font: FontConfig = Field(default_factory=FontConfig)
 
+    @field_validator("vlm_models")
+    @classmethod
+    def validate_vlm_models(cls, v: list[str]) -> list[str]:
+        """Warn if vlm_models is empty."""
+        if not v:
+            logger.warning("vlm_models is empty - no VLM evaluations will be performed")
+        return v
+
     @field_validator("similarity_threshold")
     @classmethod
     def validate_similarity_threshold(cls, v) -> float:
