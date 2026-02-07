@@ -1134,3 +1134,57 @@ async def htmx_get_analytics(request: Request) -> HTMLResponse:
                 "total_votes": 0,
             },
         )
+
+
+@app.get("/htmx/vlm-accuracy", response_class=HTMLResponse)
+async def htmx_get_vlm_accuracy(request: Request) -> HTMLResponse:
+    """HTMX endpoint to get VLM accuracy table as HTML fragment."""
+    try:
+        # Load evaluations and samples
+        evaluations = read_jsonl(VLM_EVALUATIONS_PATH, VLMEvaluation)
+        samples = read_jsonl(DATABASE_PATH, ArtSample)
+
+        # Load models for display names
+        try:
+            models = load_models()
+        except (FileNotFoundError, Exception):
+            models = []
+
+        model_lookup: dict[str, Model] = {m.id: m for m in models}
+
+        if not evaluations:
+            return templates.TemplateResponse(
+                request,
+                "partials/vlm_accuracy.html",
+                {"vlm_accuracy_data": []},
+            )
+
+        # Calculate accuracy per model
+        by_model = _calculate_vlm_accuracy(evaluations, samples)
+
+        # Sort by accuracy descending and convert to list for template
+        sorted_models = sorted(by_model.items(), key=lambda x: x[1].accuracy, reverse=True)
+
+        vlm_accuracy_data = [
+            {
+                "model_id": model_id,
+                "model_name": model_lookup.get(model_id, Model(id=model_id, name=model_id)).name,
+                "total": stats.total,
+                "correct": stats.correct,
+                "accuracy": stats.accuracy,
+            }
+            for model_id, stats in sorted_models
+        ]
+
+        return templates.TemplateResponse(
+            request,
+            "partials/vlm_accuracy.html",
+            {"vlm_accuracy_data": vlm_accuracy_data},
+        )
+    except Exception:
+        logging.exception("Error generating VLM accuracy")
+        return templates.TemplateResponse(
+            request,
+            "partials/vlm_accuracy.html",
+            {"vlm_accuracy_data": [], "error": "Failed to load VLM accuracy data."},
+        )
