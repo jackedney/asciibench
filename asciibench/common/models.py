@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ArtSample(BaseModel):
@@ -66,3 +66,25 @@ class OpenRouterResponse:
         self.completion_tokens = completion_tokens
         self.total_tokens = total_tokens
         self.cost = cost
+
+
+class VLMEvaluation(BaseModel):
+    """Evaluation result from VLM analyzing an ASCII art sample."""
+
+    id: UUID = Field(default_factory=uuid4)
+    sample_id: str
+    vlm_model_id: str
+    expected_subject: str
+    vlm_response: str
+    similarity_score: float
+    is_correct: bool
+    timestamp: datetime = Field(default_factory=datetime.now)
+    cost: float | None = None
+
+    @field_validator("similarity_score")
+    @classmethod
+    def validate_similarity_score(cls, v) -> float:
+        """Validate similarity_score is between 0 and 1."""
+        if not 0 <= v <= 1:
+            raise ValueError("similarity_score must be between 0 and 1")
+        return v

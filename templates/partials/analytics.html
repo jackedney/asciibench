@@ -77,6 +77,30 @@
         {% endif %}
     </div>
 
+    <!-- VLM Accuracy Table -->
+    <div id="vlm-accuracy-container"
+         hx-get="/htmx/vlm-accuracy"
+         hx-trigger="load"
+         hx-swap="innerHTML"
+         hx-indicator="#vlm-accuracy-loading">
+        <div class="text-center py-8 text-slate-500">Loading VLM accuracy...</div>
+    </div>
+    <div id="vlm-accuracy-loading" class="text-center py-4 text-slate-500 htmx-indicator">
+        Loading...
+    </div>
+
+    <!-- Elo-VLM Correlation Chart -->
+    <div id="elo-vlm-correlation-container"
+         hx-get="/htmx/elo-vlm-correlation"
+         hx-trigger="load"
+         hx-swap="innerHTML"
+         hx-indicator="#elo-vlm-correlation-loading">
+        <div class="text-center py-8 text-slate-500">Loading correlation chart...</div>
+    </div>
+    <div id="elo-vlm-correlation-loading" class="text-center py-4 text-slate-500 htmx-indicator">
+        Loading...
+    </div>
+
     <!-- ELO Over Time Chart -->
     <div class="elo-chart border-2 border-slate-600 p-6 brutalist-shadow bg-slate-800">
         <h3 class="text-xl text-slate-200 mb-4 border-b border-slate-700 pb-2">// ELO OVER TIME</h3>

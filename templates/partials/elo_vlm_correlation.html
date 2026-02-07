@@ -1,0 +1,172 @@
+{% if error %}
+<div class="bg-red-950 border-2 border-red-500 text-red-400 p-4 text-center">
+    {{ error }}
+</div>
+{% else %}
+
+<div class="elo-vlm-correlation border-2 border-slate-600 p-6 brutalist-shadow bg-slate-800">
+    <h3 class="text-xl text-slate-200 mb-4 border-b border-slate-700 pb-2">// ELO-VLM CORRELATION</h3>
+
+    {% if data and correlation_coefficient is not none %}
+    <div class="mb-4 text-center">
+        <span class="text-slate-400">Correlation coefficient: </span>
+        <span class="{% if correlation_coefficient|abs >= 0.7 %}text-green-400{% elif correlation_coefficient|abs >= 0.4 %}text-yellow-400{% else %}text-red-400{% endif %} font-bold text-lg">
+            r = {{ correlation_coefficient|round(2) }}
+        </span>
+    </div>
+
+    <div class="relative" style="height: 400px;">
+        <canvas id="correlation-chart"></canvas>
+    </div>
+    {% else %}
+    <p class="text-slate-500 text-center py-8">Need more data for correlation analysis (at least 3 models with Elo ratings and VLM evaluations).</p>
+    {% endif %}
+</div>
+
+<script>
+(() => {
+    const correlationData = {{ correlation_json|safe }};
+    const ctx = document.getElementById('correlation-chart');
+
+    if (!ctx || !window.Chart || !correlationData.data || correlationData.data.length === 0) {
+        return;
+    }
+
+    const scatterData = correlationData.data;
+
+    // Calculate trend line (linear regression)
+    const n = scatterData.length;
+    const sumX = scatterData.reduce((sum, p) => sum + p.x, 0);
+    const sumY = scatterData.reduce((sum, p) => sum + p.y, 0);
+    const sumXY = scatterData.reduce((sum, p) => sum + p.x * p.y, 0);
+    const sumX2 = scatterData.reduce((sum, p) => sum + p.x * p.x, 0);
+
+    const denominator = n * sumX2 - sumX * sumX;
+    const epsilon = 1e-10;
+
+    let slope, intercept;
+    if (Math.abs(denominator) < epsilon) {
+        // Degenerate case: all x values are identical, use horizontal line at mean y
+        slope = 0;
+        intercept = sumY / n;
+    } else {
+        slope = (n * sumXY - sumX * sumY) / denominator;
+        intercept = (sumY - slope * sumX) / n;
+    }
+
+    const minX = Math.min(...scatterData.map(p => p.x));
+    const maxX = Math.max(...scatterData.map(p => p.x));
+
+    const trendLineData = [
+        { x: minX, y: slope * minX + intercept },
+        { x: maxX, y: slope * maxX + intercept },
+    ];
+
+    // Create datasets
+    const datasets = [
+        {
+            label: 'Models',
+            data: scatterData,
+            backgroundColor: '#38bdf8',
+            borderColor: '#38bdf8',
+            pointRadius: 8,
+            pointHoverRadius: 12,
+            type: 'scatter',
+        },
+    ];
+
+    // Add trend line if correlation is significant
+    if (Math.abs(correlationData.correlation_coefficient || 0) >= 0.5) {
+        datasets.push({
+            label: 'Trend Line',
+            data: trendLineData,
+            borderColor: '#f472b6',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 0,
+            type: 'line',
+            tension: 0,
+        });
+    }
+
+    new Chart(ctx, {
+        type: 'scatter',
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'nearest',
+                intersect: false,
+                axis: 'x',
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: {
+                        color: '#94a3b8',
+                        padding: 20,
+                        usePointStyle: true,
+                    }
+                },
+                tooltip: {
+                    backgroundColor: '#1e293b',
+                    titleColor: '#e2e8f0',
+                    bodyColor: '#cbd5e1',
+                    borderColor: '#475569',
+                    borderWidth: 1,
+                    callbacks: {
+                        title: (context) => {
+                            const point = context[0].raw;
+                            return point.model_name;
+                        },
+                        label: (context) => {
+                            const point = context.raw;
+                            return [
+                                `Elo Rating: ${point.x.toFixed(1)}`,
+                                `VLM Accuracy: ${(point.y * 100).toFixed(1)}%`,
+                            ];
+                        },
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    position: 'bottom',
+                    title: {
+                        display: true,
+                        text: 'Elo Rating',
+                        color: '#94a3b8',
+                    },
+                    ticks: {
+                        color: '#64748b',
+                    },
+                    grid: {
+                        color: '#334155',
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'VLM Accuracy (%)',
+                        color: '#94a3b8',
+                    },
+                    ticks: {
+                        color: '#64748b',
+                        callback: (value) => (value * 100).toFixed(0) + '%',
+                    },
+                    grid: {
+                        color: '#334155',
+                    },
+                    min: 0,
+                    max: 1,
+                }
+            }
+        }
+    });
+})();
+</script>
+
+{% endif %}

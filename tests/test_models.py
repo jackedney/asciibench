@@ -5,7 +5,15 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from asciibench.common.models import ArtSample, DemoResult, Model, OpenRouterResponse, Prompt, Vote
+from asciibench.common.models import (
+    ArtSample,
+    DemoResult,
+    Model,
+    OpenRouterResponse,
+    Prompt,
+    VLMEvaluation,
+    Vote,
+)
 
 
 def test_art_sample_valid():
@@ -295,3 +303,185 @@ def test_open_router_response_text_only():
     assert response.completion_tokens is None
     assert response.total_tokens is None
     assert response.cost is None
+
+
+def test_vlm_evaluation_with_all_fields():
+    """VLMEvaluation with all required fields."""
+    evaluation = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="a cat",
+        similarity_score=0.95,
+        is_correct=True,
+        cost=0.001,
+    )
+    assert evaluation.sample_id == "abc"
+    assert evaluation.vlm_model_id == "gpt-4"
+    assert evaluation.expected_subject == "cat"
+    assert evaluation.vlm_response == "a cat"
+    assert evaluation.similarity_score == 0.95
+    assert evaluation.is_correct is True
+    assert evaluation.cost == 0.001
+
+
+def test_vlm_evaluation_serialization():
+    """VLMEvaluation serializes to JSON correctly."""
+    evaluation = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="a cat",
+        similarity_score=0.95,
+        is_correct=True,
+    )
+    data = evaluation.model_dump(mode="json")
+    assert data["sample_id"] == "abc"
+    assert data["vlm_model_id"] == "gpt-4"
+    assert data["expected_subject"] == "cat"
+    assert data["vlm_response"] == "a cat"
+    assert data["similarity_score"] == 0.95
+    assert data["is_correct"] is True
+    assert "id" in data
+    assert "timestamp" in data
+
+
+def test_vlm_evaluation_similarity_score_invalid_high():
+    """VLMEvaluation with similarity_score > 1.0 raises ValidationError."""
+    with pytest.raises(ValidationError) as exc_info:
+        VLMEvaluation(
+            sample_id="abc",
+            vlm_model_id="gpt-4",
+            expected_subject="cat",
+            vlm_response="a cat",
+            similarity_score=1.5,
+            is_correct=True,
+        )
+    exc = exc_info.value
+    assert isinstance(exc, ValidationError)
+    errors = exc.errors()
+    assert len(errors) == 1
+    assert errors[0]["loc"] == ("similarity_score",)
+    assert "must be between 0 and 1" in errors[0]["msg"]
+
+
+def test_vlm_evaluation_similarity_score_invalid_low():
+    """VLMEvaluation with similarity_score < 0.0 raises ValidationError."""
+    with pytest.raises(ValidationError) as exc_info:
+        VLMEvaluation(
+            sample_id="abc",
+            vlm_model_id="gpt-4",
+            expected_subject="cat",
+            vlm_response="a cat",
+            similarity_score=-0.1,
+            is_correct=False,
+        )
+    exc = exc_info.value
+    assert isinstance(exc, ValidationError)
+    errors = exc.errors()
+    assert len(errors) == 1
+    assert errors[0]["loc"] == ("similarity_score",)
+    assert "must be between 0 and 1" in errors[0]["msg"]
+
+
+def test_vlm_evaluation_similarity_score_boundary_values():
+    """VLMEvaluation accepts similarity_score of exactly 0.0 and 1.0."""
+    evaluation_low = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="dog",
+        similarity_score=0.0,
+        is_correct=False,
+    )
+    assert evaluation_low.similarity_score == 0.0
+
+    evaluation_high = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="a cat",
+        similarity_score=1.0,
+        is_correct=True,
+    )
+    assert evaluation_high.similarity_score == 1.0
+
+
+def test_vlm_evaluation_uuid_generation():
+    """VLMEvaluation generates a unique UUID automatically."""
+    evaluation = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="a cat",
+        similarity_score=0.95,
+        is_correct=True,
+    )
+    assert isinstance(evaluation.id, UUID)
+
+
+def test_vlm_evaluation_timestamp_default():
+    """VLMEvaluation generates a timestamp automatically."""
+    before = datetime.now()
+    evaluation = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="a cat",
+        similarity_score=0.95,
+        is_correct=True,
+    )
+    after = datetime.now()
+    assert before <= evaluation.timestamp <= after
+
+
+def test_vlm_evaluation_optional_cost():
+    """VLMEvaluation cost field is optional."""
+    evaluation_with_cost = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="a cat",
+        similarity_score=0.95,
+        is_correct=True,
+        cost=0.001,
+    )
+    assert evaluation_with_cost.cost == 0.001
+
+    evaluation_without_cost = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="a cat",
+        similarity_score=0.95,
+        is_correct=True,
+    )
+    assert evaluation_without_cost.cost is None
+
+
+def test_vlm_evaluation_serialization_with_optional_cost():
+    """VLMEvaluation serialization includes cost field when present."""
+    evaluation_with_cost = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="a cat",
+        similarity_score=0.95,
+        is_correct=True,
+        cost=0.001,
+    )
+    data = evaluation_with_cost.model_dump(mode="json")
+    assert "cost" in data
+    assert data["cost"] == 0.001
+
+    evaluation_without_cost = VLMEvaluation(
+        sample_id="abc",
+        vlm_model_id="gpt-4",
+        expected_subject="cat",
+        vlm_response="a cat",
+        similarity_score=0.95,
+        is_correct=True,
+    )
+    data = evaluation_without_cost.model_dump(mode="json")
+    assert "cost" in data
+    assert data["cost"] is None
