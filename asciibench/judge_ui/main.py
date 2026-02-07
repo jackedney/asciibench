@@ -1188,3 +1188,44 @@ async def htmx_get_vlm_accuracy(request: Request) -> HTMLResponse:
             "partials/vlm_accuracy.html",
             {"vlm_accuracy_data": [], "error": "Failed to load VLM accuracy data."},
         )
+
+
+@app.get("/htmx/elo-vlm-correlation", response_class=HTMLResponse)
+async def htmx_get_elo_vlm_correlation(request: Request) -> HTMLResponse:
+    """HTMX endpoint to get Elo-VLM correlation chart as HTML fragment."""
+    try:
+        # Get correlation data from API endpoint
+        correlation_response = await get_elo_vlm_correlation()
+
+        # Convert correlation data to JSON for Chart.js
+        correlation_json = json.dumps(
+            {
+                "correlation_coefficient": correlation_response.correlation_coefficient,
+                "data": [
+                    {
+                        "x": point.elo_rating,
+                        "y": point.vlm_accuracy,
+                        "model_id": point.model_id,
+                        "model_name": point.model_name,
+                    }
+                    for point in correlation_response.data
+                ],
+            }
+        )
+
+        return templates.TemplateResponse(
+            request,
+            "partials/elo_vlm_correlation.html",
+            {
+                "correlation_json": correlation_json,
+                "correlation_coefficient": correlation_response.correlation_coefficient,
+                "data": correlation_response.data,
+            },
+        )
+    except Exception:
+        logging.exception("Error generating Elo-VLM correlation chart")
+        return templates.TemplateResponse(
+            request,
+            "partials/elo_vlm_correlation.html",
+            {"error": "Failed to load correlation data."},
+        )
