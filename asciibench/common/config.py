@@ -55,6 +55,20 @@ class FontConfig(BaseModel):
         return v
 
 
+class RendererConfig(BaseModel):
+    """Configuration for ASCII-to-image rendering."""
+
+    font: FontConfig = Field(default_factory=FontConfig)
+    background_color: str = "white"
+    text_color: str = "black"
+
+    @field_validator("background_color", "text_color")
+    @classmethod
+    def validate_color(cls, v) -> str:
+        """Validate color values."""
+        return v
+
+
 class EvaluatorConfig(BaseModel):
     vlm_models: list[str] = []
     similarity_threshold: float = 0.7
