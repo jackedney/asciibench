@@ -1,0 +1,10 @@
+evaluator:
+  vlm_models:
+    - openai/gpt-4o
+    - anthropic/claude-3.5-sonnet
+    - google/gemini-pro-vision
+  similarity_threshold: 0.7
+  max_concurrency: 5
+  font:
+    family: Courier
+    size: 14

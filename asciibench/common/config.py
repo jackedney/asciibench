@@ -6,6 +6,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 logger = logging.getLogger(__name__)
 
 
+class ConfigError(Exception):
+    """Exception raised for configuration errors."""
+
+    pass
+
+
 class LogfireConfig(BaseModel):
     token: str | None = None
     service_name: str = "asciibench"
@@ -33,6 +39,42 @@ class GenerationConfig(BaseModel):
         """Validate max_concurrent_requests is positive."""
         if v <= 0:
             raise ValueError("max_concurrent_requests must be greater than 0")
+        return v
+
+
+class FontConfig(BaseModel):
+    family: str = "Courier"
+    size: int = 14
+
+    @field_validator("size")
+    @classmethod
+    def validate_size(cls, v) -> int:
+        """Validate font size is positive."""
+        if v <= 0:
+            raise ValueError("font size must be greater than 0")
+        return v
+
+
+class EvaluatorConfig(BaseModel):
+    vlm_models: list[str] = []
+    similarity_threshold: float = 0.7
+    max_concurrency: int = 5
+    font: FontConfig = Field(default_factory=FontConfig)
+
+    @field_validator("similarity_threshold")
+    @classmethod
+    def validate_similarity_threshold(cls, v) -> float:
+        """Validate similarity_threshold is between 0 and 1."""
+        if not 0 <= v <= 1:
+            raise ValueError("similarity_threshold must be between 0 and 1")
+        return v
+
+    @field_validator("max_concurrency")
+    @classmethod
+    def validate_max_concurrency(cls, v) -> int:
+        """Validate max_concurrency is positive."""
+        if v <= 0:
+            raise ValueError("max_concurrency must be greater than 0")
         return v
 
 

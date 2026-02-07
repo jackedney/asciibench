@@ -48,3 +48,7 @@ tasks:
   demo:
     desc: Run demo generator to create skeleton ASCII art from all models
     cmd: uv run python -m asciibench.generator.demo
+
+  evaluate:
+    desc: Run VLM evaluator on ASCII art samples
+    cmd: uv run python -m asciibench.evaluator.main

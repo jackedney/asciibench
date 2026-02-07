@@ -1,6 +1,6 @@
 import yaml
 
-from asciibench.common.config import GenerationConfig
+from asciibench.common.config import EvaluatorConfig, GenerationConfig
 from asciibench.common.models import Model, Prompt
 
 
@@ -98,3 +98,28 @@ def _extract_placeholder(template: str) -> str | None:
     if start != -1 and end != -1 and end > start:
         return template[start + 1 : end]
     return None
+
+
+def load_evaluator_config(path: str = "evaluator_config.yaml") -> EvaluatorConfig:
+    """Load evaluator configuration from a YAML file.
+
+    Args:
+        path: Path to the evaluator config YAML file
+
+    Returns:
+        EvaluatorConfig loaded from the file
+
+    Raises:
+        FileNotFoundError: If the config file doesn't exist
+    """
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        if data is None:
+            return EvaluatorConfig()
+        evaluator_data = data.get("evaluator", {})
+        return EvaluatorConfig(**evaluator_data)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            "evaluator_config.yaml not found. Please create an evaluator configuration file."
+        ) from e
