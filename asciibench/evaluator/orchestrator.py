@@ -32,6 +32,7 @@ async def run_evaluation(
     evaluations_path: str | Path = "data/vlm_evaluations.jsonl",
     config: EvaluatorConfig | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
+    limit: int | None = None,
 ) -> list[VLMEvaluation]:
     """Run the full evaluation pipeline asynchronously.
 
@@ -53,6 +54,8 @@ async def run_evaluation(
             max_concurrency, font). If None, loads from evaluator_config.yaml
         progress_callback: Optional callback called after each evaluation with
             (total_processed, total_tasks, model_id)
+        limit: Optional limit on the number of evaluation tasks to process.
+            If provided, only the first N tasks will be processed.
 
     Returns:
         List of newly created VLMEvaluation objects (excludes existing evaluations)
@@ -116,6 +119,14 @@ async def run_evaluation(
         "Tasks to process after idempotency check",
         {"tasks": len(tasks_to_process)},
     )
+
+    if limit is not None and limit > 0:
+        original_count = len(tasks_to_process)
+        tasks_to_process = tasks_to_process[:limit]
+        logger.info(
+            "Applied limit to tasks",
+            {"original": original_count, "limited_to": len(tasks_to_process)},
+        )
 
     if not tasks_to_process:
         logger.info("All samples already evaluated")
