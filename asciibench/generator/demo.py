@@ -17,10 +17,14 @@ from rich.panel import Panel
 from rich.text import Text
 
 from asciibench.common.config import Settings
-from asciibench.common.display import get_console
+from asciibench.common.display import (
+    create_loader,
+    get_console,
+    show_banner,
+    show_prompt,
+)
 from asciibench.common.logging import generate_id, get_logger, set_request_id, set_run_id
 from asciibench.common.models import DemoResult, OpenRouterResponse
-from asciibench.common.simple_display import create_loader, show_banner, show_prompt
 from asciibench.common.yaml_config import load_generation_config, load_models
 from asciibench.generator.client import (
     AuthenticationError,

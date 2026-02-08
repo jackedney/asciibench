@@ -18,11 +18,16 @@ from rich.panel import Panel
 from rich.text import Text
 
 from asciibench.common.config import Settings
-from asciibench.common.display import get_console, get_stderr_console, success_badge
+from asciibench.common.display import (
+    create_loader,
+    get_console,
+    get_stderr_console,
+    show_banner,
+    success_badge,
+)
 from asciibench.common.models import ArtSample
 from asciibench.common.observability import init_logfire
 from asciibench.common.persistence import read_jsonl
-from asciibench.common.simple_display import create_loader, show_banner
 from asciibench.common.yaml_config import load_generation_config, load_models, load_prompts
 from asciibench.generator.sampler import generate_samples
 
