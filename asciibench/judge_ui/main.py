@@ -15,29 +15,22 @@ from asciibench.common.persistence import (
     read_jsonl,
     read_jsonl_by_id,
 )
+from asciibench.common.repository import DataRepository
 from asciibench.common.yaml_config import load_models
+from asciibench.judge_ui.analytics_service import AnalyticsService
 from asciibench.judge_ui.api_models import (
     AnalyticsResponse,
-    CategoryProgress,
     CorrelationDataPoint,
-    EloHistoryPoint,
     EloVLMCorrelationResponse,
-    HeadToHeadRecord,
-    LeaderboardEntry,
     MatchupResponse,
-    ModelAccuracyStats,
-    ModelStabilityData,
     ProgressResponse,
     SampleResponse,
-    StabilityData,
-    VLMAccuracyResponse,
     VoteRequest,
     VoteResponse,
 )
-from asciibench.judge_ui.analytics_service import AnalyticsService
 from asciibench.judge_ui.matchup_service import MatchupService
+from asciibench.judge_ui.progress_service import ProgressService
 from asciibench.judge_ui.undo_service import UndoService
-from asciibench.common.repository import DataRepository
 
 app = FastAPI(title="ASCIIBench Judge UI")
 templates = Jinja2Templates(directory="templates")
@@ -56,48 +49,8 @@ RANKINGS_PATH = DATA_DIR / "rankings.json"
 repo = DataRepository(data_dir=DATA_DIR)
 analytics_service = AnalyticsService(repo=repo)
 matchup_service = MatchupService(database_path=DATABASE_PATH, votes_path=VOTES_PATH)
+progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
 undo_service = UndoService(votes_path=VOTES_PATH)
-
-
-def _calculate_progress_by_category(
-    votes: list[Vote], samples: list[ArtSample]
-) -> dict[str, CategoryProgress]:
-    """Calculate progress statistics broken down by category."""
-    sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
-
-    samples_by_category: dict[str, list[ArtSample]] = {}
-    for sample in samples:
-        if sample.is_valid:
-            if sample.category not in samples_by_category:
-                samples_by_category[sample.category] = []
-            samples_by_category[sample.category].append(sample)
-
-    votes_by_category: dict[str, list[Vote]] = {}
-    for vote in votes:
-        sample_a = sample_lookup.get(vote.sample_a_id)
-        if sample_a and sample_a.is_valid:
-            category = sample_a.category
-            if category not in votes_by_category:
-                votes_by_category[category] = []
-            votes_by_category[category].append(vote)
-
-    result: dict[str, CategoryProgress] = {}
-    for category, category_samples in samples_by_category.items():
-        category_votes = votes_by_category.get(category, [])
-
-        unique_pairs = matchup_service.get_unique_model_pairs_judged(
-            category_votes, category_samples
-        )
-
-        total_pairs = matchup_service._calculate_total_possible_pairs(category_samples)
-
-        result[category] = CategoryProgress(
-            votes_completed=len(category_votes),
-            unique_pairs_judged=unique_pairs,
-            total_possible_pairs=total_pairs,
-        )
-
-    return result
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -264,27 +217,7 @@ async def get_progress() -> ProgressResponse:
         ProgressResponse with votes_completed, unique_pairs_judged,
         total_possible_pairs, and by_category breakdown.
     """
-    # Load all samples from database
-    all_samples = read_jsonl(DATABASE_PATH, ArtSample)
-    valid_samples = [s for s in all_samples if s.is_valid]
-
-    # Load all votes
-    votes = read_jsonl(VOTES_PATH, Vote)
-
-    # Calculate overall statistics
-    votes_completed = len(votes)
-    unique_pairs_judged = matchup_service.get_unique_model_pairs_judged(votes, valid_samples)
-    total_possible_pairs = matchup_service._calculate_total_possible_pairs(valid_samples)
-
-    # Calculate per-category breakdown
-    by_category = _calculate_progress_by_category(votes, all_samples)
-
-    return ProgressResponse(
-        votes_completed=votes_completed,
-        unique_pairs_judged=unique_pairs_judged,
-        total_possible_pairs=total_possible_pairs,
-        by_category=by_category,
-    )
+    return progress_service.get_progress()
 
 
 # =============================================================================
@@ -386,25 +319,15 @@ async def htmx_get_progress(request: Request) -> HTMLResponse:
 
     Returns rendered HTML for the progress display area.
     """
-    # Load all samples from database
-    all_samples = read_jsonl(DATABASE_PATH, ArtSample)
-    valid_samples = [s for s in all_samples if s.is_valid]
-
-    # Load all votes
-    votes = read_jsonl(VOTES_PATH, Vote)
-
-    # Calculate overall statistics
-    votes_completed = len(votes)
-    unique_pairs_judged = matchup_service.get_unique_model_pairs_judged(votes, valid_samples)
-    total_possible_pairs = matchup_service._calculate_total_possible_pairs(valid_samples)
+    progress = progress_service.get_progress()
 
     return templates.TemplateResponse(
         request,
         "partials/progress.html",
         {
-            "votes_completed": votes_completed,
-            "unique_pairs_judged": unique_pairs_judged,
-            "total_possible_pairs": total_possible_pairs,
+            "votes_completed": progress.votes_completed,
+            "unique_pairs_judged": progress.unique_pairs_judged,
+            "total_possible_pairs": progress.total_possible_pairs,
         },
     )
 
@@ -555,8 +478,6 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
             status_code=500,
             detail=f"Error reading vlm_evaluations.jsonl: {e}",
         ) from e
-
-    samples = read_jsonl(DATABASE_PATH, ArtSample)
 
     try:
         with open(RANKINGS_PATH) as f:

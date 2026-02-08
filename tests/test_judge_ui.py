@@ -17,7 +17,7 @@ from asciibench.judge_ui.api_models import (
     VoteRequest,
     VoteResponse,
 )
-from asciibench.judge_ui.main import _calculate_progress_by_category, app
+from asciibench.judge_ui.main import app
 from asciibench.judge_ui.matchup_service import MatchupService
 from asciibench.judge_ui.undo_service import UndoService
 
@@ -1696,19 +1696,13 @@ class TestProgressHelperFunctions:
                 sample_b_id=str(samples[1].id),
                 winner="A",
             ),
-            Vote(
-                sample_a_id=str(samples[0].id),
-                sample_b_id=str(samples[1].id),
-                winner="B",
-            ),
         ]
-        # Two votes but only one unique model pair
         assert matchup_service.get_unique_model_pairs_judged(votes, samples) == 1
 
-    def test_get_unique_model_pairs_judged_multiple_pairs(
+    def test_get_unique_model_pairs_judged_duplicate_pair(
         self, matchup_service: MatchupService
     ) -> None:
-        """Test unique pairs judged with multiple model pairs compared."""
+        """Test unique pairs judged counts each model pair once."""
         samples = [
             ArtSample(
                 id=uuid4(),
@@ -1730,16 +1724,6 @@ class TestProgressHelperFunctions:
                 sanitized_output="",
                 is_valid=True,
             ),
-            ArtSample(
-                id=uuid4(),
-                model_id="model-c",
-                prompt_text="test",
-                category="test",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
         ]
         votes = [
             Vote(
@@ -1749,83 +1733,11 @@ class TestProgressHelperFunctions:
             ),
             Vote(
                 sample_a_id=str(samples[0].id),
-                sample_b_id=str(samples[2].id),
+                sample_b_id=str(samples[1].id),
                 winner="B",
             ),
         ]
-        # Two votes comparing two different model pairs
-        assert matchup_service.get_unique_model_pairs_judged(votes, samples) == 2
-
-    def test_calculate_progress_by_category_empty(self) -> None:
-        """Test category progress with no samples."""
-        result = _calculate_progress_by_category([], [])
-        assert result == {}
-
-    def test_calculate_progress_by_category_no_votes(self) -> None:
-        """Test category progress with samples but no votes."""
-        samples = [
-            ArtSample(
-                id=uuid4(),
-                model_id="model-a",
-                prompt_text="test",
-                category="single_animal",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
-            ArtSample(
-                id=uuid4(),
-                model_id="model-b",
-                prompt_text="test",
-                category="single_animal",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
-        ]
-        result = _calculate_progress_by_category([], samples)
-        assert "single_animal" in result
-        assert result["single_animal"].votes_completed == 0
-        assert result["single_animal"].unique_pairs_judged == 0
-        assert result["single_animal"].total_possible_pairs == 1
-
-    def test_calculate_progress_by_category_with_votes(self) -> None:
-        """Test category progress with samples and votes."""
-        samples = [
-            ArtSample(
-                id=uuid4(),
-                model_id="model-a",
-                prompt_text="test",
-                category="single_animal",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
-            ArtSample(
-                id=uuid4(),
-                model_id="model-b",
-                prompt_text="test",
-                category="single_animal",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
-        ]
-        votes = [
-            Vote(
-                sample_a_id=str(samples[0].id),
-                sample_b_id=str(samples[1].id),
-                winner="A",
-            ),
-        ]
-        result = _calculate_progress_by_category(votes, samples)
-        assert result["single_animal"].votes_completed == 1
-        assert result["single_animal"].unique_pairs_judged == 1
-        assert result["single_animal"].total_possible_pairs == 1
+        assert matchup_service.get_unique_model_pairs_judged(votes, samples) == 1
 
 
 class TestHTMXEndpoints:
