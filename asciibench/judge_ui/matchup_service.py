@@ -7,6 +7,7 @@ to ensure balanced coverage.
 Dependencies:
     - asciibench.common.models: ArtSample, Vote models
     - asciibench.common.persistence: JSONL persistence utilities
+    - asciibench.judge_ui.selectors: ModelPairSelector, SampleSelector
 """
 
 import random
@@ -15,6 +16,7 @@ from pathlib import Path
 
 from asciibench.common.models import ArtSample, Vote
 from asciibench.common.persistence import read_jsonl
+from asciibench.judge_ui.selectors import ModelPairSelector, SampleSelector
 
 
 class MatchupService:
@@ -24,15 +26,25 @@ class MatchupService:
     prioritizing model pairs that have had fewer comparisons.
     """
 
-    def __init__(self, database_path: Path | None = None, votes_path: Path | None = None):
-        """Initialize MatchupService with paths to data files.
+    def __init__(
+        self,
+        database_path: Path | None = None,
+        votes_path: Path | None = None,
+        model_pair_selector: ModelPairSelector | None = None,
+        sample_selector: SampleSelector | None = None,
+    ):
+        """Initialize MatchupService with paths to data files and selectors.
 
         Args:
             database_path: Path to database.jsonl file (default: data/database.jsonl)
             votes_path: Path to votes.jsonl file (default: data/votes.jsonl)
+            model_pair_selector: Optional ModelPairSelector instance (creates default if None)
+            sample_selector: Optional SampleSelector instance (creates default if None)
         """
         self._database_path = database_path or Path("data/database.jsonl")
         self._votes_path = votes_path or Path("data/votes.jsonl")
+        self._model_pair_selector = model_pair_selector or ModelPairSelector()
+        self._sample_selector = sample_selector or SampleSelector()
 
     @staticmethod
     def _make_sorted_pair(a: str, b: str) -> tuple[str, str]:
@@ -60,16 +72,7 @@ class MatchupService:
         Returns a Counter where keys are (model_a_id, model_b_id) tuples (sorted)
         and values are the number of comparisons between those models.
         """
-        sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
-
-        counts: Counter[tuple[str, str]] = Counter()
-        for vote in votes:
-            model_a = sample_to_model.get(vote.sample_a_id)
-            model_b = sample_to_model.get(vote.sample_b_id)
-            if model_a and model_b and model_a != model_b:
-                pair = self._make_sorted_pair(model_a, model_b)
-                counts[pair] += 1
-        return counts
+        return self._model_pair_selector.get_model_pair_comparison_counts(votes, samples)
 
     def _calculate_total_possible_pairs(self, valid_samples: list[ArtSample]) -> int:
         """Calculate total possible unique matchups between samples from different models.
@@ -134,38 +137,17 @@ class MatchupService:
 
         model_ids = list(samples_by_model.keys())
         if len(model_ids) < 2:
-            if len(valid_samples) >= 2:
-                sample_a, sample_b = random.sample(valid_samples, 2)
-                return sample_a, sample_b
-            raise ValueError("Not enough valid samples for a matchup")
+            return self._sample_selector.select_pair_from_single_model(valid_samples)
 
-        model_pair_counts = self._get_model_pair_comparison_counts(votes, valid_samples)
-
-        model_pairs = [
-            (model_ids[i], model_ids[j])
-            for i in range(len(model_ids))
-            for j in range(i + 1, len(model_ids))
-        ]
-
-        min_count = float("inf")
-        for pair in model_pairs:
-            sorted_pair = self._make_sorted_pair(pair[0], pair[1])
-            count = model_pair_counts.get(sorted_pair, 0)
-            if count < min_count:
-                min_count = count
-
-        least_compared_pairs = []
-        for pair in model_pairs:
-            sorted_pair = self._make_sorted_pair(pair[0], pair[1])
-            if model_pair_counts.get(sorted_pair, 0) == min_count:
-                least_compared_pairs.append(pair)
+        least_compared_pairs = self._model_pair_selector.get_least_compared_pairs(
+            model_ids, votes, valid_samples
+        )
 
         model_a_id, model_b_id = random.choice(least_compared_pairs)
 
-        sample_a = random.choice(samples_by_model[model_a_id])
-        sample_b = random.choice(samples_by_model[model_b_id])
-
-        return sample_a, sample_b
+        return self._sample_selector.select_pair_from_models(
+            model_a_id, model_b_id, samples_by_model
+        )
 
     def get_unique_model_pairs_judged(
         self, votes: list[Vote] | None = None, samples: list[ArtSample] | None = None

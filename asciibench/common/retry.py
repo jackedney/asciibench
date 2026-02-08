@@ -5,7 +5,6 @@ import functools
 import inspect
 import time
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from asciibench.common.logging import get_logger
 
@@ -13,7 +12,7 @@ logger = get_logger(__name__)
 
 # Type alias for sleep functions - accepts any callable that takes a float
 # and returns either None (sync) or an Awaitable[None] (async)
-type SleepFunc = Callable[[float], None | Awaitable[None]]
+SleepFunc = Callable[[float], None | Awaitable[None]]
 
 
 def retry(
@@ -25,8 +24,8 @@ def retry(
     """Decorator to retry function calls on specified exceptions with exponential backoff.
 
     Args:
-        max_retries: Maximum number of retry attempts (default: 3)
-        base_delay_seconds: Base delay in seconds before first retry (default: 1)
+        max_retries: Maximum number of retry attempts (default:3)
+        base_delay_seconds: Base delay in seconds before first retry (default:1)
         retryable_exceptions: Tuple of exception types to retry (default: Exception)
         sleep_func: Optional sleep function for testability. If None, uses time.sleep for sync
                    functions and asyncio.sleep for async functions.
@@ -49,6 +48,11 @@ def retry(
         async def async_api_call():
             ...
 
+        On first failure: retry after 1s
+        On second failure: retry after 2s
+        On third failure: retry after 4s
+        After max retries: re-raise exception
+
     Note:
         The sleep_func parameter accepts any callable that returns either None (sync)
         or an Awaitable[None] (async). This includes lambdas, functools.partial,
@@ -58,14 +62,12 @@ def retry(
         raise ValueError(f"max_retries must be an integer, got {type(max_retries).__name__}")
     if max_retries < 0:
         raise ValueError(f"max_retries must be >= 0, got {max_retries}")
-
     if not isinstance(base_delay_seconds, (int, float)):
         raise ValueError(
             f"base_delay_seconds must be a number, got {type(base_delay_seconds).__name__}"
         )
     if base_delay_seconds < 0:
         raise ValueError(f"base_delay_seconds must be >= 0, got {base_delay_seconds}")
-
     if not isinstance(retryable_exceptions, tuple):
         raise TypeError(
             f"retryable_exceptions must be a tuple, got {type(retryable_exceptions).__name__}"
@@ -81,7 +83,7 @@ def retry(
         if custom_sleep is None:
             await asyncio.sleep(delay)
         else:
-            result: Any = custom_sleep(delay)
+            result = custom_sleep(delay)
             if inspect.isawaitable(result):
                 await result
 
@@ -90,83 +92,61 @@ def retry(
         if custom_sleep is None:
             time.sleep(delay)
         else:
-            result: Any = custom_sleep(delay)
-            # In sync context, if result is awaitable, we can't await it
-            # This would be a misuse, but we handle it gracefully by ignoring
-            if inspect.iscoroutine(result):
-                # Close the coroutine to avoid RuntimeWarning
-                result.close()
+            custom_sleep(delay)
 
     def decorator(func):
-        is_async = inspect.iscoroutinefunction(func)
-
-        if is_async:
-
-            @functools.wraps(func)
-            async def async_wrapper(*args, **kwargs):
-                for attempt in range(max_retries + 1):
-                    try:
-                        return await func(*args, **kwargs)
-                    except retryable_exceptions as e:
-                        if attempt < max_retries:
-                            delay = base_delay_seconds * (2**attempt)
-                            logger.warning(
-                                f"Retry attempt {attempt + 1}/{max_retries} after {delay:.2f}s",
-                                {
-                                    "function": func.__name__,
-                                    "attempt": attempt + 1,
-                                    "delay_seconds": delay,
-                                    "exception": str(e),
-                                },
-                            )
-                            await _async_sleep(delay, sleep_func)
-                        else:
-                            logger.error(
-                                f"Max retries ({max_retries}) exceeded for {func.__name__}",
-                                {"function": func.__name__, "exception": str(e)},
-                            )
-                            raise
-                    except Exception as e:
-                        logger.error(
-                            f"Non-retryable exception in {func.__name__}",
-                            {"function": func.__name__, "exception": str(e)},
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except retryable_exceptions as e:
+                    last_exception = e
+                    if attempt == max_retries:
+                        logger.warning(
+                            f"Function {func.__name__} failed after {max_retries} retries"
                         )
                         raise
 
-            return async_wrapper
-        else:
+                    delay = base_delay_seconds * (2**attempt)
+                    logger.debug(
+                        f"Retry {attempt + 1}/{max_retries} for {func.__name__} "
+                        f"after {delay}s delay: {e}"
+                    )
+                    _sync_sleep(delay, sleep_func)
 
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                for attempt in range(max_retries + 1):
-                    try:
-                        return func(*args, **kwargs)
-                    except retryable_exceptions as e:
-                        if attempt < max_retries:
-                            delay = base_delay_seconds * (2**attempt)
-                            logger.warning(
-                                f"Retry attempt {attempt + 1}/{max_retries} after {delay:.2f}s",
-                                {
-                                    "function": func.__name__,
-                                    "attempt": attempt + 1,
-                                    "delay_seconds": delay,
-                                    "exception": str(e),
-                                },
-                            )
-                            _sync_sleep(delay, sleep_func)
-                        else:
-                            logger.error(
-                                f"Max retries ({max_retries}) exceeded for {func.__name__}",
-                                {"function": func.__name__, "exception": str(e)},
-                            )
-                            raise
-                    except Exception as e:
-                        logger.error(
-                            f"Non-retryable exception in {func.__name__}",
-                            {"function": func.__name__, "exception": str(e)},
+            # This should never be reached, but type checkers need it
+            if last_exception is None:
+                raise RuntimeError("Unexpected retry loop exit without exception")
+            raise last_exception
+
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except retryable_exceptions as e:
+                    last_exception = e
+                    if attempt == max_retries:
+                        logger.warning(
+                            f"Async function {func.__name__} failed after {max_retries} retries"
                         )
                         raise
 
-            return wrapper
+                    delay = base_delay_seconds * (2**attempt)
+                    logger.debug(
+                        f"Retry {attempt + 1}/{max_retries} for {func.__name__} "
+                        f"after {delay}s delay: {e}"
+                    )
+                    await _async_sleep(delay, sleep_func)
+
+            # This should never be reached, but type checkers need it
+            if last_exception is None:
+                raise RuntimeError("Unexpected retry loop exit without exception")
+            raise last_exception
+
+        return async_wrapper if inspect.iscoroutinefunction(func) else wrapper
 
     return decorator
