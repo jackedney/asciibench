@@ -9,16 +9,15 @@ from fastapi.testclient import TestClient
 
 from asciibench.common.models import ArtSample, VLMEvaluation, Vote
 from asciibench.common.persistence import append_jsonl, read_jsonl
-from asciibench.judge_ui.main import (
+from asciibench.judge_ui.api_models import (
     CategoryProgress,
     MatchupResponse,
     ProgressResponse,
     SampleResponse,
     VoteRequest,
     VoteResponse,
-    _calculate_progress_by_category,
-    app,
 )
+from asciibench.judge_ui.main import _calculate_progress_by_category, app
 from asciibench.judge_ui.matchup_service import MatchupService
 from asciibench.judge_ui.undo_service import UndoService
 
