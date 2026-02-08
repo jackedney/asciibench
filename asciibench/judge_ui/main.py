@@ -3,7 +3,7 @@ import logging
 import random
 import statistics
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -490,10 +490,11 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
             )
 
         # Create and save the vote
+        # winner is validated above to be one of "A", "B", "tie", "fail"
         vote = Vote(
             sample_a_id=str(sample_a_id),
             sample_b_id=str(sample_b_id),
-            winner=winner,  # type: ignore[arg-type]
+            winner=cast(Literal["A", "B", "tie", "fail"], winner),
         )
         append_jsonl(VOTES_PATH, vote)
 

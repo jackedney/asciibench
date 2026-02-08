@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal, cast
 from uuid import UUID
 
@@ -59,9 +59,9 @@ def test_vote_invalid_winner():
 
 
 def test_vote_timestamp_default():
-    before = datetime.now()
+    before = datetime.now(tz=UTC)
     vote = Vote(sample_a_id="sample1", sample_b_id="sample2", winner="A")
-    after = datetime.now()
+    after = datetime.now(tz=UTC)
     assert before <= vote.timestamp <= after
 
 
@@ -94,7 +94,7 @@ def test_art_sample_uuid_generation():
 
 def test_art_sample_timestamp_default():
     """ArtSample generates a timestamp automatically."""
-    before = datetime.now()
+    before = datetime.now(tz=UTC)
     sample = ArtSample(
         model_id="openai/gpt-4o",
         prompt_text="Draw a cat",
@@ -104,7 +104,7 @@ def test_art_sample_timestamp_default():
         sanitized_output="/_/",
         is_valid=True,
     )
-    after = datetime.now()
+    after = datetime.now(tz=UTC)
     assert before <= sample.timestamp <= after
 
 
@@ -422,7 +422,7 @@ def test_vlm_evaluation_uuid_generation():
 
 def test_vlm_evaluation_timestamp_default():
     """VLMEvaluation generates a timestamp automatically."""
-    before = datetime.now()
+    before = datetime.now(tz=UTC)
     evaluation = VLMEvaluation(
         sample_id="abc",
         vlm_model_id="gpt-4",
@@ -431,7 +431,7 @@ def test_vlm_evaluation_timestamp_default():
         similarity_score=0.95,
         is_correct=True,
     )
-    after = datetime.now()
+    after = datetime.now(tz=UTC)
     assert before <= evaluation.timestamp <= after
 
 

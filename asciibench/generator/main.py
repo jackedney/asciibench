@@ -199,9 +199,19 @@ def main() -> None:
     loader = create_loader("Generating", total_expected)
 
     def _loader_progress_callback(
-        model_id: str, prompt_text: str, attempt: int, remaining: int
+        model_id: str,
+        prompt_text: str,
+        attempt: int,
+        remaining: int,
     ) -> None:
-        """Progress callback - updates model name and prompt display."""
+        """Progress callback - updates model name and prompt display.
+
+        Args:
+            model_id: The model identifier
+            prompt_text: The prompt text being processed
+            attempt: Current attempt number (unused, but part of callback signature)
+            remaining: Remaining attempts (unused, but part of callback signature)
+        """
         # Update model name (use display name from mapping, without resetting progress)
         display_name = model_names.get(model_id, model_id)
         loader.set_model_name(display_name)
