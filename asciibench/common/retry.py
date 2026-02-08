@@ -5,6 +5,7 @@ import functools
 import inspect
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from asciibench.common.logging import get_logger
 
@@ -13,6 +14,39 @@ logger = get_logger(__name__)
 # Type alias for sleep functions - accepts any callable that takes a float
 # and returns either None (sync) or an Awaitable[None] (async)
 SleepFunc = Callable[[float], None | Awaitable[None]]
+
+
+@dataclass
+class AttemptHistory:
+    """History of a single retry attempt."""
+
+    attempt_number: int
+    exception: Exception
+    delay_seconds: float | None
+
+
+class MaxRetriesError(Exception):
+    """Raised when all retry attempts are exhausted.
+
+    Attributes:
+        max_attempts: Maximum number of attempts that were tried
+        last_exception: The exception that caused the final failure
+        attempt_history: List of AttemptHistory objects for all attempts
+    """
+
+    def __init__(
+        self,
+        max_attempts: int,
+        last_exception: Exception,
+        attempt_history: list[AttemptHistory],
+    ) -> None:
+        self.max_attempts = max_attempts
+        self.last_exception = last_exception
+        self.attempt_history = attempt_history
+        super().__init__(
+            f"Max retries ({max_attempts}) exceeded. "
+            f"Last error: {type(last_exception).__name__}: {last_exception}"
+        )
 
 
 def retry(
@@ -150,3 +184,178 @@ def retry(
         return async_wrapper if inspect.iscoroutinefunction(func) else wrapper
 
     return decorator
+
+
+class RetryableTaskExecutor:
+    """Class-based retry executor with exponential backoff.
+
+    Provides an alternative to the @retry decorator for scenarios where
+    a class-based approach is preferred (e.g., dynamic retry configuration,
+    retry state tracking, or dependency injection).
+
+    Example:
+        executor = RetryableTaskExecutor(
+            max_attempts=3,
+            base_delay_seconds=1,
+            retryable_exceptions=(RateLimitError, TransientError),
+        )
+        result = executor.execute(api_call, arg1, arg2)
+
+    Example (async):
+        executor = RetryableTaskExecutor(max_attempts=3)
+        result = await executor.execute_async(async_api_call, arg1, arg2)
+
+    Attributes:
+        max_attempts: Maximum number of execution attempts (including first)
+        base_delay_seconds: Base delay in seconds before first retry
+        retryable_exceptions: Tuple of exception types to retry
+        sleep_func: Optional custom sleep function for testability
+    """
+
+    def __init__(
+        self,
+        max_attempts: int = 3,
+        base_delay_seconds: float = 1,
+        retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
+        sleep_func: SleepFunc | None = None,
+    ) -> None:
+        """Initialize the retry executor.
+
+        Args:
+            max_attempts: Maximum number of attempts (default: 3)
+            base_delay_seconds: Base delay before first retry in seconds (default: 1)
+            retryable_exceptions: Exception types to retry (default: Exception)
+            sleep_func: Optional sleep function for testability
+
+        Raises:
+            ValueError: If max_attempts < 1 or base_delay_seconds < 0
+            TypeError: If retryable_exceptions is not a tuple of Exception types
+        """
+        if not isinstance(max_attempts, int):
+            raise ValueError(f"max_attempts must be an integer, got {type(max_attempts).__name__}")
+        if max_attempts < 1:
+            raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
+        if not isinstance(base_delay_seconds, (int, float)):
+            raise ValueError(
+                f"base_delay_seconds must be a number, got {type(base_delay_seconds).__name__}"
+            )
+        if base_delay_seconds < 0:
+            raise ValueError(f"base_delay_seconds must be >= 0, got {base_delay_seconds}")
+        if not isinstance(retryable_exceptions, tuple):
+            raise TypeError(
+                f"retryable_exceptions must be a tuple, got {type(retryable_exceptions).__name__}"
+            )
+        if len(retryable_exceptions) == 0:
+            raise TypeError("retryable_exceptions must not be empty")
+        for exc_type in retryable_exceptions:
+            if not (isinstance(exc_type, type) and issubclass(exc_type, Exception)):
+                raise TypeError(
+                    f"retryable_exceptions must contain Exception types, got {exc_type}"
+                )
+
+        self.max_attempts = max_attempts
+        self.base_delay_seconds = base_delay_seconds
+        self.retryable_exceptions = retryable_exceptions
+        self.sleep_func = sleep_func
+
+    def execute(self, func: Callable, *args, **kwargs):
+        """Execute a synchronous function with retry logic.
+
+        Args:
+            func: Function to execute
+            *args: Positional arguments to pass to func
+            **kwargs: Keyword arguments to pass to func
+
+        Returns:
+            Result of func(*args, **kwargs) on success
+
+        Raises:
+            MaxRetriesError: If all retry attempts are exhausted
+            Exception: If an exception not in retryable_exceptions is raised
+        """
+        attempt_history: list[AttemptHistory] = []
+
+        for attempt in range(self.max_attempts):
+            try:
+                return func(*args, **kwargs)
+            except self.retryable_exceptions as e:
+                attempt_history.append(
+                    AttemptHistory(
+                        attempt_number=attempt + 1,
+                        exception=e,  # type: ignore[arg-type]
+                        delay_seconds=None,
+                    )
+                )
+
+                if attempt == self.max_attempts - 1:
+                    logger.warning(f"Function failed after {self.max_attempts} attempts")
+                    raise MaxRetriesError(
+                        max_attempts=self.max_attempts,
+                        last_exception=e,  # type: ignore[arg-type]
+                        attempt_history=attempt_history,
+                    ) from e
+
+                delay = self.base_delay_seconds * (2**attempt)
+                logger.debug(
+                    f"Attempt {attempt + 1}/{self.max_attempts} failed, "
+                    f"retrying after {delay}s: {e}"
+                )
+
+                if self.sleep_func is None:
+                    time.sleep(delay)
+                else:
+                    self.sleep_func(delay)
+
+        raise RuntimeError("Unexpected retry loop exit without exception")
+
+    async def execute_async(self, func: Callable, *args, **kwargs):
+        """Execute an async function with retry logic.
+
+        Args:
+            func: Async function to execute
+            *args: Positional arguments to pass to func
+            **kwargs: Keyword arguments to pass to func
+
+        Returns:
+            Result of await func(*args, **kwargs) on success
+
+        Raises:
+            MaxRetriesError: If all retry attempts are exhausted
+            Exception: If an exception not in retryable_exceptions is raised
+        """
+        attempt_history: list[AttemptHistory] = []
+
+        for attempt in range(self.max_attempts):
+            try:
+                return await func(*args, **kwargs)
+            except self.retryable_exceptions as e:
+                attempt_history.append(
+                    AttemptHistory(
+                        attempt_number=attempt + 1,
+                        exception=e,  # type: ignore[arg-type]
+                        delay_seconds=None,
+                    )
+                )
+
+                if attempt == self.max_attempts - 1:
+                    logger.warning(f"Async function failed after {self.max_attempts} attempts")
+                    raise MaxRetriesError(
+                        max_attempts=self.max_attempts,
+                        last_exception=e,  # type: ignore[arg-type]
+                        attempt_history=attempt_history,
+                    ) from e
+
+                delay = self.base_delay_seconds * (2**attempt)
+                logger.debug(
+                    f"Async attempt {attempt + 1}/{self.max_attempts} failed, "
+                    f"retrying after {delay}s: {e}"
+                )
+
+                if self.sleep_func is None:
+                    await asyncio.sleep(delay)
+                else:
+                    result = self.sleep_func(delay)
+                    if inspect.isawaitable(result):
+                        await result
+
+        raise RuntimeError("Unexpected retry loop exit without exception")

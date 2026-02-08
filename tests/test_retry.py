@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from asciibench.common.logging import JSONLogger
-from asciibench.common.retry import retry
+from asciibench.common.retry import MaxRetriesError, RetryableTaskExecutor, retry
 
 
 class CustomRetryableError(Exception):
@@ -970,3 +970,588 @@ class TestDynamicSleepDetection:
         assert result == "success"
         assert attempt_count == 3
         assert len(sleep_calls) == 2
+
+
+class TestRetryableTaskExecutor:
+    """Tests for RetryableTaskExecutor class."""
+
+    def test_succeeds_on_first_attempt(self) -> None:
+        """Executor succeeds on first attempt without retries."""
+        attempt_count = 0
+
+        def successful_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,)
+        )
+        result = executor.execute(successful_call)
+
+        assert result == "success"
+        assert attempt_count == 1
+
+    def test_retries_on_specified_exception(self) -> None:
+        """Executor retries when specified exception is raised."""
+        attempt_count = 0
+
+        def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,)
+        )
+        result = executor.execute(failing_call)
+
+        assert result == "success"
+        assert attempt_count == 3
+
+    def test_raises_max_retries_exceeded(self) -> None:
+        """Executor raises MaxRetriesError after max attempts exhausted."""
+        attempt_count = 0
+
+        def always_failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise CustomRetryableError("Persistent error")
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,)
+        )
+
+        with pytest.raises(MaxRetriesError) as exc_info:
+            executor.execute(always_failing_call)
+
+        assert attempt_count == 3
+        assert exc_info.value.max_attempts == 3
+        assert isinstance(exc_info.value.last_exception, CustomRetryableError)
+        assert len(exc_info.value.attempt_history) == 3
+        assert "Max retries (3) exceeded" in str(exc_info.value)
+
+    def test_uses_exponential_backoff(self) -> None:
+        """Retry delays follow exponential backoff pattern."""
+        attempt_count = 0
+        timestamps = []
+
+        def delayed_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            timestamps.append(time.time())
+            if attempt_count < 4:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=4, base_delay_seconds=0.1, retryable_exceptions=(CustomRetryableError,)
+        )
+
+        executor.execute(delayed_call)
+
+        assert len(timestamps) == 4
+        delays = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+
+        assert delays[0] >= 0.1 * 0.8
+        assert delays[1] >= 0.2 * 0.8
+        assert delays[2] >= 0.4 * 0.8
+
+    def test_non_retryable_exception_raises_immediately(self) -> None:
+        """Non-retryable exception raises immediately without retry."""
+        attempt_count = 0
+
+        def non_retryable_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise NonRetryableError("Non-retryable error")
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,)
+        )
+
+        with pytest.raises(NonRetryableError, match="Non-retryable error"):
+            executor.execute(non_retryable_call)
+
+        assert attempt_count == 1
+
+    def test_multiple_retryable_exception_types(self) -> None:
+        """Retry works with multiple exception types."""
+        attempt_count = 0
+
+        def multi_exception_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count == 1:
+                raise CustomRetryableError("First error")
+            if attempt_count == 2:
+                raise ValueError("Second error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3,
+            base_delay_seconds=0.01,
+            retryable_exceptions=(CustomRetryableError, ValueError),
+        )
+        result = executor.execute(multi_exception_call)
+
+        assert result == "success"
+        assert attempt_count == 3
+
+    def test_passes_arguments_and_returns_result(self) -> None:
+        """Executor correctly passes arguments and returns result."""
+
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        executor = RetryableTaskExecutor(max_attempts=3, base_delay_seconds=0.01)
+        result = executor.execute(add, 2, 3)
+
+        assert result == 5
+
+    def test_passes_keyword_arguments(self) -> None:
+        """Executor correctly passes keyword arguments."""
+
+        def greet(name: str, greeting: str = "Hello") -> str:
+            return f"{greeting}, {name}!"
+
+        executor = RetryableTaskExecutor(max_attempts=3, base_delay_seconds=0.01)
+        result = executor.execute(greet, "World", greeting="Hi")
+
+        assert result == "Hi, World!"
+
+    def test_custom_sleep_func(self) -> None:
+        """Executor uses custom sleep function when provided."""
+        sleep_calls = []
+
+        def custom_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        attempt_count = 0
+
+        def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=custom_sleep,
+        )
+        result = executor.execute(failing_call)
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+        assert sleep_calls[0] == 0.1
+        assert sleep_calls[1] == 0.2
+
+    def test_attempt_history_records_failures(self) -> None:
+        """MaxRetriesError includes complete attempt history."""
+        attempt_count = 0
+
+        def always_failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise CustomRetryableError(f"Error on attempt {attempt_count}")
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,)
+        )
+
+        with pytest.raises(MaxRetriesError) as exc_info:
+            executor.execute(always_failing_call)
+
+        history = exc_info.value.attempt_history  # type: ignore[attr-defined]
+        assert len(history) == 3
+        assert history[0].attempt_number == 1
+        assert "Error on attempt 1" in str(history[0].exception)
+        assert history[1].attempt_number == 2
+        assert history[2].attempt_number == 3
+
+    def test_zero_base_delay(self) -> None:
+        """Zero base delay means no waiting between retries."""
+        attempt_count = 0
+
+        def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 4:
+                raise CustomRetryableError("Error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=4, base_delay_seconds=0, retryable_exceptions=(CustomRetryableError,)
+        )
+
+        start_time = time.time()
+        result = executor.execute(failing_call)
+        elapsed_time = time.time() - start_time
+
+        assert result == "success"
+        assert attempt_count == 4
+        assert elapsed_time < 0.5
+
+    @pytest.mark.asyncio
+    async def test_async_succeeds_on_first_attempt(self) -> None:
+        """Async executor succeeds on first attempt without retries."""
+        attempt_count = 0
+
+        async def successful_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,)
+        )
+        result = await executor.execute_async(successful_call)
+
+        assert result == "success"
+        assert attempt_count == 1
+
+    @pytest.mark.asyncio
+    async def test_async_retries_on_specified_exception(self) -> None:
+        """Async executor retries when specified exception is raised."""
+        attempt_count = 0
+
+        async def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,)
+        )
+        result = await executor.execute_async(failing_call)
+
+        assert result == "success"
+        assert attempt_count == 3
+
+    @pytest.mark.asyncio
+    async def test_async_raises_max_retries_exceeded(self) -> None:
+        """Async executor raises MaxRetriesError after max attempts exhausted."""
+        attempt_count = 0
+
+        async def always_failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise CustomRetryableError("Persistent error")
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,)
+        )
+
+        with pytest.raises(MaxRetriesError) as exc_info:
+            await executor.execute_async(always_failing_call)
+
+        assert attempt_count == 3
+        assert exc_info.value.max_attempts == 3
+        assert isinstance(exc_info.value.last_exception, CustomRetryableError)
+
+    @pytest.mark.asyncio
+    async def test_async_uses_exponential_backoff(self) -> None:
+        """Async retry delays follow exponential backoff pattern."""
+        attempt_count = 0
+        timestamps = []
+
+        async def delayed_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            timestamps.append(time.time())
+            if attempt_count < 4:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=4, base_delay_seconds=0.1, retryable_exceptions=(CustomRetryableError,)
+        )
+
+        await executor.execute_async(delayed_call)
+
+        assert len(timestamps) == 4
+        delays = [timestamps[i + 1] - timestamps[i] for i in range(len(timestamps) - 1)]
+
+        assert delays[0] >= 0.1 * 0.8
+        assert delays[1] >= 0.2 * 0.8
+        assert delays[2] >= 0.4 * 0.8
+
+    @pytest.mark.asyncio
+    async def test_async_non_retryable_exception_raises_immediately(self) -> None:
+        """Non-retryable exception raises immediately without retry."""
+        attempt_count = 0
+
+        async def non_retryable_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise NonRetryableError("Non-retryable error")
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3, base_delay_seconds=0.01, retryable_exceptions=(CustomRetryableError,)
+        )
+
+        with pytest.raises(NonRetryableError, match="Non-retryable error"):
+            await executor.execute_async(non_retryable_call)
+
+        assert attempt_count == 1
+
+    @pytest.mark.asyncio
+    async def test_async_passes_arguments_and_returns_result(self) -> None:
+        """Async executor correctly passes arguments and returns result."""
+
+        async def add(a: int, b: int) -> int:
+            return a + b
+
+        executor = RetryableTaskExecutor(max_attempts=3, base_delay_seconds=0.01)
+        result = await executor.execute_async(add, 2, 3)
+
+        assert result == 5
+
+    @pytest.mark.asyncio
+    async def test_async_passes_keyword_arguments(self) -> None:
+        """Async executor correctly passes keyword arguments."""
+
+        async def greet(name: str, greeting: str = "Hello") -> str:
+            return f"{greeting}, {name}!"
+
+        executor = RetryableTaskExecutor(max_attempts=3, base_delay_seconds=0.01)
+        result = await executor.execute_async(greet, "World", greeting="Hi")
+
+        assert result == "Hi, World!"
+
+    @pytest.mark.asyncio
+    async def test_async_custom_sleep_func(self) -> None:
+        """Async executor uses custom sleep function when provided."""
+        sleep_calls = []
+
+        async def custom_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        attempt_count = 0
+
+        async def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=custom_sleep,
+        )
+        result = await executor.execute_async(failing_call)
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+        assert sleep_calls[0] == 0.1
+        assert sleep_calls[1] == 0.2
+
+    @pytest.mark.asyncio
+    async def test_async_zero_base_delay(self) -> None:
+        """Zero base delay means no waiting between async retries."""
+        attempt_count = 0
+
+        async def failing_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 4:
+                raise CustomRetryableError("Error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=4, base_delay_seconds=0, retryable_exceptions=(CustomRetryableError,)
+        )
+
+        start_time = time.time()
+        result = await executor.execute_async(failing_call)
+        elapsed_time = time.time() - start_time
+
+        assert result == "success"
+        assert attempt_count == 4
+        assert elapsed_time < 0.5
+
+    @pytest.mark.asyncio
+    async def test_async_awaits_func_correctly(self) -> None:
+        """Async wrapper correctly awaits func(*args, **kwargs)."""
+
+        async def async_call():
+            await asyncio.sleep(0)
+            return "awaited"
+
+        executor = RetryableTaskExecutor(max_attempts=1, base_delay_seconds=0.01)
+        result = await executor.execute_async(async_call)
+
+        assert result == "awaited"
+
+    @pytest.mark.asyncio
+    async def test_async_multiple_retryable_exception_types(self) -> None:
+        """Async retry works with multiple exception types."""
+        attempt_count = 0
+
+        async def multi_exception_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count == 1:
+                raise CustomRetryableError("First error")
+            if attempt_count == 2:
+                raise ValueError("Second error")
+            return "success"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3,
+            base_delay_seconds=0.01,
+            retryable_exceptions=(CustomRetryableError, ValueError),
+        )
+        result = await executor.execute_async(multi_exception_call)
+
+        assert result == "success"
+        assert attempt_count == 3
+
+
+class TestRetryableTaskExecutorValidation:
+    """Tests for input validation of RetryableTaskExecutor."""
+
+    def test_negative_max_attempts_raises_value_error(self) -> None:
+        """Example: RetryableTaskExecutor(max_attempts=-1) raises ValueError."""
+        with pytest.raises(ValueError, match="max_attempts must be >= 1"):
+            RetryableTaskExecutor(max_attempts=-1)
+
+    def test_zero_max_attempts_raises_value_error(self) -> None:
+        """Zero max_attempts raises ValueError."""
+        with pytest.raises(ValueError, match="max_attempts must be >= 1"):
+            RetryableTaskExecutor(max_attempts=0)
+
+    def test_string_max_attempts_raises_value_error(self) -> None:
+        """Invalid max_attempts type raises ValueError."""
+        with pytest.raises(ValueError, match="max_attempts must be an integer"):
+            RetryableTaskExecutor(max_attempts="3")  # type: ignore[invalid-argument-type]
+
+    def test_float_max_attempts_raises_value_error(self) -> None:
+        """Float max_attempts raises ValueError."""
+        with pytest.raises(ValueError, match="max_attempts must be an integer"):
+            RetryableTaskExecutor(max_attempts=3.5)  # type: ignore[invalid-argument-type]
+
+    def test_negative_base_delay_raises_value_error(self) -> None:
+        """Negative base_delay_seconds raises ValueError."""
+        with pytest.raises(ValueError, match="base_delay_seconds must be >= 0"):
+            RetryableTaskExecutor(base_delay_seconds=-1)
+
+    def test_string_base_delay_raises_value_error(self) -> None:
+        """Example: base_delay_seconds='invalid' raises ValueError."""
+        with pytest.raises(ValueError, match="base_delay_seconds must be a number"):
+            RetryableTaskExecutor(base_delay_seconds="invalid")  # type: ignore[invalid-argument-type]
+
+    def test_zero_base_delay_is_valid(self) -> None:
+        """Zero base delay is valid."""
+        executor = RetryableTaskExecutor(base_delay_seconds=0)
+        assert executor.base_delay_seconds == 0
+
+    def test_empty_retryable_exceptions_raises_type_error(self) -> None:
+        """Empty retryable_exceptions tuple raises TypeError."""
+        with pytest.raises(TypeError, match="retryable_exceptions must not be empty"):
+            RetryableTaskExecutor(retryable_exceptions=())
+
+    def test_list_retryable_exceptions_raises_type_error(self) -> None:
+        """List instead of tuple raises TypeError."""
+        with pytest.raises(TypeError, match="retryable_exceptions must be a tuple"):
+            RetryableTaskExecutor(retryable_exceptions=[Exception])  # type: ignore[invalid-argument-type]
+
+    def test_non_exception_type_in_retryable_exceptions_raises_type_error(
+        self,
+    ) -> None:
+        """Non-Exception type in retryable_exceptions raises TypeError."""
+        with pytest.raises(TypeError, match="retryable_exceptions must contain Exception types"):
+            RetryableTaskExecutor(
+                retryable_exceptions=(Exception, "not_an_exception")  # type: ignore[invalid-argument-type]
+            )
+
+    def test_non_class_in_retryable_exceptions_raises_type_error(self) -> None:
+        """Non-class in retryable_exceptions raises TypeError."""
+        with pytest.raises(TypeError, match="retryable_exceptions must contain Exception types"):
+            RetryableTaskExecutor(retryable_exceptions=(Exception, 123))  # type: ignore[invalid-argument-type]
+
+    def test_valid_retryable_exceptions_tuple(self) -> None:
+        """Valid tuple of exception types works correctly."""
+        executor = RetryableTaskExecutor(retryable_exceptions=(CustomRetryableError, ValueError))
+        assert executor.retryable_exceptions == (CustomRetryableError, ValueError)
+
+
+class TestRetryableTaskExecutorExamples:
+    """Example tests from acceptance criteria."""
+
+    def test_example_usage_pattern(self) -> None:
+        """Example: RetryableTaskExecutor(max_attempts=3).execute(func) retries on failure."""
+        sleep_calls = []
+
+        def instant_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        attempt_count = 0
+
+        def api_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count <= 3:
+                raise CustomRetryableError("429 Rate limit exceeded")
+            return "response"
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3,
+            base_delay_seconds=1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=instant_sleep,
+        )
+
+        with pytest.raises(MaxRetriesError):
+            executor.execute(api_call)
+
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+        assert sleep_calls[0] == 1.0
+        assert sleep_calls[1] == 2.0
+
+    def test_negative_case_max_retries_exceeded_with_history(self) -> None:
+        """Negative case: All retries exhausted raises MaxRetriesError with attempt history."""
+        attempt_count = 0
+
+        def failing_api_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            raise CustomRetryableError("API error")
+
+        executor = RetryableTaskExecutor(
+            max_attempts=3,
+            base_delay_seconds=0.01,
+            retryable_exceptions=(CustomRetryableError,),
+        )
+
+        with pytest.raises(MaxRetriesError) as exc_info:
+            executor.execute(failing_api_call)
+
+        assert attempt_count == 3
+
+        exception = exc_info.value
+        assert exception.max_attempts == 3
+        assert isinstance(exception.last_exception, CustomRetryableError)
+        assert "API error" in str(exception.last_exception)
+
+        history = exception.attempt_history
+        assert len(history) == 3
+        assert history[0].attempt_number == 1
+        assert isinstance(history[0].exception, CustomRetryableError)
+        assert history[1].attempt_number == 2
+        assert history[2].attempt_number == 3
+
+        assert "Max retries (3) exceeded" in str(exception)

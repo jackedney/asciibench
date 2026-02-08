@@ -48,9 +48,6 @@ ProgressCallback = Callable[[str, str, int, int], None]
 # Type alias for stats callback: (is_valid, cost) -> None
 StatsCallback = Callable[[bool, float | None], None]
 
-# Default number of retries for invalid outputs or API errors
-DEFAULT_MAX_RETRIES = 3
-
 
 @dataclass
 class SampleTask:
