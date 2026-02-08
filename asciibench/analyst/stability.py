@@ -21,13 +21,9 @@ import math
 import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 from asciibench.analyst.elo import calculate_elo
-
-if TYPE_CHECKING:
-    from asciibench.common.models import ArtSample, Vote
-
+from asciibench.common.models import ArtSample, Vote
 
 # ============================================================================
 # Data Classes for Structured Results
@@ -126,11 +122,14 @@ def bootstrap_confidence_intervals(
         - CIs shouldn't overlap for models claimed to be "different"
         - CI width < 150 points suggests reasonable stability
     """
-    if n_iterations < 2:
-        raise ValueError("n_iterations must be at least 2 for CI calculation")
+    min_iterations = 2
+    if n_iterations < min_iterations:
+        msg = f"n_iterations must be at least {min_iterations} for CI calculation"
+        raise ValueError(msg)
 
     if not (0 < confidence_level <= 1.0):
-        raise ValueError("confidence_level must be in (0, 1]")
+        msg = "confidence_level must be in (0, 1]"
+        raise ValueError(msg)
 
     if not votes:
         return {}
@@ -349,13 +348,10 @@ def bradley_terry_significance(
         wins_b = win_matrix.get(model_b, {}).get(model_a, 0.0)
         total = wins_a + wins_b
 
-        if total == 0:
-            p_value = 1.0
-        else:
-            # Two-tailed binomial test: H0 is p=0.5
-            # Note: total is always an integer since each vote (including ties)
-            # contributes 1 to the total (0.5 + 0.5 for ties)
-            p_value = _binomial_test_two_tailed(wins_a, int(total), 0.5)
+        # Two-tailed binomial test: H0 is p=0.5
+        # Note: total is always an integer since each vote (including ties)
+        # contributes 1 to the total (0.5 + 0.5 for ties)
+        p_value = 1.0 if total == 0 else _binomial_test_two_tailed(wins_a, int(total), 0.5)
 
         results.append(
             PairwiseSignificance(

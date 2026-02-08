@@ -1,10 +1,12 @@
 import json
 import logging
 import random
+
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
 from uuid import UUID
+import statistics
+from typing import Literal, cast
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -14,12 +16,13 @@ from pydantic import BaseModel
 
 from asciibench.analyst.elo import calculate_elo
 from asciibench.analyst.stability import generate_stability_report
-from asciibench.common.models import ArtSample, Vote
+from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
 from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
     read_jsonl_by_id,
 )
+from asciibench.common.yaml_config import load_models
 from asciibench.judge_ui.matchup_service import MatchupService
 from asciibench.judge_ui.undo_service import UndoService
 
@@ -33,6 +36,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 DATA_DIR = Path("data")
 DATABASE_PATH = DATA_DIR / "database.jsonl"
 VOTES_PATH = DATA_DIR / "votes.jsonl"
+VLM_EVALUATIONS_PATH = DATA_DIR / "vlm_evaluations.jsonl"
+RANKINGS_PATH = DATA_DIR / "rankings.json"
 
 
 @lru_cache(maxsize=1)
@@ -527,10 +532,11 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
             )
 
         # Create and save the vote
+        # winner is validated above to be one of "A", "B", "tie", "fail"
         vote = Vote(
             sample_a_id=str(sample_a_id),
             sample_b_id=str(sample_b_id),
-            winner=winner,  # type: ignore[arg-type]
+            winner=cast(Literal["A", "B", "tie", "fail"], winner),
         )
         append_jsonl(VOTES_PATH, vote)
 
@@ -648,6 +654,45 @@ class AnalyticsResponse(BaseModel):
     elo_history: dict[str, list[EloHistoryPoint]]
     head_to_head: dict[str, dict[str, HeadToHeadRecord]]
     total_votes: int
+
+
+class ModelAccuracyStats(BaseModel):
+    """Accuracy statistics for a single model."""
+
+    total: int
+    correct: int
+    accuracy: float
+
+
+class CategoryAccuracyStats(BaseModel):
+    """Accuracy statistics for a single category."""
+
+    total: int
+    correct: int
+    accuracy: float
+
+
+class VLMAccuracyResponse(BaseModel):
+    """VLM accuracy statistics response."""
+
+    by_model: dict[str, ModelAccuracyStats]
+    by_category: dict[str, CategoryAccuracyStats]
+
+
+class CorrelationDataPoint(BaseModel):
+    """Single data point for Elo-VLM correlation."""
+
+    model_id: str
+    model_name: str
+    elo_rating: float
+    vlm_accuracy: float
+
+
+class EloVLMCorrelationResponse(BaseModel):
+    """Elo-VLM correlation response."""
+
+    correlation_coefficient: float | None
+    data: list[CorrelationDataPoint]
 
 
 def _calculate_elo_history(
@@ -823,6 +868,242 @@ async def get_analytics() -> AnalyticsResponse:
     return _build_analytics_data(votes, valid_samples)
 
 
+def _calculate_vlm_accuracy(
+    evaluations: list[VLMEvaluation],
+    samples: list[ArtSample],
+) -> dict[str, ModelAccuracyStats]:
+    """Calculate VLM accuracy statistics per ASCII-generating model.
+
+    Args:
+        evaluations: List of VLM evaluations
+        samples: List of all samples from database
+
+    Returns:
+        Dictionary mapping model_id to accuracy statistics
+    """
+    sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
+
+    by_model: dict[str, dict[str, int]] = {}
+
+    for evaluation in evaluations:
+        sample = sample_lookup.get(evaluation.sample_id)
+        if not sample:
+            continue
+
+        model_id = sample.model_id
+        if model_id not in by_model:
+            by_model[model_id] = {"total": 0, "correct": 0}
+
+        by_model[model_id]["total"] += 1
+        if evaluation.is_correct:
+            by_model[model_id]["correct"] += 1
+
+    result: dict[str, ModelAccuracyStats] = {}
+    for model_id, stats in by_model.items():
+        accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
+        result[model_id] = ModelAccuracyStats(
+            total=stats["total"],
+            correct=stats["correct"],
+            accuracy=round(accuracy, 2),
+        )
+
+    return result
+
+
+def _calculate_category_accuracy(
+    evaluations: list[VLMEvaluation],
+    samples: list[ArtSample],
+) -> dict[str, CategoryAccuracyStats]:
+    """Calculate VLM accuracy statistics per category.
+
+    Args:
+        evaluations: List of VLM evaluations
+        samples: List of all samples from database
+
+    Returns:
+        Dictionary mapping category to accuracy statistics
+    """
+    sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
+
+    by_category: dict[str, dict[str, int]] = {}
+
+    for evaluation in evaluations:
+        sample = sample_lookup.get(evaluation.sample_id)
+        if not sample:
+            continue
+
+        category = sample.category
+        if category not in by_category:
+            by_category[category] = {"total": 0, "correct": 0}
+
+        by_category[category]["total"] += 1
+        if evaluation.is_correct:
+            by_category[category]["correct"] += 1
+
+    result: dict[str, CategoryAccuracyStats] = {}
+    for category, stats in by_category.items():
+        accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
+        result[category] = CategoryAccuracyStats(
+            total=stats["total"],
+            correct=stats["correct"],
+            accuracy=round(accuracy, 2),
+        )
+
+    return result
+
+
+def _calculate_pearson_correlation(x: list[float], y: list[float]) -> float | None:
+    """Calculate Pearson correlation coefficient.
+
+    Args:
+        x: First list of values
+        y: Second list of values
+
+    Returns:
+        Pearson correlation coefficient, or None if fewer than 3 data points
+    """
+    if len(x) < 3 or len(y) < 3:
+        return None
+
+    n = len(x)
+
+    if n != len(y):
+        raise ValueError("Lists must have the same length")
+
+    if n < 2:
+        return None
+
+    mean_x = statistics.mean(x)
+    mean_y = statistics.mean(y)
+
+    numerator = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y, strict=True))
+
+    sum_sq_x = sum((xi - mean_x) ** 2 for xi in x)
+    sum_sq_y = sum((yi - mean_y) ** 2 for yi in y)
+
+    denominator = (sum_sq_x * sum_sq_y) ** 0.5
+
+    if denominator < 1e-10:
+        return None
+
+    return numerator / denominator
+
+
+@app.get("/api/vlm-accuracy", response_model=VLMAccuracyResponse)
+async def get_vlm_accuracy() -> VLMAccuracyResponse:
+    """Get VLM accuracy statistics per model and category.
+
+    Returns accuracy metrics for ASCII-generating models based on VLM evaluations.
+    Reads from vlm_evaluations.jsonl joined with database.jsonl.
+
+    Returns:
+        VLMAccuracyResponse with by_model and by_category accuracy stats
+
+    Raises:
+        HTTPException: 500 if vlm_evaluations.jsonl is malformed
+    """
+    try:
+        evaluations = read_jsonl(VLM_EVALUATIONS_PATH, VLMEvaluation)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error reading vlm_evaluations.jsonl: {e}",
+        ) from e
+
+    samples = read_jsonl(DATABASE_PATH, ArtSample)
+
+    if not evaluations:
+        return VLMAccuracyResponse(by_model={}, by_category={})
+
+    by_model = _calculate_vlm_accuracy(evaluations, samples)
+    by_category = _calculate_category_accuracy(evaluations, samples)
+
+    return VLMAccuracyResponse(by_model=by_model, by_category=by_category)
+
+
+@app.get("/api/elo-vlm-correlation", response_model=EloVLMCorrelationResponse)
+async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
+    """Get Elo ratings and VLM accuracy per model for correlation analysis.
+
+    Returns correlation data between human Elo ratings and VLM recognition rates.
+    Joins data from rankings.json and vlm_evaluations.jsonl.
+
+    Returns:
+        EloVLMCorrelationResponse with correlation coefficient and data array
+
+    Raises:
+        HTTPException: 500 if data files are malformed
+    """
+    try:
+        evaluations = read_jsonl(VLM_EVALUATIONS_PATH, VLMEvaluation)
+    except FileNotFoundError:
+        evaluations = []
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error reading vlm_evaluations.jsonl: {e}",
+        ) from e
+
+    samples = read_jsonl(DATABASE_PATH, ArtSample)
+
+    try:
+        with open(RANKINGS_PATH) as f:
+            rankings_data = json.load(f)
+    except FileNotFoundError:
+        return EloVLMCorrelationResponse(correlation_coefficient=None, data=[])
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error reading rankings.json: {e}",
+        ) from e
+
+    try:
+        models = load_models()
+    except FileNotFoundError:
+        models = []
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error reading models.yaml: {e}",
+        ) from e
+
+    if not evaluations or not rankings_data.get("overall_ratings"):
+        return EloVLMCorrelationResponse(correlation_coefficient=None, data=[])
+
+    elo_ratings = rankings_data["overall_ratings"]
+    vlm_accuracy = _calculate_vlm_accuracy(evaluations, samples)
+
+    model_lookup: dict[str, Model] = {m.id: m for m in models}
+
+    correlation_data: list[CorrelationDataPoint] = []
+    elo_values: list[float] = []
+    accuracy_values: list[float] = []
+
+    for model_id, elo_rating in elo_ratings.items():
+        if model_id in vlm_accuracy:
+            model = model_lookup.get(model_id)
+            model_name = model.name if model else model_id
+            accuracy = vlm_accuracy[model_id].accuracy
+
+            correlation_data.append(
+                CorrelationDataPoint(
+                    model_id=model_id,
+                    model_name=model_name,
+                    elo_rating=elo_rating,
+                    vlm_accuracy=accuracy,
+                )
+            )
+            elo_values.append(elo_rating)
+            accuracy_values.append(accuracy)
+
+    correlation_coefficient = _calculate_pearson_correlation(elo_values, accuracy_values)
+
+    return EloVLMCorrelationResponse(
+        correlation_coefficient=correlation_coefficient,
+        data=correlation_data,
+    )
+
+
 @app.get("/htmx/analytics", response_class=HTMLResponse)
 async def htmx_get_analytics(request: Request) -> HTMLResponse:
     """HTMX endpoint to get analytics dashboard as HTML fragment."""
@@ -895,4 +1176,99 @@ async def htmx_get_analytics(request: Request) -> HTMLResponse:
                 "models": [],
                 "total_votes": 0,
             },
+        )
+
+
+@app.get("/htmx/vlm-accuracy", response_class=HTMLResponse)
+async def htmx_get_vlm_accuracy(request: Request) -> HTMLResponse:
+    """HTMX endpoint to get VLM accuracy table as HTML fragment."""
+    try:
+        # Load evaluations and samples
+        evaluations = read_jsonl(VLM_EVALUATIONS_PATH, VLMEvaluation)
+        samples = read_jsonl(DATABASE_PATH, ArtSample)
+
+        # Load models for display names
+        try:
+            models = load_models()
+        except (FileNotFoundError, Exception):
+            models = []
+
+        model_lookup: dict[str, Model] = {m.id: m for m in models}
+
+        if not evaluations:
+            return templates.TemplateResponse(
+                request,
+                "partials/vlm_accuracy.html",
+                {"vlm_accuracy_data": []},
+            )
+
+        # Calculate accuracy per model
+        by_model = _calculate_vlm_accuracy(evaluations, samples)
+
+        # Sort by accuracy descending and convert to list for template
+        sorted_models = sorted(by_model.items(), key=lambda x: x[1].accuracy, reverse=True)
+
+        vlm_accuracy_data = [
+            {
+                "model_id": model_id,
+                "model_name": model_lookup.get(model_id, Model(id=model_id, name=model_id)).name,
+                "total": stats.total,
+                "correct": stats.correct,
+                "accuracy": stats.accuracy,
+            }
+            for model_id, stats in sorted_models
+        ]
+
+        return templates.TemplateResponse(
+            request,
+            "partials/vlm_accuracy.html",
+            {"vlm_accuracy_data": vlm_accuracy_data},
+        )
+    except Exception:
+        logging.exception("Error generating VLM accuracy")
+        return templates.TemplateResponse(
+            request,
+            "partials/vlm_accuracy.html",
+            {"vlm_accuracy_data": [], "error": "Failed to load VLM accuracy data."},
+        )
+
+
+@app.get("/htmx/elo-vlm-correlation", response_class=HTMLResponse)
+async def htmx_get_elo_vlm_correlation(request: Request) -> HTMLResponse:
+    """HTMX endpoint to get Elo-VLM correlation chart as HTML fragment."""
+    try:
+        # Get correlation data from API endpoint
+        correlation_response = await get_elo_vlm_correlation()
+
+        # Convert correlation data to JSON for Chart.js
+        correlation_json = json.dumps(
+            {
+                "correlation_coefficient": correlation_response.correlation_coefficient,
+                "data": [
+                    {
+                        "x": point.elo_rating,
+                        "y": point.vlm_accuracy,
+                        "model_id": point.model_id,
+                        "model_name": point.model_name,
+                    }
+                    for point in correlation_response.data
+                ],
+            }
+        )
+
+        return templates.TemplateResponse(
+            request,
+            "partials/elo_vlm_correlation.html",
+            {
+                "correlation_json": correlation_json,
+                "correlation_coefficient": correlation_response.correlation_coefficient,
+                "data": correlation_response.data,
+            },
+        )
+    except Exception:
+        logging.exception("Error generating Elo-VLM correlation chart")
+        return templates.TemplateResponse(
+            request,
+            "partials/elo_vlm_correlation.html",
+            {"error": "Failed to load correlation data."},
         )

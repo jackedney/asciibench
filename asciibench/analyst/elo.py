@@ -23,17 +23,13 @@ Dependencies:
     - asciibench.common.models: Vote, ArtSample models
 """
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from asciibench.common.models import ArtSample, Vote
-
+from asciibench.common.models import ArtSample, Vote
 
 BASE_RATING = 1500
 K_FACTOR = 32
 
 
-def calculate_elo(votes: list["Vote"], samples: list["ArtSample"]) -> dict[str, float]:
+def calculate_elo(votes: list[Vote], samples: list[ArtSample]) -> dict[str, float]:
     """Calculate Elo ratings from a list of votes.
 
     This function processes judge votes to compute Elo ratings for each
@@ -119,7 +115,7 @@ def calculate_elo(votes: list["Vote"], samples: list["ArtSample"]) -> dict[str, 
 
 
 def calculate_elo_by_category(
-    votes: list["Vote"], samples: list["ArtSample"]
+    votes: list[Vote], samples: list[ArtSample]
 ) -> dict[str, dict[str, float]]:
     """Calculate Elo ratings for each category separately.
 

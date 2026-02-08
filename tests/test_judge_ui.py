@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from asciibench.common.models import ArtSample, Vote
+from asciibench.common.models import ArtSample, VLMEvaluation, Vote
 from asciibench.common.persistence import append_jsonl, read_jsonl
 from asciibench.judge_ui.main import (
     CategoryProgress,
@@ -37,6 +37,7 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(main_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(main_module, "DATABASE_PATH", tmp_path / "database.jsonl")
     monkeypatch.setattr(main_module, "VOTES_PATH", tmp_path / "votes.jsonl")
+    monkeypatch.setattr(main_module, "VLM_EVALUATIONS_PATH", tmp_path / "vlm_evaluations.jsonl")
     # Create MatchupService and UndoService instances for tests
     matchup_service = MatchupService(
         database_path=tmp_path / "database.jsonl", votes_path=tmp_path / "votes.jsonl"
@@ -2085,3 +2086,190 @@ class TestHTMXEndpoints:
         response = client.get("/htmx/prompt")
         assert response.status_code == 200
         assert "No samples available" in response.text
+
+
+@pytest.fixture
+def vlm_evaluation_data() -> list[VLMEvaluation]:
+    """Create sample VLM evaluation data for tests."""
+    sample_id_1 = uuid4()
+    sample_id_2 = uuid4()
+    sample_id_3 = uuid4()
+    sample_id_4 = uuid4()
+
+    return [
+        VLMEvaluation(
+            id=uuid4(),
+            sample_id=str(sample_id_1),
+            vlm_model_id="openai/gpt-4o",
+            expected_subject="cat",
+            vlm_response="A cat",
+            similarity_score=0.95,
+            is_correct=True,
+        ),
+        VLMEvaluation(
+            id=uuid4(),
+            sample_id=str(sample_id_1),
+            vlm_model_id="openai/gpt-4o",
+            expected_subject="dog",
+            vlm_response="A cat",
+            similarity_score=0.3,
+            is_correct=False,
+        ),
+        VLMEvaluation(
+            id=uuid4(),
+            sample_id=str(sample_id_2),
+            vlm_model_id="openai/gpt-4o",
+            expected_subject="cat",
+            vlm_response="A cat",
+            similarity_score=0.92,
+            is_correct=True,
+        ),
+        VLMEvaluation(
+            id=uuid4(),
+            sample_id=str(sample_id_3),
+            vlm_model_id="anthropic/claude-3-5-sonnet",
+            expected_subject="cat",
+            vlm_response="A cat",
+            similarity_score=0.88,
+            is_correct=True,
+        ),
+        VLMEvaluation(
+            id=uuid4(),
+            sample_id=str(sample_id_4),
+            vlm_model_id="anthropic/claude-3-5-sonnet",
+            expected_subject="cat",
+            vlm_response="A dog",
+            similarity_score=0.2,
+            is_correct=False,
+        ),
+    ]
+
+
+def populate_vlm_evaluations(path: Path, evaluations: list[VLMEvaluation]) -> None:
+    """Populate vlm_evaluations.jsonl with test evaluations."""
+    eval_path = path / "vlm_evaluations.jsonl"
+    for evaluation in evaluations:
+        append_jsonl(eval_path, evaluation)
+
+
+class TestVLMAccuracyEndpoint:
+    """Tests for GET /api/vlm-accuracy endpoint."""
+
+    def test_vlm_accuracy_returns_empty_with_no_evaluations(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that VLM accuracy returns empty objects with no evaluations."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.get("/api/vlm-accuracy")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "by_model" in data
+        assert "by_category" in data
+        assert data["by_model"] == {}
+        assert data["by_category"] == {}
+
+    def test_vlm_accuracy_calculates_per_model_stats(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+        vlm_evaluation_data: list[VLMEvaluation],
+    ) -> None:
+        """Test that VLM accuracy calculates per-model statistics."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Link evaluations to first 4 valid samples
+        # sample_data[0,1]: model-a, sample_data[2,3]: model-b
+        vlm_evaluation_data[0].sample_id = str(sample_data[0].id)
+        vlm_evaluation_data[1].sample_id = str(sample_data[0].id)
+        vlm_evaluation_data[2].sample_id = str(sample_data[1].id)
+        vlm_evaluation_data[3].sample_id = str(sample_data[2].id)
+        vlm_evaluation_data[4].sample_id = str(sample_data[3].id)
+
+        populate_vlm_evaluations(temp_data_dir, vlm_evaluation_data)
+
+        response = client.get("/api/vlm-accuracy")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "by_model" in data
+
+        # model-a: 3 evaluations (2 correct, 1 incorrect) = 0.67 accuracy
+        assert "model-a" in data["by_model"]
+        model_a_stats = data["by_model"]["model-a"]
+        assert model_a_stats["total"] == 3
+        assert model_a_stats["correct"] == 2
+        assert model_a_stats["accuracy"] == 0.67
+
+        # model-b: 2 evaluations (1 correct, 1 incorrect) = 0.5 accuracy
+        assert "model-b" in data["by_model"]
+        model_b_stats = data["by_model"]["model-b"]
+        assert model_b_stats["total"] == 2
+        assert model_b_stats["correct"] == 1
+        assert model_b_stats["accuracy"] == 0.5
+
+    def test_vlm_accuracy_calculates_per_category_stats(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+        vlm_evaluation_data: list[VLMEvaluation],
+    ) -> None:
+        """Test that VLM accuracy calculates per-category statistics."""
+        populate_database(temp_data_dir, sample_data)
+
+        # Link evaluations to first 4 valid samples
+        vlm_evaluation_data[0].sample_id = str(sample_data[0].id)
+        vlm_evaluation_data[1].sample_id = str(sample_data[0].id)
+        vlm_evaluation_data[2].sample_id = str(sample_data[1].id)
+        vlm_evaluation_data[3].sample_id = str(sample_data[2].id)
+        vlm_evaluation_data[4].sample_id = str(sample_data[3].id)
+
+        populate_vlm_evaluations(temp_data_dir, vlm_evaluation_data)
+
+        response = client.get("/api/vlm-accuracy")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "by_category" in data
+
+        # single_animal: 5 evaluations (3 correct, 2 incorrect) = 0.6 accuracy
+        assert "single_animal" in data["by_category"]
+        category_stats = data["by_category"]["single_animal"]
+        assert category_stats["total"] == 5
+        assert category_stats["correct"] == 3
+        assert category_stats["accuracy"] == 0.6
+
+    def test_vlm_accuracy_handles_orphan_evaluations(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        vlm_evaluation_data: list[VLMEvaluation],
+    ) -> None:
+        """Test that VLM accuracy handles evaluations for missing samples."""
+        # Don't populate database, but add evaluations
+        populate_vlm_evaluations(temp_data_dir, vlm_evaluation_data)
+
+        response = client.get("/api/vlm-accuracy")
+        assert response.status_code == 200
+
+        data = response.json()
+        # Should return empty since no matching samples exist
+        assert data["by_model"] == {}
+        assert data["by_category"] == {}
+
+    def test_vlm_accuracy_response_model(self, client: TestClient) -> None:
+        """Test that VLM accuracy endpoint response model is valid."""
+        response = client.get("/api/vlm-accuracy")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "by_model" in data
+        assert "by_category" in data
+        assert isinstance(data["by_model"], dict)
+        assert isinstance(data["by_category"], dict)
