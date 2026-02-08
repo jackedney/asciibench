@@ -17,8 +17,8 @@ Dependencies:
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import random
+from collections.abc import Callable
 
 from asciibench.analyst.bootstrap_analyzer import BootstrapAnalyzer
 from asciibench.analyst.convergence_analyzer import ConvergenceAnalyzer
