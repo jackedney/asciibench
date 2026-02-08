@@ -50,7 +50,6 @@ def test_settings_missing_env_file_loads_defaults():
         assert settings.openrouter_api_key == ""
         assert settings.base_url == "https://openrouter.ai/api/v1"
         assert settings.openrouter_timeout_seconds == 120
-        assert settings.timeout_seconds == 120
     finally:
         if original_env is not None:
             os.environ["OPENROUTER_API_KEY"] = original_env
@@ -60,7 +59,6 @@ def test_settings_timeout_seconds_default():
     """Test that timeout_seconds defaults to 120."""
     settings = Settings()
     assert settings.openrouter_timeout_seconds == 120
-    assert settings.timeout_seconds == 120
 
 
 def test_settings_timeout_seconds_from_env(tmp_path):
@@ -80,7 +78,6 @@ def test_settings_timeout_seconds_from_env(tmp_path):
     try:
         settings = TestSettings()
         assert settings.openrouter_timeout_seconds == 60
-        assert settings.timeout_seconds == 60
     finally:
         if original_env is not None:
             os.environ["OPENROUTER_TIMEOUT_SECONDS"] = original_env
@@ -105,7 +102,6 @@ def test_settings_timeout_seconds_negative_uses_default(tmp_path):
     try:
         settings = TestSettings()
         assert settings.openrouter_timeout_seconds == 120
-        assert settings.timeout_seconds == 120
     finally:
         if original_env is not None:
             os.environ["OPENROUTER_TIMEOUT_SECONDS"] = original_env
@@ -130,7 +126,6 @@ def test_settings_timeout_seconds_non_numeric_uses_default(tmp_path):
     try:
         settings = TestSettings()
         assert settings.openrouter_timeout_seconds == 120
-        assert settings.timeout_seconds == 120
     finally:
         if original_env is not None:
             os.environ["OPENROUTER_TIMEOUT_SECONDS"] = original_env

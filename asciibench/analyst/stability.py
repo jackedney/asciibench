@@ -17,7 +17,6 @@ Dependencies:
 
 from __future__ import annotations
 
-import random
 from collections.abc import Callable
 
 from asciibench.analyst.bootstrap_analyzer import BootstrapAnalyzer
@@ -98,15 +97,6 @@ def _ratings_to_ranks(ratings: dict[str, float]) -> dict[str, int]:
     """Convert rating dict to rank dict (1 = highest rating)."""
     sorted_models = sorted(ratings.items(), key=lambda x: x[1], reverse=True)
     return {model_id: rank for rank, (model_id, _) in enumerate(sorted_models, 1)}
-
-
-def _resample_votes(votes: list[Vote], rng: random.Random) -> list[Vote]:
-    """Resample votes with replacement.
-
-    Kept for backward compatibility with tests.
-    """
-    n = len(votes)
-    return [votes[rng.randint(0, n - 1)] for _ in range(n)]
 
 
 def generate_stability_report(

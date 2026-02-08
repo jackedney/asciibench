@@ -7,7 +7,6 @@ import pytest
 
 from asciibench.analyst.stability import (
     _ratings_to_ranks,
-    _resample_votes,
     bootstrap_confidence_intervals,
     bradley_terry_significance,
     calculate_convergence,
@@ -460,24 +459,7 @@ class TestGenerateStabilityReport:
 
 
 class TestHelperFunctions:
-    """Tests for backward compatibility helper functions."""
-
-    def test_resample_votes_same_length(self, balanced_votes: list[Vote]) -> None:
-        """Resampled votes should have same length."""
-        import random
-
-        rng = random.Random(42)
-        resampled = _resample_votes(balanced_votes, rng)
-        assert len(resampled) == len(balanced_votes)
-
-    def test_resample_votes_with_replacement(self, balanced_votes: list[Vote]) -> None:
-        """Resampling should produce duplicates (with high probability)."""
-        import random
-
-        rng = random.Random(42)
-        resampled = _resample_votes(balanced_votes, rng)
-        ids = [v.id for v in resampled]
-        assert len(ids) != len(set(ids))
+    """Tests for helper functions."""
 
     def test_ratings_to_ranks_correct_order(self) -> None:
         """Ratings should convert to correct ranks."""
