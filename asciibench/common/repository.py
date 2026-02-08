@@ -17,20 +17,20 @@ Example:
     >>> samples_again = repo.get_valid_samples()
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
 from asciibench.common.models import ArtSample, VLMEvaluation, Vote
-from typing import Any, Callable, Optional
 
 try:
     from asciibench.common.persistence import read_jsonl as _persistence_read_jsonl
 except (SyntaxError, ImportError):
-    _persistence_read_jsonl: Optional[Callable[[Path, type[Any]], list[Any]]] = None
+    _persistence_read_jsonl: Callable[[Path, type[Any]], list[Any]] | None = None
 
 
 T = TypeVar("T", bound=BaseModel)
