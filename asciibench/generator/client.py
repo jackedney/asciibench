@@ -22,7 +22,8 @@ from asciibench.common.observability import is_logfire_enabled
 from asciibench.common.retry import retry
 
 # Suppress LiteLLM debug info (e.g., "Provider List: https://docs.litellm.ai/docs/providers")
-litellm.suppress_debug_info = True  # type: ignore[invalid-assignment]
+# LiteLLM declares this as Literal[False] but it's meant to be mutable
+object.__setattr__(litellm, "suppress_debug_info", True)
 
 
 class LiteLLMModelWithCost(LiteLLMModel):

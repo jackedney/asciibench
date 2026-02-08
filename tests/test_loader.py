@@ -344,7 +344,7 @@ class TestRuneScapeLoaderTerminalWidth:
     def test_get_terminal_width_fallback(self):
         """Falls back to 80 if terminal size cannot be determined."""
         loader = RuneScapeLoader("Model", total_steps=100)
-        with patch("shutil.get_terminal_size", side_effect=Exception("no terminal")):
+        with patch("shutil.get_terminal_size", side_effect=OSError("no terminal")):
             width = loader._get_terminal_width()
             assert width == 80
 

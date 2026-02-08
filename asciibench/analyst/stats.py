@@ -17,15 +17,12 @@ Dependencies:
     - asciibench.common.models: Vote model for computing statistics
 """
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from asciibench.common.models import ArtSample, Vote
+from asciibench.common.models import ArtSample, Vote
 
 
 def calculate_consistency(
-    votes: list["Vote"],
-    samples: list["ArtSample"],
+    votes: list[Vote],
+    samples: list[ArtSample],
     model_id: str,
 ) -> dict[str, float]:
     """Calculate consistency metrics for a specific model.

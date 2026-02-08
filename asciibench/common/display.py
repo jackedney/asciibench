@@ -82,7 +82,7 @@ def print_banner() -> None:
     console.print(panel)
 
 
-def create_generation_progress(total: int = 100):
+def create_generation_progress():
     console = get_console()
 
     progress = Progress(

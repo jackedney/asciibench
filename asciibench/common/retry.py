@@ -4,18 +4,23 @@ import asyncio
 import functools
 import inspect
 import time
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import cast
 
 from asciibench.common.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Type aliases for sleep functions
+type SyncSleepFunc = Callable[[float], None]
+type AsyncSleepFunc = Callable[[float], Awaitable[None]]
 
 
 def retry(
     max_retries: int = 3,
     base_delay_seconds: float = 1,
     retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
-    sleep_func: Any = None,
+    sleep_func: SyncSleepFunc | AsyncSleepFunc | None = None,
 ):
     """Decorator to retry function calls on specified exceptions with exponential backoff.
 
@@ -78,10 +83,11 @@ def retry(
                 raise TypeError("sleep_func must be sync when decorating sync functions")
 
         if is_async:
-            if sleep_func is None:
-                actual_sleep_func = asyncio.sleep
-            else:
-                actual_sleep_func = sleep_func
+            # Determine async sleep function - validation above ensures correct type
+            # Use cast because runtime validation guarantees async sleep_func when is_async=True
+            async_sleep_fn: AsyncSleepFunc = (
+                asyncio.sleep if sleep_func is None else cast(AsyncSleepFunc, sleep_func)
+            )
 
             @functools.wraps(func)
             async def async_wrapper(*args, **kwargs):
@@ -100,7 +106,7 @@ def retry(
                                     "exception": str(e),
                                 },
                             )
-                            await actual_sleep_func(delay)  # type: ignore[misc]
+                            await async_sleep_fn(delay)
                         else:
                             logger.error(
                                 f"Max retries ({max_retries}) exceeded for {func.__name__}",
@@ -116,10 +122,11 @@ def retry(
 
             return async_wrapper
         else:
-            if sleep_func is None:
-                actual_sleep_func = time.sleep
-            else:
-                actual_sleep_func = sleep_func
+            # Determine sync sleep function - validation above ensures correct type
+            # Use cast because runtime validation guarantees sync sleep_func when is_async=False
+            sync_sleep_fn: SyncSleepFunc = (
+                time.sleep if sleep_func is None else cast(SyncSleepFunc, sleep_func)
+            )
 
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
@@ -138,7 +145,7 @@ def retry(
                                     "exception": str(e),
                                 },
                             )
-                            actual_sleep_func(delay)
+                            sync_sleep_fn(delay)
                         else:
                             logger.error(
                                 f"Max retries ({max_retries}) exceeded for {func.__name__}",

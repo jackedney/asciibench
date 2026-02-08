@@ -3,7 +3,7 @@
 import json
 import uuid
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,8 +34,9 @@ def generate_id() -> str:
     """
     try:
         return str(uuid.uuid4())
-    except Exception:
-        return datetime.now().isoformat()
+    except OSError:
+        # Fallback to timestamp if UUID generation fails (e.g., no entropy source)
+        return datetime.now(tz=UTC).isoformat()
 
 
 def set_run_id(run_id: str | None) -> None:
@@ -145,7 +146,7 @@ class JSONLogger:
             metadata: Optional metadata dict to include in log entry
         """
         entry = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz=UTC).isoformat(),
             "level": level,
             "logger": self.name,
             "message": message,

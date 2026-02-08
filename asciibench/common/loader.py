@@ -423,7 +423,9 @@ class RuneScapeLoader:
         if self._live is not None:
             try:
                 self._live.update(self._render_frame())
-            except Exception:
+            except (RuntimeError, OSError):
+                # RuntimeError: Live display may be closed
+                # OSError: Terminal may be unavailable
                 pass
 
         # Hold the flash for the specified duration
@@ -440,14 +442,16 @@ class RuneScapeLoader:
         if self._live is not None:
             try:
                 self._live.update(self._render_frame())
-            except Exception:
+            except (RuntimeError, OSError):
+                # RuntimeError: Live display may be closed
+                # OSError: Terminal may be unavailable
                 pass
 
     def _get_terminal_width(self) -> int:
         """Get the current terminal width."""
         try:
             return shutil.get_terminal_size().columns
-        except Exception:
+        except OSError:
             return 80  # Fallback width
 
     def _render_frame(self) -> Text:
@@ -521,8 +525,9 @@ class RuneScapeLoader:
             if self._live is not None:
                 try:
                     self._live.update(self._render_frame())
-                except Exception:
-                    # Handle case where Live context is closed
+                except (RuntimeError, OSError):
+                    # RuntimeError: Live context is closed
+                    # OSError: Terminal may be unavailable
                     break
 
             time.sleep(interval)
@@ -580,7 +585,9 @@ class RuneScapeLoader:
         if self._live is not None:
             try:
                 self._live.stop()
-            except Exception:
+            except (RuntimeError, OSError):
+                # RuntimeError: Live context already stopped
+                # OSError: Terminal may be unavailable
                 pass
             self._live = None
 

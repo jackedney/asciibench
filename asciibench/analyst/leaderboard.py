@@ -19,20 +19,18 @@ Dependencies:
 
 import csv
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from asciibench.analyst.elo import calculate_elo_by_category
 from asciibench.analyst.stats import calculate_consistency
-
-if TYPE_CHECKING:
-    from asciibench.common.models import ArtSample, Vote
+from asciibench.common.models import ArtSample, Vote
 
 
 def generate_leaderboard(
-    votes: list["Vote"],
-    samples: list["ArtSample"],
+    votes: list[Vote],
+    samples: list[ArtSample],
     elo_ratings: dict[str, float],
 ) -> str:
     """Generate a formatted leaderboard from Elo ratings and vote data.
@@ -78,14 +76,13 @@ def generate_leaderboard(
         '| - | - | - | - | - | - |'
     """
     if not votes or not elo_ratings:
-        placeholder = (
+        return (
             "| Rank | Model | Elo Rating | Comparisons | Win Rate | Last Updated |\n"
             "|------|-------|------------|-------------|----------|--------------|\n"
             "| - | - | - | - | - | - |"
         )
-        return placeholder
 
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
 
     def _build_table(model_ids: list[str], title: str | None = None) -> str:
         rows = []
@@ -109,10 +106,7 @@ def generate_leaderboard(
             )
             rows.append(row)
 
-        if title:
-            header = f"\n### {title}\n\n"
-        else:
-            header = ""
+        header = f"\n### {title}\n\n" if title else ""
         table_header = "| Rank | Model | Elo Rating | Comparisons | Win Rate | Last Updated |\n"
         table_separator = "|------|-------|------------|-------------|----------|--------------|\n"
         return header + table_header + table_separator + "\n".join(rows)
@@ -157,8 +151,8 @@ def generate_leaderboard(
 
 
 def export_rankings_json(
-    votes: list["Vote"],
-    samples: list["ArtSample"],
+    votes: list[Vote],
+    samples: list[ArtSample],
     elo_ratings: dict[str, float],
     output_path: str | Path = "data/rankings.json",
 ) -> None:
@@ -213,7 +207,7 @@ def export_rankings_json(
         consistency_metrics[model_id] = calculate_consistency(votes, samples, model_id)
 
     export_data: dict[str, Any] = {
-        "last_updated": datetime.now().isoformat(),
+        "last_updated": datetime.now(tz=UTC).isoformat(),
         "overall_ratings": {k: int(v) for k, v in sorted(elo_ratings.items())},
         "category_ratings": {},
         "consistency_metrics": {},
@@ -235,8 +229,8 @@ def export_rankings_json(
 
 
 def export_rankings_csv(
-    votes: list["Vote"],
-    samples: list["ArtSample"],
+    votes: list[Vote],
+    samples: list[ArtSample],
     elo_ratings: dict[str, float],
     output_path: str | Path = "data/rankings.csv",
 ) -> None:
