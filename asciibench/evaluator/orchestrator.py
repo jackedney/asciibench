@@ -431,7 +431,11 @@ async def run_evaluation(
     renderer_config = RendererConfig(font=config.font)
 
     logger.info("Loading valid samples from database", {"database_path": database_path})
-    all_samples = read_jsonl(database_path, ArtSample)
+    try:
+        all_samples = read_jsonl(database_path, ArtSample)
+    except FileNotFoundError:
+        logger.warning("Database file not found", {"database_path": str(database_path)})
+        return []
     valid_samples = [s for s in all_samples if s.is_valid]
 
     if not valid_samples:
@@ -446,7 +450,10 @@ async def run_evaluation(
     logger.info(
         "Loading existing evaluations for idempotency", {"evaluations_path": evaluations_path}
     )
-    existing_evaluations = read_jsonl(evaluations_path, VLMEvaluation)
+    try:
+        existing_evaluations = read_jsonl(evaluations_path, VLMEvaluation)
+    except FileNotFoundError:
+        existing_evaluations = []
 
     logger.info(
         "Loaded existing evaluations",

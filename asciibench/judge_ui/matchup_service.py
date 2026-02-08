@@ -114,10 +114,16 @@ class MatchupService:
             ValueError: If not enough valid samples for a matchup
         """
         if valid_samples is None:
-            all_samples = read_jsonl(self._database_path, ArtSample)
+            try:
+                all_samples = read_jsonl(self._database_path, ArtSample)
+            except FileNotFoundError:
+                all_samples = []
             valid_samples = [s for s in all_samples if s.is_valid]
 
-        votes = read_jsonl(self._votes_path, Vote)
+        try:
+            votes = read_jsonl(self._votes_path, Vote)
+        except FileNotFoundError:
+            votes = []
 
         return self._select_matchup(valid_samples, votes)
 
@@ -165,9 +171,15 @@ class MatchupService:
             Count of unique model pairs judged
         """
         if votes is None:
-            votes = read_jsonl(self._votes_path, Vote)
+            try:
+                votes = read_jsonl(self._votes_path, Vote)
+            except FileNotFoundError:
+                votes = []
         if samples is None:
-            samples = read_jsonl(self._database_path, ArtSample)
+            try:
+                samples = read_jsonl(self._database_path, ArtSample)
+            except FileNotFoundError:
+                samples = []
 
         model_pair_counts = self._get_model_pair_comparison_counts(votes, samples)
         return len(model_pair_counts)

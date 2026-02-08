@@ -77,7 +77,9 @@ VLM_EVALUATIONS_PATH = DATA_DIR / "vlm_evaluations.jsonl"
 RANKINGS_PATH = DATA_DIR / "rankings.json"
 
 # Service instances
-repo = DataRepository(data_dir=DATA_DIR)
+# Use cache_ttl=0 to disable caching - votes are written directly to file
+# and need to be immediately visible in subsequent reads
+repo = DataRepository(data_dir=DATA_DIR, cache_ttl=0)
 analytics_service = AnalyticsService(repo=repo)
 matchup_service = MatchupService(database_path=DATABASE_PATH, votes_path=VOTES_PATH)
 progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
@@ -104,7 +106,13 @@ async def get_matchup() -> MatchupResponse:
     Model IDs are excluded from the response to maintain double-blind judging.
     """
     # Load valid samples from database
-    all_samples = read_jsonl(DATABASE_PATH, ArtSample)
+    try:
+        all_samples = read_jsonl(DATABASE_PATH, ArtSample)
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=400,
+            detail="Database file not found. Please run the generator to create samples.",
+        ) from e
     valid_samples = [s for s in all_samples if s.is_valid]
 
     # Check if we have enough samples

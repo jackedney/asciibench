@@ -3,6 +3,8 @@
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from asciibench.common.models import ArtSample, Vote
 from asciibench.common.persistence import (
     append_jsonl,
@@ -88,13 +90,14 @@ class TestAppendJsonl:
 class TestReadJsonl:
     """Tests for read_jsonl function."""
 
-    def test_returns_empty_list_for_nonexistent_file(self, tmp_path: Path) -> None:
-        """read_jsonl returns empty list if file doesn't exist."""
+    def test_raises_file_not_found_for_nonexistent_file(self, tmp_path: Path) -> None:
+        """read_jsonl raises FileNotFoundError if file doesn't exist."""
         file_path = tmp_path / "nonexistent.jsonl"
 
-        result = read_jsonl(file_path, Vote)
+        with pytest.raises(FileNotFoundError) as exc_info:
+            read_jsonl(file_path, Vote)
 
-        assert result == []
+        assert str(file_path) in str(exc_info.value)
 
     def test_reads_all_lines(self, tmp_path: Path) -> None:
         """read_jsonl reads all lines from the file."""

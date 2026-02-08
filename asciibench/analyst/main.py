@@ -71,8 +71,15 @@ def main() -> None:
 
     repo = DataRepository()
 
-    votes = repo.get_votes()
-    samples = repo.get_all_samples()
+    try:
+        votes = repo.get_votes()
+    except FileNotFoundError:
+        votes = []
+
+    try:
+        samples = repo.get_all_samples()
+    except FileNotFoundError:
+        samples = []
 
     load_panel = Panel(
         Text.assemble(

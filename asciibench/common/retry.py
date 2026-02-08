@@ -138,17 +138,25 @@ def retry(
                 except retryable_exceptions as e:
                     last_exception = e
                     if attempt == max_retries:
-                        logger.warning(
-                            f"Function {func.__name__} failed after {max_retries} retries"
+                        logger.error(
+                            f"Max retries ({max_retries}) exceeded for {func.__name__}",
+                            metadata={"function": func.__name__, "max_retries": max_retries},
                         )
                         raise
 
                     delay = base_delay_seconds * (2**attempt)
-                    logger.debug(
-                        f"Retry {attempt + 1}/{max_retries} for {func.__name__} "
-                        f"after {delay}s delay: {e}"
+                    logger.warning(
+                        f"Retry attempt {attempt + 1}/{max_retries} for {func.__name__}",
+                        metadata={"attempt": attempt + 1, "delay": delay, "error": str(e)},
                     )
                     _sync_sleep(delay, sleep_func)
+                except Exception as e:
+                    # Non-retryable exception
+                    logger.error(
+                        f"Non-retryable exception in {func.__name__}: {type(e).__name__}",
+                        metadata={"function": func.__name__, "error": str(e)},
+                    )
+                    raise
 
             # This should never be reached, but type checkers need it
             if last_exception is None:
@@ -164,17 +172,25 @@ def retry(
                 except retryable_exceptions as e:
                     last_exception = e
                     if attempt == max_retries:
-                        logger.warning(
-                            f"Async function {func.__name__} failed after {max_retries} retries"
+                        logger.error(
+                            f"Max retries ({max_retries}) exceeded for {func.__name__}",
+                            metadata={"function": func.__name__, "max_retries": max_retries},
                         )
                         raise
 
                     delay = base_delay_seconds * (2**attempt)
-                    logger.debug(
-                        f"Retry {attempt + 1}/{max_retries} for {func.__name__} "
-                        f"after {delay}s delay: {e}"
+                    logger.warning(
+                        f"Retry attempt {attempt + 1}/{max_retries} for {func.__name__}",
+                        metadata={"attempt": attempt + 1, "delay": delay, "error": str(e)},
                     )
                     await _async_sleep(delay, sleep_func)
+                except Exception as e:
+                    # Non-retryable exception
+                    logger.error(
+                        f"Non-retryable exception in {func.__name__}: {type(e).__name__}",
+                        metadata={"function": func.__name__, "error": str(e)},
+                    )
+                    raise
 
             # This should never be reached, but type checkers need it
             if last_exception is None:

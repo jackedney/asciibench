@@ -69,17 +69,18 @@ class CacheEntry(Generic[T]):
 def _read_jsonl(path: Path, model_class: type[T]) -> list[T]:
     """Read all lines from a JSONL file as model instances.
 
-    Returns an empty list if the file doesn't exist.
-
     Args:
         path: Path to the JSONL file
         model_class: Pydantic model class to parse each line as
 
     Returns:
         List of model instances
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
     """
     if not path.exists():
-        return []
+        raise FileNotFoundError(f"File not found: {path}")
 
     results: list[T] = []
     with path.open("r", encoding="utf-8") as f:

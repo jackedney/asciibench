@@ -428,7 +428,10 @@ async def generate_samples_async(
 
     # Load existing samples for idempotency check using DataRepository
     repo = DataRepository(data_dir=data_dir)
-    existing_samples = repo.get_all_samples()
+    try:
+        existing_samples = repo.get_all_samples()
+    except FileNotFoundError:
+        existing_samples = []
     existing_keys = _build_existing_sample_keys(existing_samples)
 
     # Initialize SharedState with existing keys and concurrency limit

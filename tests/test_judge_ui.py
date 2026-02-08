@@ -260,12 +260,12 @@ class TestMatchupEndpoint:
         temp_data_dir: Path,
     ) -> None:
         """Test that matchup returns error when no samples exist."""
-        # Don't populate any samples
+        # Don't populate any samples - database file doesn't exist
         response = client.get("/api/matchup")
         assert response.status_code == 400
 
         data = response.json()
-        assert "Not enough valid samples" in data["detail"]
+        assert "Database file not found" in data["detail"]
 
     def test_matchup_error_with_one_valid_sample(
         self,
@@ -1790,12 +1790,12 @@ class TestHTMXEndpoints:
         temp_data_dir: Path,
     ) -> None:
         """Test that HTMX matchup returns error HTML with insufficient samples."""
-        # Don't populate any samples
+        # Don't populate any samples - database file doesn't exist
 
         response = client.get("/htmx/matchup")
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
-        assert "Not enough valid samples" in response.text
+        assert "File not found" in response.text
 
     def test_htmx_progress_returns_html(
         self,
@@ -2004,10 +2004,10 @@ class TestHTMXEndpoints:
         client: TestClient,
         temp_data_dir: Path,
     ) -> None:
-        """Test that HTMX prompt returns message with no samples."""
+        """Test that HTMX prompt returns error when database doesn't exist."""
         response = client.get("/htmx/prompt")
         assert response.status_code == 200
-        assert "No samples available" in response.text
+        assert "Error:" in response.text
 
 
 @pytest.fixture
