@@ -1,9 +1,11 @@
 """Tests for retry decorator with exponential backoff."""
 
 import asyncio
+import functools
 import json
 import time
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -700,36 +702,6 @@ class TestRetryValidation:
         assert attempt_count == 3
         assert len(sleep_calls) == 2
 
-    def test_async_sleep_func_with_sync_function_raises_type_error(self) -> None:
-        """Negative case: decorating sync function with asyncio.sleep raises TypeError."""
-        with pytest.raises(
-            TypeError, match="sleep_func must be sync when decorating sync functions"
-        ):
-
-            @retry(
-                max_retries=2,
-                base_delay_seconds=0.1,
-                retryable_exceptions=(CustomRetryableError,),
-                sleep_func=asyncio.sleep,
-            )
-            def sync_call():
-                return "success"
-
-    def test_sync_sleep_func_with_async_function_raises_type_error(self) -> None:
-        """Negative case: decorating async function with time.sleep raises TypeError."""
-        with pytest.raises(
-            TypeError, match="sleep_func must be async when decorating async functions"
-        ):
-
-            @retry(
-                max_retries=2,
-                base_delay_seconds=0.1,
-                retryable_exceptions=(CustomRetryableError,),
-                sleep_func=time.sleep,
-            )
-            async def async_call():
-                return "success"
-
     @pytest.mark.asyncio
     async def test_async_sleep_func_with_async_function_works(self) -> None:
         """Example: decorating async function with asyncio.sleep works."""
@@ -811,3 +783,190 @@ class TestRetryExamples:
             auth_call()
 
         assert attempt_count == 1
+
+
+class TestDynamicSleepDetection:
+    """Tests for dynamic sleep function detection (lambda, functools.partial, AsyncMock)."""
+
+    @pytest.mark.asyncio
+    async def test_async_lambda_sleep_func(self) -> None:
+        """Lambda returning awaitable works with async function."""
+        sleep_calls = []
+
+        async def _track_and_sleep(d: float) -> None:
+            sleep_calls.append(d)
+
+        # Function that returns an awaitable (wrapping async function)
+        def awaitable_sleep(d: float):
+            return _track_and_sleep(d)
+
+        attempt_count = 0
+
+        @retry(
+            max_retries=2,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=awaitable_sleep,
+        )
+        async def async_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = await async_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_functools_partial_async_sleep(self) -> None:
+        """functools.partial wrapping async sleep works with async function."""
+        sleep_calls = []
+
+        async def tracking_sleep(delay: float, tracker: list) -> None:
+            tracker.append(delay)
+
+        partial_sleep = functools.partial(tracking_sleep, tracker=sleep_calls)
+
+        attempt_count = 0
+
+        @retry(
+            max_retries=2,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=partial_sleep,
+        )
+        async def async_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = await async_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+        assert sleep_calls[0] == 0.1
+        assert sleep_calls[1] == 0.2
+
+    @pytest.mark.asyncio
+    async def test_async_mock_sleep_func(self) -> None:
+        """AsyncMock works as sleep_func with async function."""
+        mock_sleep = AsyncMock()
+
+        attempt_count = 0
+
+        @retry(
+            max_retries=2,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=mock_sleep,
+        )
+        async def async_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = await async_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_any_call(0.1)
+        mock_sleep.assert_any_call(0.2)
+
+    def test_functools_partial_sync_sleep(self) -> None:
+        """functools.partial wrapping sync sleep works with sync function."""
+        sleep_calls = []
+
+        def tracking_sleep(delay: float, tracker: list) -> None:
+            tracker.append(delay)
+
+        partial_sleep = functools.partial(tracking_sleep, tracker=sleep_calls)
+
+        attempt_count = 0
+
+        @retry(
+            max_retries=2,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=partial_sleep,
+        )
+        def sync_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = sync_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+        assert sleep_calls[0] == 0.1
+        assert sleep_calls[1] == 0.2
+
+    def test_callable_sync_sleep_func(self) -> None:
+        """Callable returning None works with sync function."""
+        sleep_calls = []
+
+        def tracking_sleep(d: float) -> None:
+            sleep_calls.append(d)
+
+        attempt_count = 0
+
+        @retry(
+            max_retries=2,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=tracking_sleep,
+        )
+        def sync_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = sync_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_sync_sleep_with_async_function_gracefully_handled(self) -> None:
+        """Sync sleep function used with async function works (no error)."""
+        sleep_calls = []
+
+        def sync_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        attempt_count = 0
+
+        @retry(
+            max_retries=2,
+            base_delay_seconds=0.1,
+            retryable_exceptions=(CustomRetryableError,),
+            sleep_func=sync_sleep,
+        )
+        async def async_call():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise CustomRetryableError("Temporary error")
+            return "success"
+
+        result = await async_call()
+
+        assert result == "success"
+        assert attempt_count == 3
+        assert len(sleep_calls) == 2
