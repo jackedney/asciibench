@@ -28,7 +28,8 @@ from asciibench.common.logging import (
 )
 from asciibench.common.models import ArtSample, Model, Prompt
 from asciibench.common.observability import is_logfire_enabled
-from asciibench.common.persistence import append_jsonl, read_jsonl
+from asciibench.common.persistence import append_jsonl
+from asciibench.common.repository import DataRepository
 from asciibench.generator.client import (
     AuthenticationError,
     ModelError,
@@ -409,6 +410,7 @@ async def generate_samples_async(
         ValueError: If neither client nor settings are provided
     """
     database_path = Path(database_path)
+    data_dir = database_path.parent
 
     # Generate and set run_id for this generation batch if not already set
     if get_run_id() is None:
@@ -425,8 +427,9 @@ async def generate_samples_async(
             timeout=settings.openrouter_timeout_seconds,
         )
 
-    # Load existing samples for idempotency check
-    existing_samples = read_jsonl(database_path, ArtSample)
+    # Load existing samples for idempotency check using DataRepository
+    repo = DataRepository(data_dir=data_dir)
+    existing_samples = repo.get_all_samples()
     existing_keys = _build_existing_sample_keys(existing_samples)
 
     # Initialize SharedState with existing keys and concurrency limit

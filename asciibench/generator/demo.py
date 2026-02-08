@@ -17,6 +17,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from asciibench.common.config import Settings
+from asciibench.common.config_service import ConfigService, ConfigServiceError
 from asciibench.common.display import (
     create_loader,
     get_console,
@@ -25,7 +26,6 @@ from asciibench.common.display import (
 )
 from asciibench.common.logging import generate_id, get_logger, set_request_id, set_run_id
 from asciibench.common.models import DemoResult, OpenRouterResponse
-from asciibench.common.yaml_config import load_generation_config, load_models
 from asciibench.generator.client import (
     AuthenticationError,
     ModelError,
@@ -206,7 +206,7 @@ def generate_demo_sample(
     set_request_id(request_id)
 
     settings = Settings()
-    config = load_generation_config()
+    config = ConfigService().get_app_config()
     demo_prompt = "Draw a skeleton in ASCII art"
 
     client = OpenRouterClient(
@@ -793,22 +793,14 @@ def main() -> None:
     # Show ASCII banner at startup
     show_banner()
 
-    # Load models
+    # Load models using ConfigService
     try:
-        models = load_models()
-    except FileNotFoundError:
+        config_service = ConfigService()
+        models = config_service.get_models()
+    except ConfigServiceError as e:
         console.print(
             Panel(
-                "[error]models.yaml not found[/error]",
-                title="[error]Error[/error]",
-                border_style="error",
-            )
-        )
-        return
-    except Exception as e:
-        console.print(
-            Panel(
-                f"[error]Error loading models.yaml: {e}[/error]",
+                f"[error]Error loading configuration: {e}[/error]",
                 title="[error]Error[/error]",
                 border_style="error",
             )

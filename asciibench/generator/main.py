@@ -18,6 +18,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from asciibench.common.config import Settings
+from asciibench.common.config_service import ConfigService, ConfigServiceError
 from asciibench.common.display import (
     create_loader,
     get_console,
@@ -27,12 +28,8 @@ from asciibench.common.display import (
 )
 from asciibench.common.models import ArtSample
 from asciibench.common.observability import init_logfire
-from asciibench.common.persistence import read_jsonl
-from asciibench.common.yaml_config import load_generation_config, load_models, load_prompts
+from asciibench.common.repository import DataRepository
 from asciibench.generator.sampler import generate_samples
-
-# Default database path (same as sampler)
-DEFAULT_DATABASE_PATH = "data/database.jsonl"
 
 
 def show_stats(success_count: int, failure_count: int, running_cost: float) -> None:
@@ -114,31 +111,14 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Load generation config from config.yaml
+    # Load configuration using ConfigService
     try:
-        config = load_generation_config()
-    except Exception as e:
-        console.print(f"[error]Error loading config.yaml: {e}[/error]")
-        sys.exit(1)
-
-    # Load models from models.yaml
-    try:
-        models = load_models()
-    except FileNotFoundError:
-        console.print("[error]Error: models.yaml not found[/error]")
-        sys.exit(1)
-    except Exception as e:
-        console.print(f"[error]Error loading models.yaml: {e}[/error]")
-        sys.exit(1)
-
-    # Load and expand prompts from prompts.yaml
-    try:
-        prompts = load_prompts()
-    except FileNotFoundError:
-        console.print("[error]Error: prompts.yaml not found[/error]")
-        sys.exit(1)
-    except Exception as e:
-        console.print(f"[error]Error loading prompts.yaml: {e}[/error]")
+        config_service = ConfigService()
+        config = config_service.get_app_config()
+        models = config_service.get_models()
+        prompts = config_service.get_prompts()
+    except ConfigServiceError as e:
+        console.print(f"[error]Error loading configuration: {e}[/error]")
         sys.exit(1)
 
     # Calculate total combinations
@@ -154,8 +134,13 @@ def main() -> None:
         return
 
     # Load existing samples to count how many will be skipped when resuming
-    existing_samples = read_jsonl(DEFAULT_DATABASE_PATH, ArtSample)
-    existing_keys = {(s.model_id, s.prompt_text, s.attempt_number) for s in existing_samples}
+    try:
+        repo = DataRepository()
+        existing_samples = repo.get_all_samples()
+        existing_keys = {(s.model_id, s.prompt_text, s.attempt_number) for s in existing_samples}
+    except FileNotFoundError as e:
+        console.print(f"[error]Error accessing database: {e}[/error]")
+        sys.exit(1)
 
     # Count how many planned combinations already exist in the database
     existing_count = sum(
