@@ -34,6 +34,10 @@ from asciibench.evaluator.vlm_client import VLMClient
 
 logger = get_logger(__name__)
 
+# Type alias for callback using Protocol for documentation
+# Callable type is used for ty compatibility
+EvaluationProgressCallbackType = Callable[[int, int, str], None]
+
 
 class ImageRenderer:
     """Service for rendering ASCII art to PNG images.
@@ -217,7 +221,7 @@ class EvaluationOrchestrator:
         self,
         samples: list[ArtSample],
         existing_evaluations: list[VLMEvaluation],
-        progress_callback: Callable[[int, int, str], None] | None = None,
+        progress_callback: EvaluationProgressCallbackType | None = None,
         limit: int | None = None,
     ) -> list[VLMEvaluation]:
         """Run evaluation pipeline on samples.
@@ -374,7 +378,7 @@ async def run_evaluation(
     database_path: str | Path = "data/database.jsonl",
     evaluations_path: str | Path = "data/vlm_evaluations.jsonl",
     config: EvaluatorConfig | None = None,
-    progress_callback: Callable[[int, int, str], None] | None = None,
+    progress_callback: EvaluationProgressCallbackType | None = None,
     limit: int | None = None,
 ) -> list[VLMEvaluation]:
     """Run the full evaluation pipeline asynchronously.

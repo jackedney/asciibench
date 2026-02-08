@@ -283,6 +283,8 @@ class RetryableTaskExecutor:
                     AttemptHistory(
                         attempt_number=attempt + 1,
                         exception=e,  # type: ignore[arg-type]
+                        # Reason: Type checker doesn't narrow exception type from tuple catch.
+                        # Exception e is guaranteed to be in retryable_exceptions tuple at runtime.
                         delay_seconds=None,
                     )
                 )
@@ -292,6 +294,8 @@ class RetryableTaskExecutor:
                     raise MaxRetriesError(
                         max_attempts=self.max_attempts,
                         last_exception=e,  # type: ignore[arg-type]
+                        # Reason: Type checker doesn't narrow exception type from tuple catch.
+                        # Exception e is guaranteed to be in retryable_exceptions tuple at runtime.
                         attempt_history=attempt_history,
                     ) from e
 
@@ -333,6 +337,8 @@ class RetryableTaskExecutor:
                     AttemptHistory(
                         attempt_number=attempt + 1,
                         exception=e,  # type: ignore[arg-type]
+                        # Reason: Type checker doesn't narrow exception type from tuple catch.
+                        # Exception e is guaranteed to be in retryable_exceptions tuple at runtime.
                         delay_seconds=None,
                     )
                 )
@@ -342,6 +348,8 @@ class RetryableTaskExecutor:
                     raise MaxRetriesError(
                         max_attempts=self.max_attempts,
                         last_exception=e,  # type: ignore[arg-type]
+                        # Reason: Type checker doesn't narrow exception type from tuple catch.
+                        # Exception e is guaranteed to be in retryable_exceptions tuple at runtime.
                         attempt_history=attempt_history,
                     ) from e
 
