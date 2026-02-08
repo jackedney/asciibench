@@ -1,7 +1,6 @@
 import json
 import logging
 import random
-import statistics
 from pathlib import Path
 from typing import Literal, cast
 
@@ -10,8 +9,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from asciibench.analyst.elo import calculate_elo
-from asciibench.analyst.stability import generate_stability_report
 from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
 from asciibench.common.persistence import (
     append_jsonl,
@@ -21,9 +18,7 @@ from asciibench.common.persistence import (
 from asciibench.common.yaml_config import load_models
 from asciibench.judge_ui.api_models import (
     AnalyticsResponse,
-    CategoryAccuracyStats,
     CategoryProgress,
-    ConfidenceIntervalData,
     CorrelationDataPoint,
     EloHistoryPoint,
     EloVLMCorrelationResponse,
@@ -39,8 +34,10 @@ from asciibench.judge_ui.api_models import (
     VoteRequest,
     VoteResponse,
 )
+from asciibench.judge_ui.analytics_service import AnalyticsService
 from asciibench.judge_ui.matchup_service import MatchupService
 from asciibench.judge_ui.undo_service import UndoService
+from asciibench.common.repository import DataRepository
 
 app = FastAPI(title="ASCIIBench Judge UI")
 templates = Jinja2Templates(directory="templates")
@@ -56,6 +53,8 @@ VLM_EVALUATIONS_PATH = DATA_DIR / "vlm_evaluations.jsonl"
 RANKINGS_PATH = DATA_DIR / "rankings.json"
 
 # Service instances
+repo = DataRepository(data_dir=DATA_DIR)
+analytics_service = AnalyticsService(repo=repo)
 matchup_service = MatchupService(database_path=DATABASE_PATH, votes_path=VOTES_PATH)
 undo_service = UndoService(votes_path=VOTES_PATH)
 
@@ -524,149 +523,6 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
 # =============================================================================
 
 
-def _calculate_elo_history(
-    votes: list[Vote],
-    samples: list[ArtSample],
-    checkpoint_interval: int = 10,
-) -> dict[str, list[EloHistoryPoint]]:
-    """Calculate ELO rating history at checkpoints during vote processing."""
-    if not votes:
-        return {}
-
-    sorted_votes = sorted(votes, key=lambda v: v.timestamp)
-    history: dict[str, list[EloHistoryPoint]] = {}
-    n_votes = len(sorted_votes)
-
-    for i in range(checkpoint_interval, n_votes + 1, checkpoint_interval):
-        partial_votes = sorted_votes[:i]
-        ratings = calculate_elo(partial_votes, samples)
-
-        for model_id, rating in ratings.items():
-            if model_id not in history:
-                history[model_id] = []
-            history[model_id].append(EloHistoryPoint(vote_count=i, elo=rating))
-
-    # Add final checkpoint if not already included
-    if n_votes % checkpoint_interval != 0:
-        final_ratings = calculate_elo(sorted_votes, samples)
-        for model_id, rating in final_ratings.items():
-            if model_id not in history:
-                history[model_id] = []
-            history[model_id].append(EloHistoryPoint(vote_count=n_votes, elo=rating))
-
-    return history
-
-
-def _calculate_head_to_head(
-    votes: list[Vote],
-    samples: list[ArtSample],
-) -> dict[str, dict[str, HeadToHeadRecord]]:
-    """Calculate head-to-head win/loss records between all model pairs."""
-    sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
-
-    # Initialize win matrix
-    win_counts: dict[str, dict[str, int]] = {}
-
-    for vote in votes:
-        if vote.winner == "fail":
-            continue
-
-        model_a = sample_to_model.get(vote.sample_a_id)
-        model_b = sample_to_model.get(vote.sample_b_id)
-
-        if not model_a or not model_b or model_a == model_b:
-            continue
-
-        # Initialize nested dicts if needed
-        if model_a not in win_counts:
-            win_counts[model_a] = {}
-        if model_b not in win_counts:
-            win_counts[model_b] = {}
-
-        # Count wins
-        if vote.winner == "A":
-            win_counts[model_a][model_b] = win_counts[model_a].get(model_b, 0) + 1
-        elif vote.winner == "B":
-            win_counts[model_b][model_a] = win_counts[model_b].get(model_a, 0) + 1
-        # Ties don't count as wins for either
-
-    # Convert to HeadToHeadRecord format
-    result: dict[str, dict[str, HeadToHeadRecord]] = {}
-    all_models = set(win_counts.keys())
-
-    for model_a in all_models:
-        result[model_a] = {}
-        for model_b in all_models:
-            if model_a == model_b:
-                continue
-            wins = win_counts.get(model_a, {}).get(model_b, 0)
-            losses = win_counts.get(model_b, {}).get(model_a, 0)
-            result[model_a][model_b] = HeadToHeadRecord(wins=wins, losses=losses)
-
-    return result
-
-
-def _build_analytics_data(
-    votes: list[Vote],
-    samples: list[ArtSample],
-    n_bootstrap: int = 200,
-) -> AnalyticsResponse:
-    """Build complete analytics data from votes and samples."""
-    # Calculate current ELO ratings
-    elo_ratings = calculate_elo(votes, samples)
-
-    # Build leaderboard
-    sorted_ratings = sorted(elo_ratings.items(), key=lambda x: x[1], reverse=True)
-    leaderboard = [
-        LeaderboardEntry(rank=i + 1, model_id=model_id, elo=round(elo, 1))
-        for i, (model_id, elo) in enumerate(sorted_ratings)
-    ]
-
-    # Generate stability report (use fewer iterations for UI responsiveness)
-    stability_report = generate_stability_report(votes, samples, n_bootstrap=n_bootstrap, seed=42)
-
-    # Build per-model stability data
-    models_stability: dict[str, ModelStabilityData] = {}
-    for model_id, elo in elo_ratings.items():
-        ci = stability_report.confidence_intervals.get(model_id)
-        rs = stability_report.ranking_stability.get(model_id)
-        conv = stability_report.convergence.get(model_id)
-
-        models_stability[model_id] = ModelStabilityData(
-            elo=round(elo, 1),
-            confidence_interval=ConfidenceIntervalData(
-                ci_lower=round(ci.ci_lower, 1),
-                ci_upper=round(ci.ci_upper, 1),
-                ci_width=round(ci.ci_width, 1),
-            )
-            if ci
-            else None,
-            rank_stability_pct=round(rs.rank_stability_pct * 100, 1) if rs else None,
-            is_converged=conv.is_converged if conv else None,
-        )
-
-    stability = StabilityData(
-        score=round(stability_report.stability_score, 1),
-        is_stable=stability_report.is_stable_for_publication,
-        warnings=stability_report.stability_warnings,
-        models=models_stability,
-    )
-
-    # Calculate ELO history
-    elo_history = _calculate_elo_history(votes, samples)
-
-    # Calculate head-to-head matrix
-    head_to_head = _calculate_head_to_head(votes, samples)
-
-    return AnalyticsResponse(
-        leaderboard=leaderboard,
-        stability=stability,
-        elo_history=elo_history,
-        head_to_head=head_to_head,
-        total_votes=len(votes),
-    )
-
-
 @app.get("/api/analytics", response_model=AnalyticsResponse)
 async def get_analytics() -> AnalyticsResponse:
     """Get complete analytics data for the leaderboard and stability metrics.
@@ -674,180 +530,7 @@ async def get_analytics() -> AnalyticsResponse:
     Returns leaderboard rankings, stability metrics, ELO history over time,
     and head-to-head comparison matrix.
     """
-    # Load all samples and votes
-    all_samples = read_jsonl(DATABASE_PATH, ArtSample)
-    valid_samples = [s for s in all_samples if s.is_valid]
-    votes = read_jsonl(VOTES_PATH, Vote)
-
-    if not votes:
-        # Return empty analytics if no votes
-        return AnalyticsResponse(
-            leaderboard=[],
-            stability=StabilityData(
-                score=0.0,
-                is_stable=False,
-                warnings=["No votes to analyze"],
-                models={},
-            ),
-            elo_history={},
-            head_to_head={},
-            total_votes=0,
-        )
-
-    return _build_analytics_data(votes, valid_samples)
-
-
-def _calculate_vlm_accuracy(
-    evaluations: list[VLMEvaluation],
-    samples: list[ArtSample],
-) -> dict[str, ModelAccuracyStats]:
-    """Calculate VLM accuracy statistics per ASCII-generating model.
-
-    Args:
-        evaluations: List of VLM evaluations
-        samples: List of all samples from database
-
-    Returns:
-        Dictionary mapping model_id to accuracy statistics
-    """
-    sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
-
-    by_model: dict[str, dict[str, int]] = {}
-
-    for evaluation in evaluations:
-        sample = sample_lookup.get(evaluation.sample_id)
-        if not sample:
-            continue
-
-        model_id = sample.model_id
-        if model_id not in by_model:
-            by_model[model_id] = {"total": 0, "correct": 0}
-
-        by_model[model_id]["total"] += 1
-        if evaluation.is_correct:
-            by_model[model_id]["correct"] += 1
-
-    result: dict[str, ModelAccuracyStats] = {}
-    for model_id, stats in by_model.items():
-        accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
-        result[model_id] = ModelAccuracyStats(
-            total=stats["total"],
-            correct=stats["correct"],
-            accuracy=round(accuracy, 2),
-        )
-
-    return result
-
-
-def _calculate_category_accuracy(
-    evaluations: list[VLMEvaluation],
-    samples: list[ArtSample],
-) -> dict[str, CategoryAccuracyStats]:
-    """Calculate VLM accuracy statistics per category.
-
-    Args:
-        evaluations: List of VLM evaluations
-        samples: List of all samples from database
-
-    Returns:
-        Dictionary mapping category to accuracy statistics
-    """
-    sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
-
-    by_category: dict[str, dict[str, int]] = {}
-
-    for evaluation in evaluations:
-        sample = sample_lookup.get(evaluation.sample_id)
-        if not sample:
-            continue
-
-        category = sample.category
-        if category not in by_category:
-            by_category[category] = {"total": 0, "correct": 0}
-
-        by_category[category]["total"] += 1
-        if evaluation.is_correct:
-            by_category[category]["correct"] += 1
-
-    result: dict[str, CategoryAccuracyStats] = {}
-    for category, stats in by_category.items():
-        accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
-        result[category] = CategoryAccuracyStats(
-            total=stats["total"],
-            correct=stats["correct"],
-            accuracy=round(accuracy, 2),
-        )
-
-    return result
-
-
-def _calculate_pearson_correlation(x: list[float], y: list[float]) -> float | None:
-    """Calculate Pearson correlation coefficient.
-
-    Args:
-        x: First list of values
-        y: Second list of values
-
-    Returns:
-        Pearson correlation coefficient, or None if fewer than 3 data points
-    """
-    if len(x) < 3 or len(y) < 3:
-        return None
-
-    n = len(x)
-
-    if n != len(y):
-        raise ValueError("Lists must have the same length")
-
-    if n < 2:
-        return None
-
-    mean_x = statistics.mean(x)
-    mean_y = statistics.mean(y)
-
-    numerator = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y, strict=True))
-
-    sum_sq_x = sum((xi - mean_x) ** 2 for xi in x)
-    sum_sq_y = sum((yi - mean_y) ** 2 for yi in y)
-
-    denominator = (sum_sq_x * sum_sq_y) ** 0.5
-
-    if denominator < 1e-10:
-        return None
-
-    return numerator / denominator
-
-
-@app.get("/api/vlm-accuracy", response_model=VLMAccuracyResponse)
-async def get_vlm_accuracy() -> VLMAccuracyResponse:
-    """Get VLM accuracy statistics per model and category.
-
-    Returns accuracy metrics for ASCII-generating models based on VLM evaluations.
-    Reads from vlm_evaluations.jsonl joined with database.jsonl.
-
-    Returns:
-        VLMAccuracyResponse with by_model and by_category accuracy stats
-
-    Raises:
-        HTTPException: 500 if vlm_evaluations.jsonl is malformed
-    """
-    try:
-        evaluations = read_jsonl(VLM_EVALUATIONS_PATH, VLMEvaluation)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error reading vlm_evaluations.jsonl: {e}",
-        ) from e
-
-    samples = read_jsonl(DATABASE_PATH, ArtSample)
-
-    if not evaluations:
-        return VLMAccuracyResponse(by_model={}, by_category={})
-
-    by_model = _calculate_vlm_accuracy(evaluations, samples)
-    by_category = _calculate_category_accuracy(evaluations, samples)
-
-    return VLMAccuracyResponse(by_model=by_model, by_category=by_category)
+    return analytics_service.get_analytics_data()
 
 
 @app.get("/api/elo-vlm-correlation", response_model=EloVLMCorrelationResponse)
@@ -900,7 +583,7 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
         return EloVLMCorrelationResponse(correlation_coefficient=None, data=[])
 
     elo_ratings = rankings_data["overall_ratings"]
-    vlm_accuracy = _calculate_vlm_accuracy(evaluations, samples)
+    vlm_accuracy = analytics_service.get_vlm_accuracy_by_model()
 
     model_lookup: dict[str, Model] = {m.id: m for m in models}
 
@@ -925,7 +608,9 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
             elo_values.append(elo_rating)
             accuracy_values.append(accuracy)
 
-    correlation_coefficient = _calculate_pearson_correlation(elo_values, accuracy_values)
+    correlation_coefficient = analytics_service.calculate_pearson_correlation(
+        elo_values, accuracy_values
+    )
 
     return EloVLMCorrelationResponse(
         correlation_coefficient=correlation_coefficient,
@@ -937,12 +622,9 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
 async def htmx_get_analytics(request: Request) -> HTMLResponse:
     """HTMX endpoint to get analytics dashboard as HTML fragment."""
     try:
-        # Load all samples and votes
-        all_samples = read_jsonl(DATABASE_PATH, ArtSample)
-        valid_samples = [s for s in all_samples if s.is_valid]
-        votes = read_jsonl(VOTES_PATH, Vote)
+        analytics = analytics_service.get_analytics_data()
 
-        if not votes:
+        if not analytics.leaderboard:
             return templates.TemplateResponse(
                 request,
                 "partials/analytics.html",
@@ -962,8 +644,6 @@ async def htmx_get_analytics(request: Request) -> HTMLResponse:
                     "total_votes": 0,
                 },
             )
-
-        analytics = _build_analytics_data(votes, valid_samples)
 
         # Get sorted model list for head-to-head matrix
         models = [entry.model_id for entry in analytics.leaderboard]
@@ -1012,10 +692,6 @@ async def htmx_get_analytics(request: Request) -> HTMLResponse:
 async def htmx_get_vlm_accuracy(request: Request) -> HTMLResponse:
     """HTMX endpoint to get VLM accuracy table as HTML fragment."""
     try:
-        # Load evaluations and samples
-        evaluations = read_jsonl(VLM_EVALUATIONS_PATH, VLMEvaluation)
-        samples = read_jsonl(DATABASE_PATH, ArtSample)
-
         # Load models for display names
         try:
             models = load_models()
@@ -1024,15 +700,16 @@ async def htmx_get_vlm_accuracy(request: Request) -> HTMLResponse:
 
         model_lookup: dict[str, Model] = {m.id: m for m in models}
 
-        if not evaluations:
+        # Get VLM accuracy data from service
+        vlm_response = analytics_service.get_vlm_accuracy_data()
+        by_model = vlm_response.by_model
+
+        if not by_model:
             return templates.TemplateResponse(
                 request,
                 "partials/vlm_accuracy.html",
                 {"vlm_accuracy_data": []},
             )
-
-        # Calculate accuracy per model
-        by_model = _calculate_vlm_accuracy(evaluations, samples)
 
         # Sort by accuracy descending and convert to list for template
         sorted_models = sorted(by_model.items(), key=lambda x: x[1].accuracy, reverse=True)
