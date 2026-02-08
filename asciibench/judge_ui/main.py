@@ -1,3 +1,33 @@
+"""FastAPI application for ASCIIBench Judge UI.
+
+This module provides the main web application for the judging interface,
+including endpoints for:
+
+- Matchup selection and voting (REST and HTMX endpoints)
+- Progress tracking and statistics
+- Analytics dashboard with Elo ratings and stability metrics
+- VLM accuracy statistics
+- Undo functionality for correcting mistakes
+
+Architecture:
+    The application uses a service-oriented architecture with dependency injection:
+    - AnalyticsService: Computes Elo ratings, stability metrics, and head-to-head stats
+    - ProgressService: Calculates progress statistics for judging
+    - MatchupService: Selects random matchups prioritizing under-compared model pairs
+    - UndoService: Handles vote undo functionality
+    - DataRepository: Unified data access for samples, votes, and evaluations
+
+Data flow:
+    1. User views two ASCII art samples in a blinded comparison
+    2. User votes for winner, which is persisted to data/votes.jsonl
+    3. Progress stats update automatically to show completion
+    4. Analytics are computed on-demand from votes and samples
+
+HTMX integration:
+    The UI uses HTMX for dynamic updates without page reloads.
+    HTMX endpoints return HTML fragments for partial page updates.
+"""
+
 import json
 import logging
 import random

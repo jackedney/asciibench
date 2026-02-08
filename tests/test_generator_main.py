@@ -252,17 +252,15 @@ class TestMain:
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-key"
 
-        with (
-            patch("asciibench.generator.main.Settings", return_value=mock_settings),
-            patch("asciibench.generator.main.ConfigService") as mock_config_service_class,
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            mock_config_service = mock_config_service_class.return_value
-            mock_config_service.get_app_config.return_value = GenerationConfig()
-            mock_config_service.get_models.side_effect = ConfigServiceError(
-                "models.yaml not found: models.yaml"
-            )
-            main()
+        with patch("asciibench.generator.main.Settings", return_value=mock_settings):
+            with patch("asciibench.generator.main.ConfigService") as mock_config_service_class:
+                mock_config_service = mock_config_service_class.return_value
+                mock_config_service.get_app_config.return_value = GenerationConfig()
+                mock_config_service.get_models.side_effect = ConfigServiceError(
+                    "models.yaml not found: models.yaml"
+                )
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
 
         exc = exc_info.value
         assert isinstance(exc, SystemExit)
@@ -273,18 +271,16 @@ class TestMain:
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-key"
 
-        with (
-            patch("asciibench.generator.main.Settings", return_value=mock_settings),
-            patch("asciibench.generator.main.ConfigService") as mock_config_service_class,
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            mock_config_service = mock_config_service_class.return_value
-            mock_config_service.get_app_config.return_value = GenerationConfig()
-            mock_config_service.get_models.return_value = []
-            mock_config_service.get_prompts.side_effect = ConfigServiceError(
-                "prompts.yaml not found: prompts.yaml"
-            )
-            main()
+        with patch("asciibench.generator.main.Settings", return_value=mock_settings):
+            with patch("asciibench.generator.main.ConfigService") as mock_config_service_class:
+                mock_config_service = mock_config_service_class.return_value
+                mock_config_service.get_app_config.return_value = GenerationConfig()
+                mock_config_service.get_models.return_value = []
+                mock_config_service.get_prompts.side_effect = ConfigServiceError(
+                    "prompts.yaml not found: prompts.yaml"
+                )
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
 
         exc = exc_info.value
         assert isinstance(exc, SystemExit)
