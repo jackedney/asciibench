@@ -36,7 +36,10 @@ except (SyntaxError, ImportError):
 T = TypeVar("T", bound=BaseModel)
 
 _ReadJsonlFn = Callable[[Path, type[Any]], list[Any]]
-_read_jsonl_fn: _ReadJsonlFn = lambda path, model_class: _read_jsonl(path, model_class)
+
+
+def _read_jsonl_fn(path: Path, model_class: type[Any]) -> list[Any]:
+    return _read_jsonl(path, model_class)
 
 
 @dataclass

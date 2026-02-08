@@ -50,8 +50,16 @@ class ProgressService:
             ProgressResponse with votes_completed, unique_pairs_judged,
             total_possible_pairs, and by_category breakdown.
         """
-        votes = self._repo.get_votes()
-        all_samples = self._repo.get_all_samples()
+        try:
+            votes = self._repo.get_votes()
+        except FileNotFoundError:
+            votes = []
+
+        try:
+            all_samples = self._repo.get_all_samples()
+        except FileNotFoundError:
+            all_samples = []
+
         valid_samples = [s for s in all_samples if s.is_valid]
 
         votes_completed = len(votes)

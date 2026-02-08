@@ -32,18 +32,29 @@ def client() -> TestClient:
 def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Set up a temporary data directory for tests."""
     import asciibench.judge_ui.main as main_module
+    from asciibench.common.repository import DataRepository
+    from asciibench.judge_ui.analytics_service import AnalyticsService
+    from asciibench.judge_ui.progress_service import ProgressService
 
     monkeypatch.setattr(main_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(main_module, "DATABASE_PATH", tmp_path / "database.jsonl")
     monkeypatch.setattr(main_module, "VOTES_PATH", tmp_path / "votes.jsonl")
     monkeypatch.setattr(main_module, "VLM_EVALUATIONS_PATH", tmp_path / "vlm_evaluations.jsonl")
-    # Create MatchupService and UndoService instances for tests
+
+    repo = DataRepository(data_dir=tmp_path)
     matchup_service = MatchupService(
         database_path=tmp_path / "database.jsonl", votes_path=tmp_path / "votes.jsonl"
     )
     undo_service = UndoService(votes_path=tmp_path / "votes.jsonl")
+    progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
+    analytics_service = AnalyticsService(repo=repo)
+
+    monkeypatch.setattr(main_module, "repo", repo)
     monkeypatch.setattr(main_module, "matchup_service", matchup_service)
     monkeypatch.setattr(main_module, "undo_service", undo_service)
+    monkeypatch.setattr(main_module, "progress_service", progress_service)
+    monkeypatch.setattr(main_module, "analytics_service", analytics_service)
+
     return tmp_path
 
 

@@ -25,6 +25,7 @@ from asciibench.judge_ui.api_models import (
     MatchupResponse,
     ProgressResponse,
     SampleResponse,
+    VLMAccuracyResponse,
     VoteRequest,
     VoteResponse,
 )
@@ -454,6 +455,16 @@ async def get_analytics() -> AnalyticsResponse:
     and head-to-head comparison matrix.
     """
     return analytics_service.get_analytics_data()
+
+
+@app.get("/api/vlm-accuracy", response_model=VLMAccuracyResponse)
+async def get_vlm_accuracy() -> VLMAccuracyResponse:
+    """Get VLM accuracy statistics per model and category.
+
+    Returns accuracy statistics from vlm_evaluations.jsonl,
+    broken down by model and category.
+    """
+    return analytics_service.get_vlm_accuracy_data()
 
 
 @app.get("/api/elo-vlm-correlation", response_model=EloVLMCorrelationResponse)

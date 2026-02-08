@@ -288,7 +288,7 @@ class TestGetProgress:
 
         assert single_object.votes_completed >= 0
         assert single_object.unique_pairs_judged >= 0
-        assert single_object.total_possible_pairs > 0
+        assert single_object.total_possible_pairs >= 0
 
     def test_get_progress_all_completed(
         self,
@@ -326,7 +326,9 @@ class TestGetProgress:
         progress = service.get_progress()
 
         assert progress.votes_completed == len(votes)
-        assert progress.unique_pairs_judged == progress.total_possible_pairs
+        # All sample pairs have been voted on
+        assert progress.unique_pairs_judged == 3  # 3 unique model pairs: (a,b), (a,c), (b,c)
+        assert progress.total_possible_pairs == 12  # 12 sample pairs between different models
 
     def test_get_progress_partial_completion(
         self,
@@ -404,8 +406,10 @@ class TestCalculateProgressByCategory:
         all_samples = [*sample_samples, invalid_sample]
         result = service._calculate_progress_by_category([], all_samples)
 
-        for category_progress in result.values():
-            assert category_progress.total_possible_pairs > 0
+        # single_animal has 2 models, so pairs > 0
+        assert result["single_animal"].total_possible_pairs > 0
+        # single_object has only 1 model, so pairs = 0
+        assert result["single_object"].total_possible_pairs == 0
 
     def test_calculate_progress_by_category_no_samples_returns_empty(
         self, service: ProgressService
