@@ -134,13 +134,13 @@ def main() -> None:
         return
 
     # Load existing samples to count how many will be skipped when resuming
+    repo = DataRepository()
     try:
-        repo = DataRepository()
         existing_samples = repo.get_all_samples()
-        existing_keys = {(s.model_id, s.prompt_text, s.attempt_number) for s in existing_samples}
-    except FileNotFoundError as e:
-        console.print(f"[error]Error accessing database: {e}[/error]")
-        sys.exit(1)
+    except FileNotFoundError:
+        # No database yet - this is fine for first run
+        existing_samples = []
+    existing_keys = {(s.model_id, s.prompt_text, s.attempt_number) for s in existing_samples}
 
     # Count how many planned combinations already exist in the database
     existing_count = sum(
