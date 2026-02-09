@@ -80,12 +80,10 @@ RANKINGS_PATH = DATA_DIR / "rankings.json"
 
 
 @lru_cache(maxsize=1)
-def _get_database_indexed(
-    path: Path, mtime: float
-) -> tuple[list[ArtSample], dict[UUID, ArtSample]]:
+def _get_database_indexed(path: Path, mtime: int) -> tuple[list[ArtSample], dict[UUID, ArtSample]]:
     """Load database and return both list and ID-indexed dictionary.
 
-    Cached based on file path and modification time.
+    Cached based on file path and modification time (nanoseconds).
     """
     samples = read_jsonl(path, ArtSample)
     indexed = {s.id: s for s in samples}
@@ -97,12 +95,15 @@ def _get_all_samples() -> list[ArtSample]:
     if not DATABASE_PATH.exists():
         return []
     try:
-        mtime = DATABASE_PATH.stat().st_mtime
+        mtime = DATABASE_PATH.stat().st_mtime_ns
         samples, _ = _get_database_indexed(DATABASE_PATH, mtime)
         return samples
     except Exception:
         # Fallback to direct read on error (e.g. file deleted between check and read)
-        return read_jsonl(DATABASE_PATH, ArtSample)
+        try:
+            return read_jsonl(DATABASE_PATH, ArtSample)
+        except FileNotFoundError:
+            return []
 
 
 def _get_sample_by_id(sample_id: str | UUID) -> ArtSample | None:
@@ -111,7 +112,7 @@ def _get_sample_by_id(sample_id: str | UUID) -> ArtSample | None:
         return None
     try:
         target_id = UUID(str(sample_id)) if not isinstance(sample_id, UUID) else sample_id
-        mtime = DATABASE_PATH.stat().st_mtime
+        mtime = DATABASE_PATH.stat().st_mtime_ns
         _, indexed = _get_database_indexed(DATABASE_PATH, mtime)
         return indexed.get(target_id)
     except Exception:
