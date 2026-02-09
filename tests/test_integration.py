@@ -505,7 +505,11 @@ class TestAnalystIntegration:
         for sample in samples:
             append_jsonl(db_path, sample)
 
-        loaded_votes = read_jsonl(votes_path, Vote)
+        # votes.jsonl doesn't exist - should get empty list
+        try:
+            loaded_votes = read_jsonl(votes_path, Vote)
+        except FileNotFoundError:
+            loaded_votes = []
         loaded_samples = read_jsonl(db_path, ArtSample)
 
         ratings = calculate_elo(loaded_votes, loaded_samples)

@@ -2,10 +2,13 @@
 
 import tempfile
 from pathlib import Path
+from typing import TypeVar
 from uuid import UUID
 
 from filelock import FileLock
 from pydantic import BaseModel
+
+T = TypeVar("T", bound=BaseModel)
 
 
 def append_jsonl(path: str | Path, obj: BaseModel) -> None:
@@ -29,10 +32,8 @@ def append_jsonl(path: str | Path, obj: BaseModel) -> None:
             f.write(obj.model_dump_json() + "\n")
 
 
-def read_jsonl[T: BaseModel](path: str | Path, model_class: type[T]) -> list[T]:
+def read_jsonl(path: str | Path, model_class: type[T]) -> list[T]:
     """Read all lines from a JSONL file as model instances.
-
-    Returns an empty list if the file doesn't exist.
 
     Args:
         path: Path to the JSONL file
@@ -40,25 +41,26 @@ def read_jsonl[T: BaseModel](path: str | Path, model_class: type[T]) -> list[T]:
 
     Returns:
         List of model instances
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
     """
     path = Path(path)
 
     if not path.exists():
-        return []
+        raise FileNotFoundError(f"File not found: {path}")
 
     results: list[T] = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if line:  # Skip empty lines
+            if line:
                 results.append(model_class.model_validate_json(line))
 
     return results
 
 
-def read_jsonl_by_id[T: BaseModel](
-    path: str | Path, id: UUID | str, model_class: type[T]
-) -> T | None:
+def read_jsonl_by_id(path: str | Path, id: UUID | str, model_class: type[T]) -> T | None:
     """Find a single record by UUID from a JSONL file.
 
     Args:
@@ -82,14 +84,14 @@ def read_jsonl_by_id[T: BaseModel](
             line = line.strip()
             if line:
                 obj = model_class.model_validate_json(line)
-                # Access the id field - assumes model has an 'id' field
+                # Access id field - assumes model has an 'id' field
                 if hasattr(obj, "id") and obj.id == target_id:
                     return obj
 
     return None
 
 
-def write_jsonl[T: BaseModel](path: str | Path, objects: list[T]) -> None:
+def write_jsonl(path: str | Path, objects: list[T]) -> None:
     """Write a list of Pydantic models to a JSONL file atomically.
 
     Uses file locking and atomic write (write to temp, then rename) to
@@ -106,7 +108,7 @@ def write_jsonl[T: BaseModel](path: str | Path, objects: list[T]) -> None:
 
     lock_path = path.with_suffix(path.suffix + ".lock")
     with FileLock(lock_path):
-        # Write to a temporary file in the same directory for atomic rename
+        # Write to a temporary file in same directory for atomic rename
         fd, temp_path_str = tempfile.mkstemp(
             dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
         )

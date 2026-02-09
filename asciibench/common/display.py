@@ -6,6 +6,11 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+from asciibench.common.loader import RuneScapeLoader
+
+# Maximum prompt length before truncation (for show_prompt)
+MAX_PROMPT_LENGTH = 500
+
 LILAC = "#C8A2C8"
 GOLD = "#FFD700"
 
@@ -219,3 +224,63 @@ def create_leaderboard_table(rankings: list[dict[str, int | float | str]]) -> Ta
         table.add_row(str(rank), str(model), str(elo), str(comparisons), win_rate_pct)
 
     return table
+
+
+def show_banner() -> None:
+    """Display the ASCII art banner.
+
+    Reuses the existing banner from the display module.
+
+    Example:
+        >>> show_banner()
+        # Prints the ASCII art banner to the console
+    """
+    print_banner()
+
+
+def show_prompt(prompt_text: str) -> None:
+    """Display the current prompt text above the loader.
+
+    The prompt is displayed statically (not animated) using the existing
+    theme colors. Very long prompts (>500 chars) are truncated with ellipsis.
+
+    Args:
+        prompt_text: The prompt text to display.
+
+    Example:
+        >>> show_prompt('Draw a cat')
+        # Displays: "Prompt: Draw a cat" styled appropriately
+
+        >>> show_prompt('x' * 600)
+        # Displays truncated text with "..." at the end
+    """
+    console = get_console()
+
+    # Truncate long prompts
+    if len(prompt_text) > MAX_PROMPT_LENGTH:
+        prompt_text = prompt_text[:MAX_PROMPT_LENGTH] + "..."
+
+    console.print(f"[accent]Prompt:[/accent] [primary]{prompt_text}[/primary]")
+
+
+def create_loader(model_name: str, total: int) -> RuneScapeLoader:
+    """Factory function to create a RuneScapeLoader instance.
+
+    Creates a loader configured with the shared console instance
+    for consistent display.
+
+    Args:
+        model_name: The model name to display in the loader.
+        total: Total number of steps for the loading process.
+
+    Returns:
+        A configured RuneScapeLoader instance.
+
+    Example:
+        >>> loader = create_loader('GPT-4o', total=100)
+        >>> with loader:
+        ...     for i in range(100):
+        ...         loader.update(i + 1)
+    """
+    console = get_console()
+    return RuneScapeLoader(model_name=model_name, total_steps=total, console=console)
