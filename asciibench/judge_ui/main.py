@@ -148,6 +148,13 @@ async def get_matchup() -> MatchupResponse:
     The sample_a and sample_b positions are randomized to prevent position bias.
     Model IDs are excluded from the response to maintain double-blind judging.
     """
+    # Check if database file exists
+    if not DATABASE_PATH.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="Database file not found. Please run the generator to create samples.",
+        )
+
     # Load valid samples from database
     all_samples = _get_all_samples()
     valid_samples = [s for s in all_samples if s.is_valid]
@@ -309,6 +316,14 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
     On error, returns an error message HTML fragment.
     """
     try:
+        # Check if database file exists
+        if not DATABASE_PATH.exists():
+            return templates.TemplateResponse(
+                request,
+                "partials/matchup.html",
+                {"error": "File not found: database.jsonl"},
+            )
+
         # Load valid samples from database
         all_samples = _get_all_samples()
         valid_samples = [s for s in all_samples if s.is_valid]
@@ -362,6 +377,14 @@ async def htmx_get_prompt(request: Request) -> HTMLResponse:
     Returns rendered HTML for the prompt display area.
     """
     try:
+        # Check if database file exists
+        if not DATABASE_PATH.exists():
+            return templates.TemplateResponse(
+                request,
+                "partials/prompt.html",
+                {"prompt": "Error: Database file not found"},
+            )
+
         # Load valid samples from database
         all_samples = _get_all_samples()
         valid_samples = [s for s in all_samples if s.is_valid]
