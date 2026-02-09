@@ -6,6 +6,10 @@ choosing model pairs based on Elo ratings to ensure informative comparisons.
 
 import random
 from itertools import combinations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from asciibench.common.models import Prompt
 
 
 class SwissPairSelector:
@@ -97,3 +101,43 @@ class SwissPairSelector:
         pairs_with_diffs.sort(key=lambda x: x[0])
         available = min(n, len(pairs_with_diffs))
         return [pair for _, pair in pairs_with_diffs[:available]]
+
+
+class PromptSelector:
+    """Selector for unused prompts in tournament matchups.
+
+    This class implements logic for selecting a prompt that a model pair
+    hasn't been compared on, ensuring fresh comparisons.
+    """
+
+    def select_prompt(
+        self,
+        model_a: str,
+        model_b: str,
+        all_prompts: list["Prompt"],
+        used_prompts: set[str],
+    ) -> "Prompt | None":
+        """Select an unused prompt for a model pair.
+
+        Selects a random prompt whose text is not in used_prompts.
+        If all prompts are exhausted, falls back to a random prompt from all_prompts.
+
+        Args:
+            model_a: First model ID (for potential future use).
+            model_b: Second model ID (for potential future use).
+            all_prompts: List of all available prompts.
+            used_prompts: Set of prompt text strings that have been used for this pair.
+
+        Returns:
+            A randomly selected unused Prompt, or None if all_prompts is empty.
+            If all prompts are used, returns a random prompt from all_prompts.
+        """
+        if not all_prompts:
+            return None
+
+        unused_prompts = [p for p in all_prompts if p.text not in used_prompts]
+
+        if unused_prompts:
+            return random.choice(unused_prompts)
+
+        return random.choice(all_prompts)
