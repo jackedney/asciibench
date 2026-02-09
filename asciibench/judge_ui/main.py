@@ -32,6 +32,7 @@ import json
 import logging
 import random
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID
@@ -84,6 +85,48 @@ settings = Settings()
 config_service = ConfigService()
 tournament_config = config_service.get_tournament_config()
 generation_config = config_service.get_app_config()
+
+
+@lru_cache(maxsize=1)
+def _get_database_indexed(path: Path, mtime: int) -> tuple[list[ArtSample], dict[UUID, ArtSample]]:
+    """Load database and return both list and ID-indexed dictionary.
+
+    Cached based on file path and modification time (nanoseconds).
+    """
+    samples = read_jsonl(path, ArtSample)
+    indexed = {s.id: s for s in samples}
+    return samples, indexed
+
+
+def _get_all_samples() -> list[ArtSample]:
+    """Get all samples from database with in-memory caching."""
+    if not DATABASE_PATH.exists():
+        return []
+    try:
+        mtime = DATABASE_PATH.stat().st_mtime_ns
+        samples, _ = _get_database_indexed(DATABASE_PATH, mtime)
+        return samples
+    except Exception:
+        # Fallback to direct read on error (e.g. file deleted between check and read)
+        try:
+            return read_jsonl(DATABASE_PATH, ArtSample)
+        except FileNotFoundError:
+            return []
+
+
+def _get_sample_by_id(sample_id: str | UUID) -> ArtSample | None:
+    """Find a sample by ID using the cached database content."""
+    if not DATABASE_PATH.exists():
+        return None
+    try:
+        target_id = UUID(str(sample_id)) if not isinstance(sample_id, UUID) else sample_id
+    except ValueError:
+        # Invalid UUID format - return None so caller can return 404
+        return None
+    mtime = DATABASE_PATH.stat().st_mtime_ns
+    _, indexed = _get_database_indexed(DATABASE_PATH, mtime)
+    return indexed.get(target_id)
+
 
 # Service instances
 # Use cache_ttl=0 to disable caching - votes are written directly to file
@@ -152,14 +195,15 @@ async def get_matchup() -> MatchupResponse:
     The sample_a and sample_b positions are randomized to prevent position bias.
     Model IDs are excluded from the response to maintain double-blind judging.
     """
-    # Load valid samples from database
-    try:
-        all_samples = read_jsonl(DATABASE_PATH, ArtSample)
-    except FileNotFoundError as e:
+    # Check if database file exists
+    if not DATABASE_PATH.exists():
         raise HTTPException(
             status_code=400,
             detail="Database file not found. Please run the generator to create samples.",
-        ) from e
+        )
+
+    # Load valid samples from database
+    all_samples = _get_all_samples()
     valid_samples = [s for s in all_samples if s.is_valid]
 
     # Check if we have enough samples
@@ -212,7 +256,7 @@ async def submit_vote(vote_request: VoteRequest) -> VoteResponse:
         HTTPException: 400 if winner value is invalid (handled by Pydantic)
     """
     # Validate that sample_a_id exists in database
-    sample_a = read_jsonl_by_id(DATABASE_PATH, vote_request.sample_a_id, ArtSample)
+    sample_a = _get_sample_by_id(vote_request.sample_a_id)
     if sample_a is None:
         raise HTTPException(
             status_code=404,
@@ -220,7 +264,7 @@ async def submit_vote(vote_request: VoteRequest) -> VoteResponse:
         )
 
     # Validate that sample_b_id exists in database
-    sample_b = read_jsonl_by_id(DATABASE_PATH, vote_request.sample_b_id, ArtSample)
+    sample_b = _get_sample_by_id(vote_request.sample_b_id)
     if sample_b is None:
         raise HTTPException(
             status_code=404,
@@ -393,8 +437,16 @@ async def htmx_get_prompt(request: Request) -> HTMLResponse:
     Returns rendered HTML for the prompt display area.
     """
     try:
+        # Check if database file exists
+        if not DATABASE_PATH.exists():
+            return templates.TemplateResponse(
+                request,
+                "partials/prompt.html",
+                {"prompt": "Error: Database file not found"},
+            )
+
         # Load valid samples from database
-        all_samples = read_jsonl(DATABASE_PATH, ArtSample)
+        all_samples = _get_all_samples()
         valid_samples = [s for s in all_samples if s.is_valid]
 
         if len(valid_samples) < 2:
@@ -478,7 +530,7 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
             )
 
         # Validate that sample_a_id exists in database
-        sample_a = read_jsonl_by_id(DATABASE_PATH, str(sample_a_id), ArtSample)
+        sample_a = _get_sample_by_id(str(sample_a_id))
         if sample_a is None:
             return templates.TemplateResponse(
                 request,
@@ -487,7 +539,7 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
             )
 
         # Validate that sample_b_id exists in database
-        sample_b = read_jsonl_by_id(DATABASE_PATH, str(sample_b_id), ArtSample)
+        sample_b = _get_sample_by_id(str(sample_b_id))
         if sample_b is None:
             return templates.TemplateResponse(
                 request,
