@@ -1,3 +1,33 @@
+"""FastAPI application for ASCIIBench Judge UI.
+
+This module provides the main web application for the judging interface,
+including endpoints for:
+
+- Matchup selection and voting (REST and HTMX endpoints)
+- Progress tracking and statistics
+- Analytics dashboard with Elo ratings and stability metrics
+- VLM accuracy statistics
+- Undo functionality for correcting mistakes
+
+Architecture:
+    The application uses a service-oriented architecture with dependency injection:
+    - AnalyticsService: Computes Elo ratings, stability metrics, and head-to-head stats
+    - ProgressService: Calculates progress statistics for judging
+    - MatchupService: Selects random matchups prioritizing under-compared model pairs
+    - UndoService: Handles vote undo functionality
+    - DataRepository: Unified data access for samples, votes, and evaluations
+
+Data flow:
+    1. User views two ASCII art samples in a blinded comparison
+    2. User votes for winner, which is persisted to data/votes.jsonl
+    3. Progress stats update automatically to show completion
+    4. Analytics are computed on-demand from votes and samples
+
+HTMX integration:
+    The UI uses HTMX for dynamic updates without page reloads.
+    HTMX endpoints return HTML fragments for partial page updates.
+"""
+
 import json
 import logging
 import random
@@ -15,29 +45,23 @@ from asciibench.common.persistence import (
     read_jsonl,
     read_jsonl_by_id,
 )
+from asciibench.common.repository import DataRepository
 from asciibench.common.yaml_config import load_models
+from asciibench.judge_ui.analytics_service import AnalyticsService
 from asciibench.judge_ui.api_models import (
     AnalyticsResponse,
-    CategoryProgress,
     CorrelationDataPoint,
-    EloHistoryPoint,
     EloVLMCorrelationResponse,
-    HeadToHeadRecord,
-    LeaderboardEntry,
     MatchupResponse,
-    ModelAccuracyStats,
-    ModelStabilityData,
     ProgressResponse,
     SampleResponse,
-    StabilityData,
     VLMAccuracyResponse,
     VoteRequest,
     VoteResponse,
 )
-from asciibench.judge_ui.analytics_service import AnalyticsService
 from asciibench.judge_ui.matchup_service import MatchupService
+from asciibench.judge_ui.progress_service import ProgressService
 from asciibench.judge_ui.undo_service import UndoService
-from asciibench.common.repository import DataRepository
 
 app = FastAPI(title="ASCIIBench Judge UI")
 templates = Jinja2Templates(directory="templates")
@@ -53,51 +77,13 @@ VLM_EVALUATIONS_PATH = DATA_DIR / "vlm_evaluations.jsonl"
 RANKINGS_PATH = DATA_DIR / "rankings.json"
 
 # Service instances
-repo = DataRepository(data_dir=DATA_DIR)
+# Use cache_ttl=0 to disable caching - votes are written directly to file
+# and need to be immediately visible in subsequent reads
+repo = DataRepository(data_dir=DATA_DIR, cache_ttl=0)
 analytics_service = AnalyticsService(repo=repo)
 matchup_service = MatchupService(database_path=DATABASE_PATH, votes_path=VOTES_PATH)
+progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
 undo_service = UndoService(votes_path=VOTES_PATH)
-
-
-def _calculate_progress_by_category(
-    votes: list[Vote], samples: list[ArtSample]
-) -> dict[str, CategoryProgress]:
-    """Calculate progress statistics broken down by category."""
-    sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
-
-    samples_by_category: dict[str, list[ArtSample]] = {}
-    for sample in samples:
-        if sample.is_valid:
-            if sample.category not in samples_by_category:
-                samples_by_category[sample.category] = []
-            samples_by_category[sample.category].append(sample)
-
-    votes_by_category: dict[str, list[Vote]] = {}
-    for vote in votes:
-        sample_a = sample_lookup.get(vote.sample_a_id)
-        if sample_a and sample_a.is_valid:
-            category = sample_a.category
-            if category not in votes_by_category:
-                votes_by_category[category] = []
-            votes_by_category[category].append(vote)
-
-    result: dict[str, CategoryProgress] = {}
-    for category, category_samples in samples_by_category.items():
-        category_votes = votes_by_category.get(category, [])
-
-        unique_pairs = matchup_service.get_unique_model_pairs_judged(
-            category_votes, category_samples
-        )
-
-        total_pairs = matchup_service._calculate_total_possible_pairs(category_samples)
-
-        result[category] = CategoryProgress(
-            votes_completed=len(category_votes),
-            unique_pairs_judged=unique_pairs,
-            total_possible_pairs=total_pairs,
-        )
-
-    return result
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -120,7 +106,13 @@ async def get_matchup() -> MatchupResponse:
     Model IDs are excluded from the response to maintain double-blind judging.
     """
     # Load valid samples from database
-    all_samples = read_jsonl(DATABASE_PATH, ArtSample)
+    try:
+        all_samples = read_jsonl(DATABASE_PATH, ArtSample)
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=400,
+            detail="Database file not found. Please run the generator to create samples.",
+        ) from e
     valid_samples = [s for s in all_samples if s.is_valid]
 
     # Check if we have enough samples
@@ -264,27 +256,7 @@ async def get_progress() -> ProgressResponse:
         ProgressResponse with votes_completed, unique_pairs_judged,
         total_possible_pairs, and by_category breakdown.
     """
-    # Load all samples from database
-    all_samples = read_jsonl(DATABASE_PATH, ArtSample)
-    valid_samples = [s for s in all_samples if s.is_valid]
-
-    # Load all votes
-    votes = read_jsonl(VOTES_PATH, Vote)
-
-    # Calculate overall statistics
-    votes_completed = len(votes)
-    unique_pairs_judged = matchup_service.get_unique_model_pairs_judged(votes, valid_samples)
-    total_possible_pairs = matchup_service._calculate_total_possible_pairs(valid_samples)
-
-    # Calculate per-category breakdown
-    by_category = _calculate_progress_by_category(votes, all_samples)
-
-    return ProgressResponse(
-        votes_completed=votes_completed,
-        unique_pairs_judged=unique_pairs_judged,
-        total_possible_pairs=total_possible_pairs,
-        by_category=by_category,
-    )
+    return progress_service.get_progress()
 
 
 # =============================================================================
@@ -386,25 +358,15 @@ async def htmx_get_progress(request: Request) -> HTMLResponse:
 
     Returns rendered HTML for the progress display area.
     """
-    # Load all samples from database
-    all_samples = read_jsonl(DATABASE_PATH, ArtSample)
-    valid_samples = [s for s in all_samples if s.is_valid]
-
-    # Load all votes
-    votes = read_jsonl(VOTES_PATH, Vote)
-
-    # Calculate overall statistics
-    votes_completed = len(votes)
-    unique_pairs_judged = matchup_service.get_unique_model_pairs_judged(votes, valid_samples)
-    total_possible_pairs = matchup_service._calculate_total_possible_pairs(valid_samples)
+    progress = progress_service.get_progress()
 
     return templates.TemplateResponse(
         request,
         "partials/progress.html",
         {
-            "votes_completed": votes_completed,
-            "unique_pairs_judged": unique_pairs_judged,
-            "total_possible_pairs": total_possible_pairs,
+            "votes_completed": progress.votes_completed,
+            "unique_pairs_judged": progress.unique_pairs_judged,
+            "total_possible_pairs": progress.total_possible_pairs,
         },
     )
 
@@ -533,6 +495,16 @@ async def get_analytics() -> AnalyticsResponse:
     return analytics_service.get_analytics_data()
 
 
+@app.get("/api/vlm-accuracy", response_model=VLMAccuracyResponse)
+async def get_vlm_accuracy() -> VLMAccuracyResponse:
+    """Get VLM accuracy statistics per model and category.
+
+    Returns accuracy statistics from vlm_evaluations.jsonl,
+    broken down by model and category.
+    """
+    return analytics_service.get_vlm_accuracy_data()
+
+
 @app.get("/api/elo-vlm-correlation", response_model=EloVLMCorrelationResponse)
 async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
     """Get Elo ratings and VLM accuracy per model for correlation analysis.
@@ -555,8 +527,6 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
             status_code=500,
             detail=f"Error reading vlm_evaluations.jsonl: {e}",
         ) from e
-
-    samples = read_jsonl(DATABASE_PATH, ArtSample)
 
     try:
         with open(RANKINGS_PATH) as f:

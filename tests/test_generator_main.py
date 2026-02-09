@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from asciibench.common.config import GenerationConfig
+from asciibench.common.config_service import ConfigServiceError
 from asciibench.common.models import ArtSample, Model, Prompt
 from asciibench.generator.main import _print_progress, main
 
@@ -114,19 +115,20 @@ class TestMain:
         with (
             patch("asciibench.generator.main.Settings", return_value=mock_settings),
             patch(
-                "asciibench.generator.main.load_generation_config",
-                return_value=mock_config,
-            ),
-            patch("asciibench.generator.main.load_models", return_value=mock_models),
-            patch("asciibench.generator.main.load_prompts", return_value=mock_prompts),
+                "asciibench.generator.main.ConfigService",
+            ) as mock_config_service_class,
             patch("asciibench.generator.main.generate_samples", return_value=[]),
         ):
+            mock_config_service = mock_config_service_class.return_value
+            mock_config_service.get_app_config.return_value = mock_config
+            mock_config_service.get_models.return_value = mock_models
+            mock_config_service.get_prompts.return_value = mock_prompts
             main()
 
         captured = capsys.readouterr()
         stripped_output = strip_ansi(captured.out)
         # Check for banner (contains ASCII art with these patterns)
-        assert "___" in stripped_output  # Part of the ASCII art banner
+        assert "___" in stripped_output  # Part of ASCII art banner
         # Check for config summary (like demo.py)
         assert "models loaded from" in stripped_output
         assert "models.yaml" in stripped_output
@@ -143,13 +145,14 @@ class TestMain:
         with (
             patch("asciibench.generator.main.Settings", return_value=mock_settings),
             patch(
-                "asciibench.generator.main.load_generation_config",
-                return_value=mock_config,
-            ),
-            patch("asciibench.generator.main.load_models", return_value=mock_models),
-            patch("asciibench.generator.main.load_prompts", return_value=mock_prompts),
+                "asciibench.generator.main.ConfigService",
+            ) as mock_config_service_class,
             patch("asciibench.generator.main.generate_samples", return_value=[]) as mock_generate,
         ):
+            mock_config_service = mock_config_service_class.return_value
+            mock_config_service.get_app_config.return_value = mock_config
+            mock_config_service.get_models.return_value = mock_models
+            mock_config_service.get_prompts.return_value = mock_prompts
             main()
 
         mock_generate.assert_called_once()
@@ -202,13 +205,14 @@ class TestMain:
         with (
             patch("asciibench.generator.main.Settings", return_value=mock_settings),
             patch(
-                "asciibench.generator.main.load_generation_config",
-                return_value=mock_config,
-            ),
-            patch("asciibench.generator.main.load_models", return_value=mock_models),
-            patch("asciibench.generator.main.load_prompts", return_value=mock_prompts),
+                "asciibench.generator.main.ConfigService",
+            ) as mock_config_service_class,
             patch("asciibench.generator.main.generate_samples", return_value=samples),
         ):
+            mock_config_service = mock_config_service_class.return_value
+            mock_config_service.get_app_config.return_value = mock_config
+            mock_config_service.get_models.return_value = mock_models
+            mock_config_service.get_prompts.return_value = mock_prompts
             main()
 
         captured = capsys.readouterr()
@@ -229,13 +233,14 @@ class TestMain:
         with (
             patch("asciibench.generator.main.Settings", return_value=mock_settings),
             patch(
-                "asciibench.generator.main.load_generation_config",
-                return_value=mock_config,
-            ),
-            patch("asciibench.generator.main.load_models", return_value=mock_models),
-            patch("asciibench.generator.main.load_prompts", return_value=mock_prompts),
+                "asciibench.generator.main.ConfigService",
+            ) as mock_config_service_class,
             patch("asciibench.generator.main.generate_samples", return_value=[]),
         ):
+            mock_config_service = mock_config_service_class.return_value
+            mock_config_service.get_app_config.return_value = mock_config
+            mock_config_service.get_models.return_value = mock_models
+            mock_config_service.get_prompts.return_value = mock_prompts
             main()
 
         captured = capsys.readouterr()
@@ -247,19 +252,15 @@ class TestMain:
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-key"
 
-        with (
-            patch("asciibench.generator.main.Settings", return_value=mock_settings),
-            patch(
-                "asciibench.generator.main.load_generation_config",
-                return_value=GenerationConfig(),
-            ),
-            patch(
-                "asciibench.generator.main.load_models",
-                side_effect=FileNotFoundError("models.yaml not found"),
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            main()
+        with patch("asciibench.generator.main.Settings", return_value=mock_settings):
+            with patch("asciibench.generator.main.ConfigService") as mock_config_service_class:
+                mock_config_service = mock_config_service_class.return_value
+                mock_config_service.get_app_config.return_value = GenerationConfig()
+                mock_config_service.get_models.side_effect = ConfigServiceError(
+                    "models.yaml not found: models.yaml"
+                )
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
 
         exc = exc_info.value
         assert isinstance(exc, SystemExit)
@@ -270,20 +271,16 @@ class TestMain:
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-key"
 
-        with (
-            patch("asciibench.generator.main.Settings", return_value=mock_settings),
-            patch(
-                "asciibench.generator.main.load_generation_config",
-                return_value=GenerationConfig(),
-            ),
-            patch("asciibench.generator.main.load_models", return_value=[]),
-            patch(
-                "asciibench.generator.main.load_prompts",
-                side_effect=FileNotFoundError("prompts.yaml not found"),
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            main()
+        with patch("asciibench.generator.main.Settings", return_value=mock_settings):
+            with patch("asciibench.generator.main.ConfigService") as mock_config_service_class:
+                mock_config_service = mock_config_service_class.return_value
+                mock_config_service.get_app_config.return_value = GenerationConfig()
+                mock_config_service.get_models.return_value = []
+                mock_config_service.get_prompts.side_effect = ConfigServiceError(
+                    "prompts.yaml not found: prompts.yaml"
+                )
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
 
         exc = exc_info.value
         assert isinstance(exc, SystemExit)
@@ -302,10 +299,14 @@ class TestMain:
 
         with (
             patch("asciibench.generator.main.Settings", return_value=mock_settings),
-            patch("asciibench.generator.main.load_generation_config", return_value=config),
-            patch("asciibench.generator.main.load_models", return_value=models),
-            patch("asciibench.generator.main.load_prompts", return_value=prompts),
+            patch(
+                "asciibench.generator.main.ConfigService",
+            ) as mock_config_service_class,
         ):
+            mock_config_service = mock_config_service_class.return_value
+            mock_config_service.get_app_config.return_value = config
+            mock_config_service.get_models.return_value = models
+            mock_config_service.get_prompts.return_value = prompts
             main()
 
         captured = capsys.readouterr()

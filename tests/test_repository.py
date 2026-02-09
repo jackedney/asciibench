@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import sleep
+from uuid import uuid4
 
 import pytest
 
@@ -15,7 +16,29 @@ class TestCacheEntry:
 
     def test_cache_entry_creation(self) -> None:
         """CacheEntry stores data and timestamp correctly."""
-        data = [1, 2, 3]
+        data = [
+            Vote(
+                id=uuid4(),
+                sample_a_id="test-a",
+                sample_b_id="test-b",
+                winner="A",
+                timestamp=datetime.now(UTC),
+            ),
+            Vote(
+                id=uuid4(),
+                sample_a_id="test-a",
+                sample_b_id="test-b",
+                winner="B",
+                timestamp=datetime.now(UTC),
+            ),
+            Vote(
+                id=uuid4(),
+                sample_a_id="test-a",
+                sample_b_id="test-b",
+                winner="tie",
+                timestamp=datetime.now(UTC),
+            ),
+        ]
         entry = CacheEntry(data=data)
 
         assert entry.data == data
@@ -24,6 +47,7 @@ class TestCacheEntry:
 
     def test_is_expired_with_none_ttl(self) -> None:
         """CacheEntry never expires when TTL is None."""
+
         entry = CacheEntry(data=[])
 
         assert not entry.is_expired(None)

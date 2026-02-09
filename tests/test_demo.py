@@ -340,18 +340,19 @@ class TestRoundtrip:
 class TestGenerateDemoSample:
     """Tests for generate_demo_sample function."""
 
-    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.ConfigService")
     @patch("asciibench.generator.demo.Settings")
     @patch("asciibench.generator.demo.OpenRouterClient")
     def test_generate_demo_sample_valid_output(
-        self, mock_client_class, mock_settings_class, mock_load_config
+        self, mock_client_class, mock_settings_class, mock_config_service_class
     ):
         """Test generate_demo_sample returns valid DemoResult with ASCII art."""
         mock_config = MagicMock()
         mock_config.temperature = 0.0
         mock_config.max_tokens = 2000
-        mock_config.system_prompt = "Draw the requested ASCII art."
-        mock_load_config.return_value = mock_config
+        mock_config.system_prompt = "Draw a requested ASCII art."
+        mock_config_service = mock_config_service_class.return_value
+        mock_config_service.get_app_config.return_value = mock_config
 
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-api-key"
@@ -377,18 +378,19 @@ class TestGenerateDemoSample:
         )
         mock_client_instance.generate.assert_called_once()
 
-    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.ConfigService")
     @patch("asciibench.generator.demo.Settings")
     @patch("asciibench.generator.demo.OpenRouterClient")
     def test_generate_demo_sample_uses_config(
-        self, mock_client_class, mock_settings_class, mock_load_config
+        self, mock_client_class, mock_settings_class, mock_config_service_class
     ):
         """Test generate_demo_sample loads config from config.yaml."""
         mock_config = MagicMock()
         mock_config.temperature = 0.5
         mock_config.max_tokens = 3000
         mock_config.system_prompt = "You are an ASCII art expert."
-        mock_load_config.return_value = mock_config
+        mock_config_service = mock_config_service_class.return_value
+        mock_config_service.get_app_config.return_value = mock_config
 
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-key"
@@ -408,15 +410,15 @@ class TestGenerateDemoSample:
         assert call_args[0][1] == "Draw a skeleton in ASCII art"
         assert call_args[1]["config"] == mock_config
 
-    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.ConfigService")
     @patch("asciibench.generator.demo.Settings")
     @patch("asciibench.generator.demo.OpenRouterClient")
     def test_generate_demo_sample_handles_auth_error(
-        self, mock_client_class, mock_settings_class, mock_load_config
+        self, mock_client_class, mock_settings_class, mock_config_service_class
     ):
         """Test generate_demo_sample handles authentication error gracefully."""
         mock_config = MagicMock()
-        mock_load_config.return_value = mock_config
+        mock_config_service_class.return_value = mock_config
 
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "invalid-key"
@@ -437,15 +439,15 @@ class TestGenerateDemoSample:
         assert "Error" in result.ascii_output
         assert "Authentication failed" in result.ascii_output
 
-    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.ConfigService")
     @patch("asciibench.generator.demo.Settings")
     @patch("asciibench.generator.demo.OpenRouterClient")
     def test_generate_demo_sample_handles_model_error(
-        self, mock_client_class, mock_settings_class, mock_load_config
+        self, mock_client_class, mock_settings_class, mock_config_service_class
     ):
         """Test generate_demo_sample handles model error gracefully."""
         mock_config = MagicMock()
-        mock_load_config.return_value = mock_config
+        mock_config_service_class.return_value = mock_config
 
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-key"
@@ -464,15 +466,15 @@ class TestGenerateDemoSample:
         assert "Error" in result.ascii_output
         assert "Model not found" in result.ascii_output
 
-    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.ConfigService")
     @patch("asciibench.generator.demo.Settings")
     @patch("asciibench.generator.demo.OpenRouterClient")
     def test_generate_demo_sample_handles_client_error(
-        self, mock_client_class, mock_settings_class, mock_load_config
+        self, mock_client_class, mock_settings_class, mock_config_service_class
     ):
         """Test generate_demo_sample handles generic client error gracefully."""
         mock_config = MagicMock()
-        mock_load_config.return_value = mock_config
+        mock_config_service_class.return_value = mock_config
 
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-key"
@@ -491,15 +493,15 @@ class TestGenerateDemoSample:
         assert "Error" in result.ascii_output
         assert "API error" in result.ascii_output
 
-    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.ConfigService")
     @patch("asciibench.generator.demo.Settings")
     @patch("asciibench.generator.demo.OpenRouterClient")
     def test_generate_demo_sample_handles_unexpected_error(
-        self, mock_client_class, mock_settings_class, mock_load_config
+        self, mock_client_class, mock_settings_class, mock_config_service_class
     ):
         """Test generate_demo_sample handles unexpected errors gracefully."""
         mock_config = MagicMock()
-        mock_load_config.return_value = mock_config
+        mock_config_service_class.return_value = mock_config
 
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-key"
@@ -515,15 +517,15 @@ class TestGenerateDemoSample:
         assert result.is_valid is False
         assert "Unexpected error" in result.ascii_output
 
-    @patch("asciibench.generator.demo.load_generation_config")
+    @patch("asciibench.generator.demo.ConfigService")
     @patch("asciibench.generator.demo.Settings")
     @patch("asciibench.generator.demo.OpenRouterClient")
     def test_generate_demo_sample_empty_output_invalid(
-        self, mock_client_class, mock_settings_class, mock_load_config
+        self, mock_client_class, mock_settings_class, mock_config_service_class
     ):
         """Test generate_demo_sample returns is_valid=False for empty output."""
         mock_config = MagicMock()
-        mock_load_config.return_value = mock_config
+        mock_config_service_class.return_value = mock_config
 
         mock_settings = MagicMock()
         mock_settings.openrouter_api_key = "test-key"

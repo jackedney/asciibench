@@ -1,12 +1,131 @@
 from datetime import UTC, datetime
 from functools import partial
-from typing import Literal
+from typing import Literal, Protocol, TypedDict
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
 # Helper for timezone-aware timestamps
 _utc_now = partial(datetime.now, tz=UTC)
+
+
+class ProgressCallback(Protocol):
+    """Protocol for progress callbacks during sample generation.
+
+    Callback is invoked before each sample generation with details about
+    the model, prompt, attempt, and remaining work.
+
+    Example:
+        >>> def on_progress(model_id: str, prompt_text: str, attempt: int, remaining: int) -> None:
+        ...     print(f"Generating {model_id} attempt {attempt}, {remaining} remaining")
+        >>>
+        >>> generate_samples(
+        ...     models, prompts, config,
+        ...     progress_callback=on_progress
+        ... )
+    """
+
+    def __call__(
+        self, model_id: str, prompt_text: str, attempt_number: int, total_remaining: int
+    ) -> None:
+        """Called before each sample generation.
+
+        Args:
+            model_id: ID of the model being used
+            prompt_text: Text of the prompt being generated
+            attempt_number: Current attempt number (1-indexed)
+            total_remaining: Number of tasks remaining
+        """
+        ...
+
+
+class StatsCallback(Protocol):
+    """Protocol for statistics callbacks after sample generation.
+
+    Callback is invoked after each sample generation completes with
+    validity status and cost information.
+
+    Example:
+        >>> def on_stats(is_valid: bool, cost: float | None) -> None:
+        ...     print(f"Sample valid: {is_valid}, cost: ${cost or 0:.4f}")
+        >>>
+        >>> generate_samples(
+        ...     models, prompts, config,
+        ...     stats_callback=on_stats
+        ... )
+    """
+
+    def __call__(self, is_valid: bool, cost: float | None) -> None:
+        """Called after each sample generation completes.
+
+        Args:
+            is_valid: Whether the generated sample is valid
+            cost: Cost of the API call (None if not available)
+        """
+        ...
+
+
+class EvaluationProgressCallback(Protocol):
+    """Protocol for progress callbacks during VLM evaluation.
+
+    Callback is invoked after each evaluation completes with details about
+    progress and current VLM model.
+
+    Example:
+        >>> def on_eval_progress(processed: int, total: int, model_id: str) -> None:
+        ...     print(f"{processed}/{total} evaluated with {model_id}")
+        >>>
+        >>> await run_evaluation(
+        ...     progress_callback=on_eval_progress
+        ... )
+    """
+
+    def __call__(self, total_processed: int, total_tasks: int, vlm_model_id: str) -> None:
+        """Called after each evaluation completes.
+
+        Args:
+            total_processed: Number of evaluations completed
+            total_tasks: Total number of evaluation tasks
+            vlm_model_id: ID of the VLM model used for this evaluation
+        """
+        ...
+
+
+class ModelPairCounts(TypedDict):
+    """Type definition for model pair comparison counts.
+
+    Maps sorted model pair tuples to the number of comparisons between them.
+    Used in MatchupService and ModelPairSelector to track which model pairs
+    have been compared how many times.
+    """
+
+    # Key is a tuple of (model_a_id, model_b_id) in sorted order
+    # Value is the count of comparisons between the two models
+    # Example: {("model_a", "model_b"): 5}
+
+
+class LeaderboardEntryData(TypedDict):
+    """Type definition for a single entry in the leaderboard rankings.
+
+    Contains rank position, model information, and computed metrics.
+    Used in analyst/main.py for displaying leaderboard tables.
+    """
+
+    rank: int
+    model: str
+    elo: int
+    comparisons: int
+    win_rate: float
+
+
+class RankingsData(TypedDict):
+    """Type definition for rankings data structure.
+
+    Contains overall Elo ratings for all models.
+    Used in judge_ui/main.py for correlation analysis.
+    """
+
+    overall_ratings: dict[str, float]
 
 
 class ArtSample(BaseModel):
@@ -56,6 +175,12 @@ class DemoResult(BaseModel):
 
 class OpenRouterResponse:
     """Response from OpenRouter API including usage and cost metadata."""
+
+    text: str
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+    cost: float | None
 
     def __init__(
         self,

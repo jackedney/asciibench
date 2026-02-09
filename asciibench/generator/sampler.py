@@ -1,6 +1,6 @@
 """Sampler module for generating ASCII art samples.
 
-This module provides functionality to coordinate the generation of
+This module provides functionality to coordinate generation of
 multiple samples from configured models and prompts.
 
 Dependencies:
@@ -28,7 +28,8 @@ from asciibench.common.logging import (
 )
 from asciibench.common.models import ArtSample, Model, Prompt
 from asciibench.common.observability import is_logfire_enabled
-from asciibench.common.persistence import append_jsonl, read_jsonl
+from asciibench.common.persistence import append_jsonl
+from asciibench.common.repository import DataRepository
 from asciibench.generator.client import (
     AuthenticationError,
     ModelError,
@@ -42,14 +43,10 @@ from asciibench.generator.state import BatchMetrics, SharedState
 
 logger = get_logger("generator.sampler")
 
-# Type alias for progress callback: (model_id, prompt_text, attempt_number, total_remaining) -> None
-ProgressCallback = Callable[[str, str, int, int], None]
-
-# Type alias for stats callback: (is_valid, cost) -> None
-StatsCallback = Callable[[bool, float | None], None]
-
-# Default number of retries for invalid outputs or API errors
-DEFAULT_MAX_RETRIES = 3
+# Type aliases for callbacks
+# Callable type is used for ty compatibility
+ProgressCallbackType = Callable[[str, str, int, int], None]
+StatsCallbackType = Callable[[bool, float | None], None]
 
 
 @dataclass
@@ -294,8 +291,8 @@ async def _process_single_task(
     config: GenerationConfig,
     database_path: Path,
     state: SharedState,
-    progress_callback: ProgressCallback | None,
-    stats_callback: StatsCallback | None,
+    progress_callback: ProgressCallbackType | None,
+    stats_callback: StatsCallbackType | None,
     total_combinations: int,
     semaphore: asyncio.Semaphore,
 ) -> ArtSample | None:
@@ -382,8 +379,8 @@ async def generate_samples_async(
     database_path: str | Path = "data/database.jsonl",
     client: OpenRouterClient | None = None,
     settings: Settings | None = None,
-    progress_callback: ProgressCallback | None = None,
-    stats_callback: StatsCallback | None = None,
+    progress_callback: ProgressCallbackType | None = None,
+    stats_callback: StatsCallbackType | None = None,
 ) -> list[ArtSample]:
     """Generate ASCII art samples from configured models and prompts asynchronously.
 
@@ -412,6 +409,7 @@ async def generate_samples_async(
         ValueError: If neither client nor settings are provided
     """
     database_path = Path(database_path)
+    data_dir = database_path.parent
 
     # Generate and set run_id for this generation batch if not already set
     if get_run_id() is None:
@@ -428,8 +426,12 @@ async def generate_samples_async(
             timeout=settings.openrouter_timeout_seconds,
         )
 
-    # Load existing samples for idempotency check
-    existing_samples = read_jsonl(database_path, ArtSample)
+    # Load existing samples for idempotency check using DataRepository
+    repo = DataRepository(data_dir=data_dir)
+    try:
+        existing_samples = repo.get_all_samples()
+    except FileNotFoundError:
+        existing_samples = []
     existing_keys = _build_existing_sample_keys(existing_samples)
 
     # Initialize SharedState with existing keys and concurrency limit
@@ -501,8 +503,8 @@ def generate_samples(
     database_path: str | Path = "data/database.jsonl",
     client: OpenRouterClient | None = None,
     settings: Settings | None = None,
-    progress_callback: ProgressCallback | None = None,
-    stats_callback: StatsCallback | None = None,
+    progress_callback: ProgressCallbackType | None = None,
+    stats_callback: StatsCallbackType | None = None,
 ) -> list[ArtSample]:
     """Generate ASCII art samples from configured models and prompts.
 

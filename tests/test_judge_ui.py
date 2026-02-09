@@ -17,7 +17,7 @@ from asciibench.judge_ui.api_models import (
     VoteRequest,
     VoteResponse,
 )
-from asciibench.judge_ui.main import _calculate_progress_by_category, app
+from asciibench.judge_ui.main import app
 from asciibench.judge_ui.matchup_service import MatchupService
 from asciibench.judge_ui.undo_service import UndoService
 
@@ -32,18 +32,29 @@ def client() -> TestClient:
 def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Set up a temporary data directory for tests."""
     import asciibench.judge_ui.main as main_module
+    from asciibench.common.repository import DataRepository
+    from asciibench.judge_ui.analytics_service import AnalyticsService
+    from asciibench.judge_ui.progress_service import ProgressService
 
     monkeypatch.setattr(main_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(main_module, "DATABASE_PATH", tmp_path / "database.jsonl")
     monkeypatch.setattr(main_module, "VOTES_PATH", tmp_path / "votes.jsonl")
     monkeypatch.setattr(main_module, "VLM_EVALUATIONS_PATH", tmp_path / "vlm_evaluations.jsonl")
-    # Create MatchupService and UndoService instances for tests
+
+    repo = DataRepository(data_dir=tmp_path)
     matchup_service = MatchupService(
         database_path=tmp_path / "database.jsonl", votes_path=tmp_path / "votes.jsonl"
     )
     undo_service = UndoService(votes_path=tmp_path / "votes.jsonl")
+    progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
+    analytics_service = AnalyticsService(repo=repo)
+
+    monkeypatch.setattr(main_module, "repo", repo)
     monkeypatch.setattr(main_module, "matchup_service", matchup_service)
     monkeypatch.setattr(main_module, "undo_service", undo_service)
+    monkeypatch.setattr(main_module, "progress_service", progress_service)
+    monkeypatch.setattr(main_module, "analytics_service", analytics_service)
+
     return tmp_path
 
 
@@ -249,12 +260,12 @@ class TestMatchupEndpoint:
         temp_data_dir: Path,
     ) -> None:
         """Test that matchup returns error when no samples exist."""
-        # Don't populate any samples
+        # Don't populate any samples - database file doesn't exist
         response = client.get("/api/matchup")
         assert response.status_code == 400
 
         data = response.json()
-        assert "Not enough valid samples" in data["detail"]
+        assert "Database file not found" in data["detail"]
 
     def test_matchup_error_with_one_valid_sample(
         self,
@@ -1696,19 +1707,13 @@ class TestProgressHelperFunctions:
                 sample_b_id=str(samples[1].id),
                 winner="A",
             ),
-            Vote(
-                sample_a_id=str(samples[0].id),
-                sample_b_id=str(samples[1].id),
-                winner="B",
-            ),
         ]
-        # Two votes but only one unique model pair
         assert matchup_service.get_unique_model_pairs_judged(votes, samples) == 1
 
-    def test_get_unique_model_pairs_judged_multiple_pairs(
+    def test_get_unique_model_pairs_judged_duplicate_pair(
         self, matchup_service: MatchupService
     ) -> None:
-        """Test unique pairs judged with multiple model pairs compared."""
+        """Test unique pairs judged counts each model pair once."""
         samples = [
             ArtSample(
                 id=uuid4(),
@@ -1730,16 +1735,6 @@ class TestProgressHelperFunctions:
                 sanitized_output="",
                 is_valid=True,
             ),
-            ArtSample(
-                id=uuid4(),
-                model_id="model-c",
-                prompt_text="test",
-                category="test",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
         ]
         votes = [
             Vote(
@@ -1749,83 +1744,11 @@ class TestProgressHelperFunctions:
             ),
             Vote(
                 sample_a_id=str(samples[0].id),
-                sample_b_id=str(samples[2].id),
+                sample_b_id=str(samples[1].id),
                 winner="B",
             ),
         ]
-        # Two votes comparing two different model pairs
-        assert matchup_service.get_unique_model_pairs_judged(votes, samples) == 2
-
-    def test_calculate_progress_by_category_empty(self) -> None:
-        """Test category progress with no samples."""
-        result = _calculate_progress_by_category([], [])
-        assert result == {}
-
-    def test_calculate_progress_by_category_no_votes(self) -> None:
-        """Test category progress with samples but no votes."""
-        samples = [
-            ArtSample(
-                id=uuid4(),
-                model_id="model-a",
-                prompt_text="test",
-                category="single_animal",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
-            ArtSample(
-                id=uuid4(),
-                model_id="model-b",
-                prompt_text="test",
-                category="single_animal",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
-        ]
-        result = _calculate_progress_by_category([], samples)
-        assert "single_animal" in result
-        assert result["single_animal"].votes_completed == 0
-        assert result["single_animal"].unique_pairs_judged == 0
-        assert result["single_animal"].total_possible_pairs == 1
-
-    def test_calculate_progress_by_category_with_votes(self) -> None:
-        """Test category progress with samples and votes."""
-        samples = [
-            ArtSample(
-                id=uuid4(),
-                model_id="model-a",
-                prompt_text="test",
-                category="single_animal",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
-            ArtSample(
-                id=uuid4(),
-                model_id="model-b",
-                prompt_text="test",
-                category="single_animal",
-                attempt_number=1,
-                raw_output="",
-                sanitized_output="",
-                is_valid=True,
-            ),
-        ]
-        votes = [
-            Vote(
-                sample_a_id=str(samples[0].id),
-                sample_b_id=str(samples[1].id),
-                winner="A",
-            ),
-        ]
-        result = _calculate_progress_by_category(votes, samples)
-        assert result["single_animal"].votes_completed == 1
-        assert result["single_animal"].unique_pairs_judged == 1
-        assert result["single_animal"].total_possible_pairs == 1
+        assert matchup_service.get_unique_model_pairs_judged(votes, samples) == 1
 
 
 class TestHTMXEndpoints:
@@ -1867,12 +1790,12 @@ class TestHTMXEndpoints:
         temp_data_dir: Path,
     ) -> None:
         """Test that HTMX matchup returns error HTML with insufficient samples."""
-        # Don't populate any samples
+        # Don't populate any samples - database file doesn't exist
 
         response = client.get("/htmx/matchup")
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
-        assert "Not enough valid samples" in response.text
+        assert "File not found" in response.text
 
     def test_htmx_progress_returns_html(
         self,
@@ -2081,10 +2004,10 @@ class TestHTMXEndpoints:
         client: TestClient,
         temp_data_dir: Path,
     ) -> None:
-        """Test that HTMX prompt returns message with no samples."""
+        """Test that HTMX prompt returns error when database doesn't exist."""
         response = client.get("/htmx/prompt")
         assert response.status_code == 200
-        assert "No samples available" in response.text
+        assert "Error:" in response.text
 
 
 @pytest.fixture

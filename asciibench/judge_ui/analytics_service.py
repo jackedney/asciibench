@@ -13,6 +13,7 @@ import statistics
 from asciibench.analyst.elo import calculate_elo
 from asciibench.analyst.stability import generate_stability_report
 from asciibench.common.models import ArtSample, VLMEvaluation, Vote
+from asciibench.common.repository import DataRepository
 from asciibench.judge_ui.api_models import (
     AnalyticsResponse,
     CategoryAccuracyStats,
@@ -25,7 +26,6 @@ from asciibench.judge_ui.api_models import (
     StabilityData,
     VLMAccuracyResponse,
 )
-from asciibench.common.repository import DataRepository
 
 
 class AnalyticsService:

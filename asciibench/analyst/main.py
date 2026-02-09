@@ -46,8 +46,7 @@ from asciibench.common.display import (
     print_banner,
     success_badge,
 )
-from asciibench.common.models import ArtSample, Vote
-from asciibench.common.persistence import read_jsonl
+from asciibench.common.repository import DataRepository
 
 
 def main() -> None:
@@ -57,25 +56,30 @@ def main() -> None:
     calculation of Elo ratings, and generation of leaderboards.
 
     It performs the following steps:
-    1. Load votes from data/votes.jsonl
-    2. Load samples from data/database.jsonl for model_id lookup
-    3. Calculate overall Elo ratings
-    4. Calculate category-specific ratings
-    5. Calculate consistency metrics for each model
-    6. Generate and write LEADERBOARD.md
-    7. Export rankings to JSON and CSV
-    8. Print summary to stdout with Rich components
+    1. Load votes and samples using DataRepository
+    2. Calculate overall Elo ratings
+    3. Calculate category-specific ratings
+    4. Calculate consistency metrics for each model
+    5. Generate and write LEADERBOARD.md
+    6. Export rankings to JSON and CSV
+    7. Print summary to stdout with Rich components
     """
     console = get_console()
 
     print_banner()
     console.print()
 
-    votes_path = Path("data/votes.jsonl")
-    database_path = Path("data/database.jsonl")
+    repo = DataRepository()
 
-    votes = read_jsonl(votes_path, Vote)
-    samples = read_jsonl(database_path, ArtSample)
+    try:
+        votes = repo.get_votes()
+    except FileNotFoundError:
+        votes = []
+
+    try:
+        samples = repo.get_all_samples()
+    except FileNotFoundError:
+        samples = []
 
     load_panel = Panel(
         Text.assemble(

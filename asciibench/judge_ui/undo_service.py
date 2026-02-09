@@ -44,7 +44,10 @@ class UndoService:
         if self._last_action_was_undo:
             return None
 
-        votes = read_jsonl(self._votes_path, Vote)
+        try:
+            votes = read_jsonl(self._votes_path, Vote)
+        except FileNotFoundError:
+            return None
 
         if not votes:
             return None

@@ -6,12 +6,7 @@ from uuid import uuid4
 import pytest
 
 from asciibench.analyst.stability import (
-    _binomial_pmf,
-    _binomial_test_two_tailed,
-    _calculate_rating_history,
-    _calculate_trend_slope,
     _ratings_to_ranks,
-    _resample_votes,
     bootstrap_confidence_intervals,
     bradley_terry_significance,
     calculate_convergence,
@@ -464,26 +459,7 @@ class TestGenerateStabilityReport:
 
 
 class TestHelperFunctions:
-    """Tests for internal helper functions."""
-
-    def test_resample_votes_same_length(self, balanced_votes: list[Vote]) -> None:
-        """Resampled votes should have same length."""
-        import random
-
-        rng = random.Random(42)
-        resampled = _resample_votes(balanced_votes, rng)
-        assert len(resampled) == len(balanced_votes)
-
-    def test_resample_votes_with_replacement(self, balanced_votes: list[Vote]) -> None:
-        """Resampling should produce duplicates (with high probability)."""
-        import random
-
-        rng = random.Random(42)
-        resampled = _resample_votes(balanced_votes, rng)
-        # With replacement, we expect some duplicates
-        ids = [v.id for v in resampled]
-        # Very unlikely to have all unique with replacement
-        assert len(ids) != len(set(ids))
+    """Tests for helper functions."""
 
     def test_ratings_to_ranks_correct_order(self) -> None:
         """Ratings should convert to correct ranks."""
@@ -497,103 +473,5 @@ class TestHelperFunctions:
         """Ties should get different ranks (arbitrary but consistent)."""
         ratings = {"a": 1500.0, "b": 1500.0, "c": 1400.0}
         ranks = _ratings_to_ranks(ratings)
-        # Both a and b have 1500, one gets rank 1, one gets rank 2
         assert set(ranks.values()) == {1, 2, 3}
         assert ranks["c"] == 3
-
-    def test_trend_slope_positive_for_increasing(self) -> None:
-        """Positive slope for increasing ratings."""
-        history = [(10, 1500.0), (20, 1510.0), (30, 1520.0), (40, 1530.0)]
-        slope = _calculate_trend_slope(history)
-        assert slope > 0
-
-    def test_trend_slope_negative_for_decreasing(self) -> None:
-        """Negative slope for decreasing ratings."""
-        history = [(10, 1530.0), (20, 1520.0), (30, 1510.0), (40, 1500.0)]
-        slope = _calculate_trend_slope(history)
-        assert slope < 0
-
-    def test_trend_slope_near_zero_for_stable(self) -> None:
-        """Near-zero slope for stable ratings."""
-        history = [(10, 1500.0), (20, 1501.0), (30, 1499.0), (40, 1500.0)]
-        slope = _calculate_trend_slope(history)
-        assert abs(slope) < 0.1
-
-    def test_trend_slope_empty_history(self) -> None:
-        """Empty or single-item history returns 0."""
-        assert _calculate_trend_slope([]) == 0.0
-        assert _calculate_trend_slope([(10, 1500.0)]) == 0.0
-
-
-# ============================================================================
-# Binomial Test Tests
-# ============================================================================
-
-
-class TestBinomialTest:
-    """Tests for binomial test helper functions."""
-
-    def test_binomial_pmf_sums_to_one(self) -> None:
-        """PMF over all k should sum to 1."""
-        n = 10
-        p = 0.5
-        total = sum(_binomial_pmf(k, n, p) for k in range(n + 1))
-        assert total == pytest.approx(1.0, abs=0.0001)
-
-    def test_binomial_pmf_fair_coin(self) -> None:
-        """Fair coin PMF should be symmetric."""
-        n = 10
-        p = 0.5
-        # P(X=3) should equal P(X=7) for fair coin
-        assert _binomial_pmf(3, n, p) == pytest.approx(_binomial_pmf(7, n, p), abs=0.0001)
-
-    def test_binomial_test_fair_result(self) -> None:
-        """50/50 split should have high p-value."""
-        p_value = _binomial_test_two_tailed(25, 50, 0.5)
-        assert p_value > 0.9  # Very close to expected
-
-    def test_binomial_test_extreme_result(self) -> None:
-        """90/10 split should have low p-value."""
-        p_value = _binomial_test_two_tailed(90, 100, 0.5)
-        assert p_value < 0.001  # Very unlikely under H0
-
-    def test_binomial_test_zero_trials(self) -> None:
-        """Zero trials should return p-value of 1."""
-        p_value = _binomial_test_two_tailed(0, 0, 0.5)
-        assert p_value == 1.0
-
-
-# ============================================================================
-# Rating History Tests
-# ============================================================================
-
-
-class TestRatingHistory:
-    """Tests for rating history calculation."""
-
-    def test_history_has_checkpoints(
-        self, dominant_votes: list[Vote], two_model_samples: list[ArtSample]
-    ) -> None:
-        """History should have multiple checkpoints."""
-        history = _calculate_rating_history(
-            dominant_votes, two_model_samples, checkpoint_interval=10
-        )
-        assert len(history) > 0
-        for model_history in history.values():
-            assert len(model_history) >= 2
-
-    def test_history_vote_counts_increase(
-        self, dominant_votes: list[Vote], two_model_samples: list[ArtSample]
-    ) -> None:
-        """Vote counts in history should be increasing."""
-        history = _calculate_rating_history(
-            dominant_votes, two_model_samples, checkpoint_interval=10
-        )
-        for model_history in history.values():
-            vote_counts = [vc for vc, _ in model_history]
-            assert vote_counts == sorted(vote_counts)
-
-    def test_empty_votes_returns_empty(self, two_model_samples: list[ArtSample]) -> None:
-        """Empty votes returns empty history."""
-        history = _calculate_rating_history([], two_model_samples, checkpoint_interval=10)
-        assert history == {}

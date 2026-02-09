@@ -4,20 +4,35 @@ This file contains tests for all evaluator components:
 - renderer: ASCII-to-image rendering
 - subject_extractor: prompt subject extraction
 - similarity: semantic similarity computation
+- orchestrator: evaluation orchestration with composition pattern
 
 External APIs (VLM, embeddings) are mocked in tests.
 """
 
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from PIL import Image
 
-from asciibench.common.config import FontConfig, RendererConfig
+from asciibench.common.config import (
+    EvaluatorConfig,
+    FontConfig,
+    RendererConfig,
+)
+from asciibench.common.models import ArtSample, VLMEvaluation
+from asciibench.evaluator.orchestrator import (
+    EvaluationOrchestrator,
+    EvaluationWriter,
+    ImageRenderer,
+    VLMAnalyzer,
+)
 from asciibench.evaluator.renderer import render_ascii_to_image
 from asciibench.evaluator.similarity import EmbeddingClient
 from asciibench.evaluator.subject_extractor import extract_subject
+from asciibench.evaluator.vlm_client import VLMClient
 
 
 class TestRenderer:
@@ -368,3 +383,427 @@ class TestSimilarity:
 
             assert "cat" in client._cache
             assert "kitty" in client._cache
+
+
+class TestImageRenderer:
+    """Tests for ImageRenderer class."""
+
+    def test_render_valid_ascii(self):
+        """ImageRenderer renders valid ASCII to PNG bytes."""
+        config = RendererConfig()
+        renderer = ImageRenderer(config)
+        ascii_text = " /\\_/\\ \n( o.o )\n  > ^ <"
+
+        result = renderer.render(ascii_text)
+
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+        result_io = BytesIO(result)
+        with Image.open(result_io) as img:
+            assert img.format == "PNG"
+            assert img.width > 0
+            assert img.height > 0
+
+    def test_render_empty_string(self):
+        """ImageRenderer handles empty string input."""
+        config = RendererConfig()
+        renderer = ImageRenderer(config)
+
+        result = renderer.render("")
+
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+    def test_render_none_input(self):
+        """ImageRenderer handles None input."""
+        config = RendererConfig()
+        renderer = ImageRenderer(config)
+
+        result = renderer.render(None)
+
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+    def test_render_with_custom_config(self):
+        """ImageRenderer respects custom config."""
+        config = RendererConfig(
+            font=FontConfig(family="Courier", size=20),
+            background_color="black",
+            text_color="white",
+        )
+        renderer = ImageRenderer(config)
+
+        result = renderer.render("Test")
+
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+
+class TestVLMAnalyzer:
+    """Tests for VLMAnalyzer class."""
+
+    @pytest.mark.asyncio
+    async def test_analyze_with_mocked_client(self):
+        """VLMAnalyzer correctly calls VLM client and computes similarity."""
+        mock_client = MagicMock(spec=VLMClient)
+        mock_client.api_key = "test-model"
+        mock_client.analyze_image = AsyncMock(return_value=("A cat", 0.001))
+
+        with patch(
+            "asciibench.evaluator.orchestrator.compute_similarity",
+            return_value=0.95,
+        ):
+            analyzer = VLMAnalyzer(mock_client, similarity_threshold=0.7)
+            response, cost, is_correct = await analyzer.analyze(
+                b"fake_image_bytes", "cat", "openai/gpt-4o"
+            )
+
+        mock_client.analyze_image.assert_called_once_with(b"fake_image_bytes", "openai/gpt-4o")
+        assert response == "A cat"
+        assert cost == 0.001
+        assert is_correct is True
+
+    @pytest.mark.asyncio
+    async def test_analyze_below_threshold(self):
+        """VLMAnalyzer marks as incorrect when similarity below threshold."""
+        mock_client = MagicMock(spec=VLMClient)
+        mock_client.api_key = "test-model"
+        mock_client.analyze_image = AsyncMock(return_value=("A dog", 0.001))
+
+        with patch(
+            "asciibench.evaluator.orchestrator.compute_similarity",
+            return_value=0.5,
+        ):
+            analyzer = VLMAnalyzer(mock_client, similarity_threshold=0.7)
+            _response, _cost, is_correct = await analyzer.analyze(
+                b"fake_image_bytes", "cat", "openai/gpt-4o"
+            )
+
+        assert is_correct is False
+
+    @pytest.mark.asyncio
+    async def test_analyze_at_threshold(self):
+        """VLMAnalyzer marks as correct when similarity equals threshold."""
+        mock_client = MagicMock(spec=VLMClient)
+        mock_client.api_key = "test-model"
+        mock_client.analyze_image = AsyncMock(return_value=("A cat", 0.001))
+
+        with patch(
+            "asciibench.evaluator.orchestrator.compute_similarity",
+            return_value=0.7,
+        ):
+            analyzer = VLMAnalyzer(mock_client, similarity_threshold=0.7)
+            _, _, is_correct = await analyzer.analyze(b"fake_image_bytes", "cat", "openai/gpt-4o")
+
+        assert is_correct is True
+
+
+class TestEvaluationWriter:
+    """Tests for EvaluationWriter class."""
+
+    def test_write_evaluation(self, tmp_path: Path):
+        """EvaluationWriter correctly writes evaluation to JSONL."""
+        evaluations_path = tmp_path / "vlm_evaluations.jsonl"
+        writer = EvaluationWriter(evaluations_path)
+
+        evaluation = VLMEvaluation(
+            sample_id=str(uuid4()),
+            vlm_model_id="openai/gpt-4o",
+            expected_subject="cat",
+            vlm_response="A cat",
+            similarity_score=0.95,
+            is_correct=True,
+            cost=0.001,
+        )
+
+        writer.write(evaluation)
+
+        assert evaluations_path.exists()
+        content = evaluations_path.read_text()
+        assert "cat" in content
+        assert "openai/gpt-4o" in content
+
+    def test_write_multiple_evaluations(self, tmp_path: Path):
+        """EvaluationWriter appends multiple evaluations to JSONL."""
+        evaluations_path = tmp_path / "vlm_evaluations.jsonl"
+        writer = EvaluationWriter(evaluations_path)
+
+        for i in range(3):
+            evaluation = VLMEvaluation(
+                sample_id=str(uuid4()),
+                vlm_model_id="openai/gpt-4o",
+                expected_subject=f"subject_{i}",
+                vlm_response=f"response_{i}",
+                similarity_score=0.9,
+                is_correct=True,
+                cost=0.001,
+            )
+            writer.write(evaluation)
+
+        content = evaluations_path.read_text()
+        lines = [line for line in content.strip().split("\n") if line]
+        assert len(lines) == 3
+
+
+class TestEvaluationOrchestrator:
+    """Tests for EvaluationOrchestrator class."""
+
+    def test_orchestrator_initialization(self):
+        """EvaluationOrchestrator initializes with required dependencies."""
+        renderer = MagicMock(spec=ImageRenderer)
+        vlm_analyzer = MagicMock(spec=VLMAnalyzer)
+        evaluation_writer = MagicMock(spec=EvaluationWriter)
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o"],
+            similarity_threshold=0.7,
+            max_concurrency=5,
+        )
+
+        orchestrator = EvaluationOrchestrator(renderer, vlm_analyzer, evaluation_writer, config)
+
+        assert orchestrator._renderer is renderer
+        assert orchestrator._vlm_analyzer is vlm_analyzer
+        assert orchestrator._evaluation_writer is evaluation_writer
+        assert orchestrator._config is config
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_processes_samples(self, tmp_path: Path):
+        """EvaluationOrchestrator processes samples successfully."""
+        mock_renderer = MagicMock(spec=ImageRenderer)
+        mock_renderer.render.return_value = b"fake_image"
+
+        mock_analyzer = MagicMock(spec=VLMAnalyzer)
+        mock_analyzer.analyze = AsyncMock(return_value=("A cat", 0.001, True))
+
+        mock_writer = MagicMock(spec=EvaluationWriter)
+
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o"],
+            similarity_threshold=0.7,
+            max_concurrency=2,
+        )
+
+        orchestrator = EvaluationOrchestrator(mock_renderer, mock_analyzer, mock_writer, config)
+
+        samples = [
+            ArtSample(
+                model_id="model1",
+                prompt_text="Draw a cat",
+                category="animals",
+                attempt_number=1,
+                raw_output="output",
+                sanitized_output="output",
+                is_valid=True,
+            )
+        ]
+
+        results = await orchestrator.run(samples, [])
+
+        assert len(results) == 1
+        mock_renderer.render.assert_called_once()
+        mock_analyzer.analyze.assert_called_once()
+        mock_writer.write.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_skips_existing_evaluations(self):
+        """EvaluationOrchestrator skips samples with existing evaluations."""
+        mock_renderer = MagicMock(spec=ImageRenderer)
+        mock_analyzer = MagicMock(spec=VLMAnalyzer)
+        mock_analyzer.analyze = AsyncMock(return_value=("A cat", 0.001, True))
+        mock_writer = MagicMock(spec=EvaluationWriter)
+
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o"],
+            similarity_threshold=0.7,
+            max_concurrency=2,
+        )
+
+        orchestrator = EvaluationOrchestrator(mock_renderer, mock_analyzer, mock_writer, config)
+
+        samples = [
+            ArtSample(
+                model_id="model1",
+                prompt_text="Draw a cat",
+                category="animals",
+                attempt_number=1,
+                raw_output="output",
+                sanitized_output="output",
+                is_valid=True,
+            )
+        ]
+
+        existing_evaluations = [
+            VLMEvaluation(
+                sample_id=str(samples[0].id),
+                vlm_model_id="openai/gpt-4o",
+                expected_subject="cat",
+                vlm_response="A cat",
+                similarity_score=0.95,
+                is_correct=True,
+                cost=0.001,
+            )
+        ]
+
+        results = await orchestrator.run(samples, existing_evaluations)
+
+        assert len(results) == 0
+        mock_renderer.render.assert_not_called()
+        mock_analyzer.analyze.assert_not_called()
+        mock_writer.write.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_handles_error_gracefully(self):
+        """EvaluationOrchestrator handles errors and continues processing."""
+        mock_renderer = MagicMock(spec=ImageRenderer)
+        mock_renderer.render.side_effect = [b"image1", Exception("Render error"), b"image3"]
+
+        mock_analyzer = MagicMock(spec=VLMAnalyzer)
+        mock_analyzer.analyze = AsyncMock(return_value=("A cat", 0.001, True))
+
+        mock_writer = MagicMock(spec=EvaluationWriter)
+
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o"],
+            similarity_threshold=0.7,
+            max_concurrency=2,
+        )
+
+        orchestrator = EvaluationOrchestrator(mock_renderer, mock_analyzer, mock_writer, config)
+
+        samples = [
+            ArtSample(
+                model_id=f"model{i}",
+                prompt_text=f"Draw a cat{i}",
+                category="animals",
+                attempt_number=1,
+                raw_output="output",
+                sanitized_output="output",
+                is_valid=True,
+            )
+            for i in range(3)
+        ]
+
+        results = await orchestrator.run(samples, [])
+
+        assert len(results) == 2
+        assert mock_writer.write.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_respects_limit(self):
+        """EvaluationOrchestrator respects the limit parameter."""
+        mock_renderer = MagicMock(spec=ImageRenderer)
+        mock_renderer.render.return_value = b"fake_image"
+
+        mock_analyzer = MagicMock(spec=VLMAnalyzer)
+        mock_analyzer.analyze = AsyncMock(return_value=("A cat", 0.001, True))
+
+        mock_writer = MagicMock(spec=EvaluationWriter)
+
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o"],
+            similarity_threshold=0.7,
+            max_concurrency=2,
+        )
+
+        orchestrator = EvaluationOrchestrator(mock_renderer, mock_analyzer, mock_writer, config)
+
+        samples = [
+            ArtSample(
+                model_id=f"model{i}",
+                prompt_text=f"Draw a cat{i}",
+                category="animals",
+                attempt_number=1,
+                raw_output="output",
+                sanitized_output="output",
+                is_valid=True,
+            )
+            for i in range(10)
+        ]
+
+        results = await orchestrator.run(samples, [], limit=3)
+
+        assert len(results) == 3
+        assert mock_renderer.render.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_calls_progress_callback(self):
+        """EvaluationOrchestrator calls progress callback after each evaluation."""
+        mock_renderer = MagicMock(spec=ImageRenderer)
+        mock_renderer.render.return_value = b"fake_image"
+
+        mock_analyzer = MagicMock(spec=VLMAnalyzer)
+        mock_analyzer.analyze = AsyncMock(return_value=("A cat", 0.001, True))
+
+        mock_writer = MagicMock(spec=EvaluationWriter)
+
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o"],
+            similarity_threshold=0.7,
+            max_concurrency=2,
+        )
+
+        orchestrator = EvaluationOrchestrator(mock_renderer, mock_analyzer, mock_writer, config)
+
+        samples = [
+            ArtSample(
+                model_id="model1",
+                prompt_text="Draw a cat",
+                category="animals",
+                attempt_number=1,
+                raw_output="output",
+                sanitized_output="output",
+                is_valid=True,
+            )
+        ]
+
+        callback_calls = []
+
+        def mock_callback(processed: int, total: int, model_id: str):
+            callback_calls.append((processed, total, model_id))
+
+        await orchestrator.run(samples, [], progress_callback=mock_callback)
+
+        assert len(callback_calls) == 1
+        assert callback_calls[0] == (1, 1, "openai/gpt-4o")
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_multi_model(self):
+        """EvaluationOrchestrator processes samples for multiple VLM models."""
+        mock_renderer = MagicMock(spec=ImageRenderer)
+        mock_renderer.render.return_value = b"fake_image"
+
+        mock_analyzer = MagicMock(spec=VLMAnalyzer)
+        mock_analyzer.analyze = AsyncMock(return_value=("A cat", 0.001, True))
+
+        mock_writer = MagicMock(spec=EvaluationWriter)
+
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o", "anthropic/claude-3-opus"],
+            similarity_threshold=0.7,
+            max_concurrency=2,
+        )
+
+        orchestrator = EvaluationOrchestrator(mock_renderer, mock_analyzer, mock_writer, config)
+
+        samples = [
+            ArtSample(
+                model_id="model1",
+                prompt_text="Draw a cat",
+                category="animals",
+                attempt_number=1,
+                raw_output="output",
+                sanitized_output="output",
+                is_valid=True,
+            )
+        ]
+
+        results = await orchestrator.run(samples, [])
+
+        assert len(results) == 2
+        assert mock_renderer.render.call_count == 2
+        assert mock_analyzer.analyze.call_count == 2
+        assert mock_writer.write.call_count == 2
+
+        vlm_model_ids = {r.vlm_model_id for r in results}
+        assert vlm_model_ids == {"openai/gpt-4o", "anthropic/claude-3-opus"}

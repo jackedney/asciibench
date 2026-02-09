@@ -1,13 +1,13 @@
 """Tests for the simplified CLI display wrapper."""
 
-from asciibench.common.display import get_console
-from asciibench.common.loader import RuneScapeLoader
-from asciibench.common.simple_display import (
+from asciibench.common.display import (
     MAX_PROMPT_LENGTH,
     create_loader,
+    get_console,
     show_banner,
     show_prompt,
 )
+from asciibench.common.loader import RuneScapeLoader
 
 
 def test_show_banner_does_not_raise():

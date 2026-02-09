@@ -36,7 +36,10 @@ except (SyntaxError, ImportError):
 T = TypeVar("T", bound=BaseModel)
 
 _ReadJsonlFn = Callable[[Path, type[Any]], list[Any]]
-_read_jsonl_fn: _ReadJsonlFn = lambda path, model_class: _read_jsonl(path, model_class)
+
+
+def _read_jsonl_fn(path: Path, model_class: type[Any]) -> list[Any]:
+    return _read_jsonl(path, model_class)
 
 
 @dataclass
@@ -66,17 +69,18 @@ class CacheEntry(Generic[T]):
 def _read_jsonl(path: Path, model_class: type[T]) -> list[T]:
     """Read all lines from a JSONL file as model instances.
 
-    Returns an empty list if the file doesn't exist.
-
     Args:
         path: Path to the JSONL file
         model_class: Pydantic model class to parse each line as
 
     Returns:
         List of model instances
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
     """
     if not path.exists():
-        return []
+        raise FileNotFoundError(f"File not found: {path}")
 
     results: list[T] = []
     with path.open("r", encoding="utf-8") as f:
@@ -175,15 +179,15 @@ class DataRepository:
         """Load data from cache if valid, otherwise from file.
 
         Args:
-            path: Path to the JSONL file.
+            path: Path to JSONL file.
             model_class: Pydantic model class to parse data.
-            cache_attr_name: Name of the cache attribute on this instance.
+            cache_attr_name: Name of cache attribute on this instance.
 
         Returns:
             List of parsed model instances.
 
         Raises:
-            FileNotFoundError: If the file path is invalid or doesn't exist.
+            FileNotFoundError: If data directory is invalid or doesn't exist.
         """
         cache_entry = getattr(self, cache_attr_name)
 
@@ -193,12 +197,7 @@ class DataRepository:
         if not self._data_dir.exists():
             raise FileNotFoundError(
                 f"Data directory not found: {self._data_dir}. "
-                f"Ensure the data directory exists and contains the required JSONL files."
-            )
-
-        if not path.exists():
-            raise FileNotFoundError(
-                f"Data file not found: {path}. Ensure the file exists in the data directory."
+                f"Ensure that data directory exists and contains the required JSONL files."
             )
 
         read_fn = _get_read_jsonl_fn()

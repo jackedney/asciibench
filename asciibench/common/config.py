@@ -109,11 +109,6 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    @property
-    def timeout_seconds(self) -> int:
-        """Alias for openrouter_timeout_seconds for backward compatibility."""
-        return self.openrouter_timeout_seconds
-
     @field_validator("openrouter_timeout_seconds", mode="before")
     @classmethod
     def validate_openrouter_timeout_seconds(cls, v) -> int:
