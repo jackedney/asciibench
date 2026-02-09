@@ -386,6 +386,39 @@ class TournamentService:
 
         self._persist_round_state(self._current_round)
 
+    async def shutdown(self) -> None:
+        """Shut down the tournament service and cancel background tasks."""
+        if self._background_task is not None and not self._background_task.done():
+            self._background_task.cancel()
+            try:
+                await self._background_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Background generation task cancelled")
+
+    def find_matchup_by_samples(self, sample_a_id: str, sample_b_id: str) -> Matchup | None:
+        """Find a matchup in the current round by sample IDs.
+
+        Checks both orderings since samples may have been swapped for position bias.
+
+        Args:
+            sample_a_id: First sample ID
+            sample_b_id: Second sample ID
+
+        Returns:
+            The matching Matchup, or None if not found or no current round
+        """
+        if self._current_round is None:
+            return None
+
+        for matchup in self._current_round.matchups:
+            if (matchup.sample_a_id == sample_a_id and matchup.sample_b_id == sample_b_id) or (
+                matchup.sample_a_id == sample_b_id and matchup.sample_b_id == sample_a_id
+            ):
+                return matchup
+
+        return None
+
     def get_round_progress(self) -> dict:
         """Get progress information for the current round.
 

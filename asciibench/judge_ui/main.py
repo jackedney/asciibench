@@ -48,7 +48,6 @@ from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
 from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
-    read_jsonl_by_id,
 )
 from asciibench.common.repository import DataRepository
 from asciibench.common.yaml_config import load_models
@@ -167,7 +166,8 @@ async def lifespan(app: FastAPI):
     )
     await tournament_service.initialize()
     yield
-    # Cleanup on shutdown (if needed)
+    # Cleanup on shutdown
+    await tournament_service.shutdown()
 
 
 app = FastAPI(title="ASCIIBench Judge UI", lifespan=lifespan)
@@ -391,9 +391,9 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
                 {"error": "Sample data not ready for this matchup"},
             )
 
-        # Load samples by sample_a_id and sample_b_id from matchup
-        sample_a = read_jsonl_by_id(DATABASE_PATH, matchup.sample_a_id, ArtSample)
-        sample_b = read_jsonl_by_id(DATABASE_PATH, matchup.sample_b_id, ArtSample)
+        # Load samples using cached lookup
+        sample_a = _get_sample_by_id(matchup.sample_a_id)
+        sample_b = _get_sample_by_id(matchup.sample_b_id)
 
         if sample_a is None or sample_b is None:
             return templates.TemplateResponse(
@@ -547,18 +547,32 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
                 {"error": f"Sample B not found: {sample_b_id}"},
             )
 
-        # Create and save the vote
+        # Validate matchup_id as UUID if provided
+        validated_matchup_id: UUID | None = None
+        if matchup_id is not None:
+            try:
+                validated_matchup_id = UUID(str(matchup_id))
+            except ValueError:
+                return templates.TemplateResponse(
+                    request,
+                    "partials/matchup.html",
+                    {"error": f"Invalid matchup ID: {matchup_id}"},
+                )
+
+        # Create the vote
         # winner is validated above to be one of "A", "B", "tie", "fail"
         vote = Vote(
             sample_a_id=str(sample_a_id),
             sample_b_id=str(sample_b_id),
             winner=cast(Literal["A", "B", "tie", "fail"], winner),
         )
-        append_jsonl(VOTES_PATH, vote)
 
-        # Record the vote in the tournament service
-        if tournament_service is not None and matchup_id is not None:
-            await tournament_service.record_vote(UUID(str(matchup_id)), str(vote.id))
+        # Record the vote in the tournament service first
+        if tournament_service is not None and validated_matchup_id is not None:
+            await tournament_service.record_vote(validated_matchup_id, str(vote.id))
+
+        # Persist to votes.jsonl only after tournament service succeeds
+        append_jsonl(VOTES_PATH, vote)
 
         # Clear the undo state since a new vote was submitted
         undo_service.record_vote_submitted()
@@ -602,22 +616,13 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
                 {"error": "No votes to undo."},
             )
 
-        # Find the matchup_id for this vote and tell tournament service to undo
-        if tournament_service is not None and tournament_service._current_round is not None:
-            for matchup in tournament_service._current_round.matchups:
-                if (
-                    matchup.sample_a_id == last_vote.sample_a_id
-                    and matchup.sample_b_id == last_vote.sample_b_id
-                ):
-                    await tournament_service.undo_last_vote(matchup.id)
-                    break
-                # Check reversed order in case samples were swapped
-                if (
-                    matchup.sample_a_id == last_vote.sample_b_id
-                    and matchup.sample_b_id == last_vote.sample_a_id
-                ):
-                    await tournament_service.undo_last_vote(matchup.id)
-                    break
+        # Find the matchup for this vote and tell tournament service to undo
+        if tournament_service is not None:
+            matchup = tournament_service.find_matchup_by_samples(
+                last_vote.sample_a_id, last_vote.sample_b_id
+            )
+            if matchup is not None:
+                await tournament_service.undo_last_vote(matchup.id)
 
         # Return the current matchup (don't load a new one)
         return await htmx_get_matchup(request)
