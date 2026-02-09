@@ -45,7 +45,6 @@ from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
 from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
-    read_jsonl_by_id,
 )
 from asciibench.common.repository import DataRepository
 from asciibench.common.yaml_config import load_models
@@ -112,12 +111,12 @@ def _get_sample_by_id(sample_id: str | UUID) -> ArtSample | None:
         return None
     try:
         target_id = UUID(str(sample_id)) if not isinstance(sample_id, UUID) else sample_id
-        mtime = DATABASE_PATH.stat().st_mtime_ns
-        _, indexed = _get_database_indexed(DATABASE_PATH, mtime)
-        return indexed.get(target_id)
-    except Exception:
-        # Fallback to direct read on error
-        return read_jsonl_by_id(DATABASE_PATH, sample_id, ArtSample)
+    except ValueError:
+        # Invalid UUID format - return None so caller can return 404
+        return None
+    mtime = DATABASE_PATH.stat().st_mtime_ns
+    _, indexed = _get_database_indexed(DATABASE_PATH, mtime)
+    return indexed.get(target_id)
 
 
 # Service instances
