@@ -128,8 +128,8 @@ def retry(
             time.sleep(delay)
         else:
             result = custom_sleep(delay)
-            if inspect.isawaitable(result):
-                # Handle async sleep function in sync context
+            if inspect.iscoroutine(result):
+                # Handle coroutine sleep function in sync context
                 coro = cast(Coroutine[Any, Any, None], result)
                 try:
                     loop = asyncio.get_running_loop()
@@ -141,7 +141,7 @@ def retry(
                     # warnings and raise a clear error.
                     coro.close()
                     raise RuntimeError(
-                        "_sync_sleep was called from an async context with an awaitable "
+                        "_sync_sleep was called from an async context with a coroutine "
                         "sleep function. This is not supported because run_until_complete "
                         "cannot be called on a running event loop. Use the async retry "
                         "wrapper or execute_async method instead."
@@ -149,6 +149,13 @@ def retry(
                 else:
                     # No running loop, create one to run the coroutine
                     asyncio.run(coro)
+            elif inspect.isawaitable(result):
+                # Non-coroutine awaitable (e.g., Future, Task) - not supported in sync path
+                raise RuntimeError(
+                    "_sync_sleep received a non-coroutine awaitable (e.g., Future, Task) "
+                    "which is not supported in the sync retry path. Use the async retry "
+                    "wrapper or execute_async method instead."
+                )
 
     def decorator(func):
         @functools.wraps(func)
@@ -354,8 +361,8 @@ class RetryableTaskExecutor:
                     time.sleep(delay)
                 else:
                     result = self.sleep_func(delay)
-                    if inspect.isawaitable(result):
-                        # Handle async sleep function in sync context
+                    if inspect.iscoroutine(result):
+                        # Handle coroutine sleep function in sync context
                         coro = cast(Coroutine[Any, Any, None], result)
                         try:
                             loop = asyncio.get_running_loop()
@@ -368,12 +375,19 @@ class RetryableTaskExecutor:
                             coro.close()
                             raise RuntimeError(
                                 "RetryableTaskExecutor.execute was called from an async "
-                                "context with an awaitable sleep function. This is not "
+                                "context with a coroutine sleep function. This is not "
                                 "supported because run_until_complete cannot be called on "
                                 "a running event loop. Use execute_async instead."
                             ) from None
                         else:
                             asyncio.run(coro)
+                    elif inspect.isawaitable(result):
+                        # Non-coroutine awaitable (e.g., Future, Task) - not supported
+                        raise RuntimeError(
+                            "RetryableTaskExecutor.execute received a non-coroutine "
+                            "awaitable (e.g., Future, Task) which is not supported in "
+                            "the sync execute path. Use execute_async instead."
+                        ) from None
 
         raise RuntimeError("Unexpected retry loop exit without exception")
 
