@@ -218,3 +218,29 @@ class VLMEvaluation(BaseModel):
             msg = "similarity_score must be between 0 and 1"
             raise ValueError(msg)
         return v
+
+
+class Matchup(BaseModel):
+    """Represents a single matchup between two models on a specific prompt."""
+
+    id: UUID = Field(default_factory=uuid4)
+    model_a_id: str
+    model_b_id: str
+    prompt_text: str
+    prompt_category: str
+    sample_a_id: str | None = None
+    sample_b_id: str | None = None
+    is_judged: bool = False
+    vote_id: str | None = None
+
+
+class RoundState(BaseModel):
+    """Represents the state of a tournament round including matchups and Elo ratings."""
+
+    id: UUID = Field(default_factory=uuid4)
+    round_number: int
+    matchups: list[Matchup]
+    elo_snapshot: dict[str, float] = Field(default_factory=dict)
+    generation_complete: bool = False
+    all_judged: bool = False
+    created_at: datetime = Field(default_factory=_utc_now)
