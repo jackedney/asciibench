@@ -190,8 +190,11 @@ class ConfigService:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._cache = ConfigCache()
+                    instance = super().__new__(cls)
+                    instance._cache = ConfigCache()
+                    cls._instance = instance
+        # At this point _instance is guaranteed to be non-None
+        assert cls._instance is not None
         return cls._instance
 
     def __init__(self) -> None:
