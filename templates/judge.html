@@ -142,6 +142,7 @@
               hx-on::after-request="htmx.trigger(document.body, 'vote-submitted')">
             <input type="hidden" name="sample_a_id" id="form-sample-a-id" value="" />
             <input type="hidden" name="sample_b_id" id="form-sample-b-id" value="" />
+            <input type="hidden" name="matchup_id" id="form-matchup-id" value="" />
             <input type="hidden" name="winner" id="form-winner" value="" />
         </form>
 
@@ -346,10 +347,15 @@
     function updateFormFields() {
         const sampleAIdInput = document.getElementById('sample-a-id');
         const sampleBIdInput = document.getElementById('sample-b-id');
+        const matchupIdInput = document.getElementById('matchup-id');
 
         if (sampleAIdInput && sampleBIdInput) {
             formSampleAId.value = sampleAIdInput.value;
             formSampleBId.value = sampleBIdInput.value;
+            const formMatchupId = document.getElementById('form-matchup-id');
+            if (formMatchupId && matchupIdInput) {
+                formMatchupId.value = matchupIdInput.value;
+            }
             return true;
         }
         return false;
