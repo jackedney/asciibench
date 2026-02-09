@@ -567,12 +567,12 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
             winner=cast(Literal["A", "B", "tie", "fail"], winner),
         )
 
-        # Record the vote in the tournament service first
+        # Persist to votes.jsonl first (source of truth)
+        append_jsonl(VOTES_PATH, vote)
+
+        # Then update tournament state (reconstructed from votes on restart if this fails)
         if tournament_service is not None and validated_matchup_id is not None:
             await tournament_service.record_vote(validated_matchup_id, str(vote.id))
-
-        # Persist to votes.jsonl only after tournament service succeeds
-        append_jsonl(VOTES_PATH, vote)
 
         # Clear the undo state since a new vote was submitted
         undo_service.record_vote_submitted()
