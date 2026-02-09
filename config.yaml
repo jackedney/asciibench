@@ -34,3 +34,6 @@ generation:
     - No ANSI escape codes, colors, or Unicode
 
     Remember: Draw immediately. Small and complete. Output the code block early.
+
+tournament:
+  round_size: 10
