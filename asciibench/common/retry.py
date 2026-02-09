@@ -136,8 +136,16 @@ def retry(
                 except RuntimeError:
                     loop = None
                 if loop is not None:
-                    # We're in an async context but called synchronously - run in executor
-                    loop.run_until_complete(coro)
+                    # We're in an async context but called synchronously - cannot use
+                    # run_until_complete on a running loop. Close the coroutine to avoid
+                    # warnings and raise a clear error.
+                    coro.close()
+                    raise RuntimeError(
+                        "_sync_sleep was called from an async context with an awaitable "
+                        "sleep function. This is not supported because run_until_complete "
+                        "cannot be called on a running event loop. Use the async retry "
+                        "wrapper or execute_async method instead."
+                    )
                 else:
                     # No running loop, create one to run the coroutine
                     asyncio.run(coro)
@@ -354,7 +362,16 @@ class RetryableTaskExecutor:
                         except RuntimeError:
                             loop = None
                         if loop is not None:
-                            loop.run_until_complete(coro)
+                            # We're in an async context but called synchronously - cannot
+                            # use run_until_complete on a running loop. Close coroutine
+                            # and raise error.
+                            coro.close()
+                            raise RuntimeError(
+                                "RetryableTaskExecutor.execute was called from an async "
+                                "context with an awaitable sleep function. This is not "
+                                "supported because run_until_complete cannot be called on "
+                                "a running event loop. Use execute_async instead."
+                            ) from None
                         else:
                             asyncio.run(coro)
 

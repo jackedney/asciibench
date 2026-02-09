@@ -53,6 +53,9 @@ from pydantic import BaseModel, Field, ValidationError
 from asciibench.common.config import EvaluatorConfig, GenerationConfig
 from asciibench.common.models import Model, Prompt
 
+# Note: dataclasses.field is used for ConfigCache (a dataclass),
+# while pydantic.Field is used for Pydantic BaseModel classes
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,7 +78,7 @@ class TemplateDefinition(BaseModel):
     category: str = "unknown"
     template: str = ""
     word_list: str | None = None
-    word_list_pairs: list[dict[str, Any]] = field(default_factory=list)
+    word_list_pairs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class WordLists(BaseModel):
@@ -88,10 +91,10 @@ class WordLists(BaseModel):
         positions: List of positional words for templates
     """
 
-    objects: list[str] = field(default_factory=list)
-    animals: list[str] = field(default_factory=list)
-    actions: list[str] = field(default_factory=list)
-    positions: list[str] = field(default_factory=list)
+    objects: list[str] = Field(default_factory=list)
+    animals: list[str] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+    positions: list[str] = Field(default_factory=list)
 
 
 class PromptsConfig(BaseModel):
@@ -108,7 +111,7 @@ class PromptsConfig(BaseModel):
     """
 
     prompts: list[dict[str, Any]] | None = None
-    templates: list[TemplateDefinition] = field(default_factory=list)
+    templates: list[TemplateDefinition] = Field(default_factory=list)
     word_lists: WordLists = Field(default_factory=WordLists)
 
 
@@ -119,7 +122,7 @@ class ModelsConfig(BaseModel):
         models: List of model configurations
     """
 
-    models: list[dict[str, Any]] = field(default_factory=list)
+    models: list[dict[str, Any]] = Field(default_factory=list)
 
 
 @dataclass
@@ -132,9 +135,13 @@ class ConfigCache:
         evaluator_config: Cached EvaluatorConfig
         app_config: Cached GenerationConfig
         models_loaded: Flag indicating if models have been loaded
+        models_loaded_path: Path from which models were loaded
         prompts_loaded: Flag indicating if prompts have been loaded
+        prompts_loaded_path: Path from which prompts were loaded
         evaluator_config_loaded: Flag indicating if evaluator config has been loaded
+        evaluator_config_loaded_path: Path from which evaluator config was loaded
         app_config_loaded: Flag indicating if app config has been loaded
+        app_config_loaded_path: Path from which app config was loaded
     """
 
     models: list[Model] = field(default_factory=list)
@@ -142,9 +149,13 @@ class ConfigCache:
     evaluator_config: EvaluatorConfig = field(default_factory=EvaluatorConfig)
     app_config: GenerationConfig = field(default_factory=GenerationConfig)
     models_loaded: bool = False
+    models_loaded_path: str | None = None
     prompts_loaded: bool = False
+    prompts_loaded_path: str | None = None
     evaluator_config_loaded: bool = False
+    evaluator_config_loaded_path: str | None = None
     app_config_loaded: bool = False
+    app_config_loaded_path: str | None = None
 
 
 class ConfigService:
@@ -205,7 +216,7 @@ class ConfigService:
         """Get validated list of model configurations.
 
         Loads models from the specified YAML file on first access,
-        then returns cached data on subsequent calls.
+        then returns cached data on subsequent calls with the same path.
 
         Args:
             path: Path to models.yaml file (default: "models.yaml")
@@ -223,13 +234,17 @@ class ConfigService:
             >>> for model in models:
             ...     print(f"{model.name}: {model.id}")
         """
-        if not self._cache.models_loaded:
+        if not self._cache.models_loaded or self._cache.models_loaded_path != path:
             try:
                 with Path(path).open() as f:
                     data = yaml.safe_load(f)
+                # Handle non-dict data (e.g., scalar or list) by using empty dict
+                if not isinstance(data, dict):
+                    data = {}
                 models_config = ModelsConfig(**data)
                 self._cache.models = [Model(**model_dict) for model_dict in models_config.models]
                 self._cache.models_loaded = True
+                self._cache.models_loaded_path = path
                 logger.debug(f"Loaded {len(self._cache.models)} models from {path}")
             except FileNotFoundError as e:
                 raise ConfigServiceError(f"models.yaml not found: {path}") from e
@@ -242,7 +257,8 @@ class ConfigService:
         """Get validated list of prompts (expanded from templates).
 
         Loads prompts from the specified YAML file on first access,
-        expands templates using word lists, then returns cached data.
+        expands templates using word lists, then returns cached data
+        on subsequent calls with the same path.
 
         Args:
             path: Path to prompts.yaml file (default: "prompts.yaml")
@@ -260,10 +276,13 @@ class ConfigService:
             >>> for prompt in prompts:
             ...     print(f"[{prompt.category}] {prompt.text}")
         """
-        if not self._cache.prompts_loaded:
+        if not self._cache.prompts_loaded or self._cache.prompts_loaded_path != path:
             try:
                 with Path(path).open() as f:
                     data = yaml.safe_load(f)
+                # Handle non-dict data (e.g., scalar or list) by using empty dict
+                if not isinstance(data, dict):
+                    data = {}
                 prompts_config = PromptsConfig(**data)
 
                 # Legacy format: direct prompts list
@@ -278,6 +297,7 @@ class ConfigService:
                     )
 
                 self._cache.prompts_loaded = True
+                self._cache.prompts_loaded_path = path
                 logger.debug(f"Loaded {len(self._cache.prompts)} prompts from {path}")
             except FileNotFoundError as e:
                 raise ConfigServiceError(f"prompts.yaml not found: {path}") from e
@@ -362,7 +382,7 @@ class ConfigService:
         """Get validated evaluator configuration.
 
         Loads evaluator configuration from the specified YAML file on first
-        access, then returns cached data on subsequent calls.
+        access, then returns cached data on subsequent calls with the same path.
 
         Args:
             path: Path to evaluator_config.yaml file (default: "evaluator_config.yaml")
@@ -380,16 +400,21 @@ class ConfigService:
             >>> print(f"VLM models: {eval_config.vlm_models}")
             >>> print(f"Threshold: {eval_config.similarity_threshold}")
         """
-        if not self._cache.evaluator_config_loaded:
+        if (
+            not self._cache.evaluator_config_loaded
+            or self._cache.evaluator_config_loaded_path != path
+        ):
             try:
                 with Path(path).open() as f:
                     data = yaml.safe_load(f)
-                if data is None:
+                # Handle None or non-dict data by constructing default config
+                if not isinstance(data, dict):
                     self._cache.evaluator_config = EvaluatorConfig()
                 else:
                     evaluator_data = data.get("evaluator", {})
                     self._cache.evaluator_config = EvaluatorConfig(**evaluator_data)
                 self._cache.evaluator_config_loaded = True
+                self._cache.evaluator_config_loaded_path = path
                 logger.debug(f"Loaded evaluator config from {path}")
             except FileNotFoundError as e:
                 raise ConfigServiceError(f"evaluator_config.yaml not found: {path}") from e
@@ -402,7 +427,7 @@ class ConfigService:
         """Get validated application/generation configuration.
 
         Loads application configuration from the specified YAML file on first
-        access, then returns cached data on subsequent calls.
+        access, then returns cached data on subsequent calls with the same path.
 
         Args:
             path: Path to config.yaml file (default: "config.yaml")
@@ -421,16 +446,18 @@ class ConfigService:
             >>> print(f"Max tokens: {app_config.max_tokens}")
             >>> print(f"Attempts per prompt: {app_config.attempts_per_prompt}")
         """
-        if not self._cache.app_config_loaded:
+        if not self._cache.app_config_loaded or self._cache.app_config_loaded_path != path:
             try:
                 with Path(path).open() as f:
                     data = yaml.safe_load(f)
-                if data is None:
+                # Handle None or non-dict data by constructing default config
+                if not isinstance(data, dict):
                     self._cache.app_config = GenerationConfig()
                 else:
                     generation_data = data.get("generation", {})
                     self._cache.app_config = GenerationConfig(**generation_data)
                 self._cache.app_config_loaded = True
+                self._cache.app_config_loaded_path = path
                 logger.debug(f"Loaded app config from {path}")
             except FileNotFoundError as e:
                 raise ConfigServiceError(f"config.yaml not found: {path}") from e
