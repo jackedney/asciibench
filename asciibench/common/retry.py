@@ -4,8 +4,9 @@ import asyncio
 import functools
 import inspect
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
+from typing import Any, cast
 
 from asciibench.common.logging import get_logger
 
@@ -122,11 +123,24 @@ def retry(
                 await result
 
     def _sync_sleep(delay: float, custom_sleep: SleepFunc | None) -> None:
-        """Execute sleep for sync context."""
+        """Execute sleep for sync context, handling async sleep functions."""
         if custom_sleep is None:
             time.sleep(delay)
         else:
-            custom_sleep(delay)
+            result = custom_sleep(delay)
+            if inspect.isawaitable(result):
+                # Handle async sleep function in sync context
+                coro = cast(Coroutine[Any, Any, None], result)
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+                if loop is not None:
+                    # We're in an async context but called synchronously - run in executor
+                    loop.run_until_complete(coro)
+                else:
+                    # No running loop, create one to run the coroutine
+                    asyncio.run(coro)
 
     def decorator(func):
         @functools.wraps(func)
@@ -295,27 +309,34 @@ class RetryableTaskExecutor:
             try:
                 return func(*args, **kwargs)
             except self.retryable_exceptions as e:
-                attempt_history.append(
-                    AttemptHistory(
-                        attempt_number=attempt + 1,
-                        exception=e,  # type: ignore[arg-type]
-                        # Reason: Type checker doesn't narrow exception type from tuple catch.
-                        # Exception e is guaranteed to be in retryable_exceptions tuple at runtime.
-                        delay_seconds=None,
-                    )
-                )
+                is_final_attempt = attempt == self.max_attempts - 1
 
-                if attempt == self.max_attempts - 1:
+                if is_final_attempt:
+                    # Final attempt - no delay, record and raise
+                    attempt_history.append(
+                        AttemptHistory(
+                            attempt_number=attempt + 1,
+                            exception=e,  # type: ignore[arg-type]
+                            delay_seconds=None,
+                        )
+                    )
                     logger.warning(f"Function failed after {self.max_attempts} attempts")
                     raise MaxRetriesError(
                         max_attempts=self.max_attempts,
                         last_exception=e,  # type: ignore[arg-type]
-                        # Reason: Type checker doesn't narrow exception type from tuple catch.
-                        # Exception e is guaranteed to be in retryable_exceptions tuple at runtime.
                         attempt_history=attempt_history,
                     ) from e
 
+                # Non-final attempt - calculate delay, record, sleep, and retry
                 delay = self.base_delay_seconds * (2**attempt)
+                attempt_history.append(
+                    AttemptHistory(
+                        attempt_number=attempt + 1,
+                        exception=e,  # type: ignore[arg-type]
+                        delay_seconds=delay,
+                    )
+                )
+
                 logger.debug(
                     f"Attempt {attempt + 1}/{self.max_attempts} failed, "
                     f"retrying after {delay}s: {e}"
@@ -324,7 +345,18 @@ class RetryableTaskExecutor:
                 if self.sleep_func is None:
                     time.sleep(delay)
                 else:
-                    self.sleep_func(delay)
+                    result = self.sleep_func(delay)
+                    if inspect.isawaitable(result):
+                        # Handle async sleep function in sync context
+                        coro = cast(Coroutine[Any, Any, None], result)
+                        try:
+                            loop = asyncio.get_running_loop()
+                        except RuntimeError:
+                            loop = None
+                        if loop is not None:
+                            loop.run_until_complete(coro)
+                        else:
+                            asyncio.run(coro)
 
         raise RuntimeError("Unexpected retry loop exit without exception")
 
@@ -349,27 +381,34 @@ class RetryableTaskExecutor:
             try:
                 return await func(*args, **kwargs)
             except self.retryable_exceptions as e:
-                attempt_history.append(
-                    AttemptHistory(
-                        attempt_number=attempt + 1,
-                        exception=e,  # type: ignore[arg-type]
-                        # Reason: Type checker doesn't narrow exception type from tuple catch.
-                        # Exception e is guaranteed to be in retryable_exceptions tuple at runtime.
-                        delay_seconds=None,
-                    )
-                )
+                is_final_attempt = attempt == self.max_attempts - 1
 
-                if attempt == self.max_attempts - 1:
+                if is_final_attempt:
+                    # Final attempt - no delay, record and raise
+                    attempt_history.append(
+                        AttemptHistory(
+                            attempt_number=attempt + 1,
+                            exception=e,  # type: ignore[arg-type]
+                            delay_seconds=None,
+                        )
+                    )
                     logger.warning(f"Async function failed after {self.max_attempts} attempts")
                     raise MaxRetriesError(
                         max_attempts=self.max_attempts,
                         last_exception=e,  # type: ignore[arg-type]
-                        # Reason: Type checker doesn't narrow exception type from tuple catch.
-                        # Exception e is guaranteed to be in retryable_exceptions tuple at runtime.
                         attempt_history=attempt_history,
                     ) from e
 
+                # Non-final attempt - calculate delay, record, sleep, and retry
                 delay = self.base_delay_seconds * (2**attempt)
+                attempt_history.append(
+                    AttemptHistory(
+                        attempt_number=attempt + 1,
+                        exception=e,  # type: ignore[arg-type]
+                        delay_seconds=delay,
+                    )
+                )
+
                 logger.debug(
                     f"Async attempt {attempt + 1}/{self.max_attempts} failed, "
                     f"retrying after {delay}s: {e}"

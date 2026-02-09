@@ -179,7 +179,7 @@ class ConfigService:
 
     _instance: "ConfigService | None" = None
     _lock: Lock = Lock()
-    _cache: ConfigCache = field(default_factory=ConfigCache)
+    _cache: ConfigCache
 
     def __new__(cls) -> "ConfigService":
         """Create or return singleton instance with thread-safe initialization.
