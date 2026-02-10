@@ -146,6 +146,210 @@ def _sync_sleep(delay: float, custom_sleep: SleepFunc | None) -> None:
             )
 
 
+def _calculate_delay(attempt: int, base_delay_seconds: float) -> float:
+    """Calculate delay for a retry attempt using exponential backoff.
+
+    Args:
+        attempt: Current attempt number (0-indexed)
+        base_delay_seconds: Base delay before first retry in seconds
+
+    Returns:
+        Delay in seconds for this retry
+    """
+    return base_delay_seconds * (2**attempt)
+
+
+def _retry_sync_core(
+    func: Callable,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    max_attempts: int,
+    base_delay_seconds: float,
+    retryable_exceptions: tuple[type[Exception], ...],
+    sleep_func: SleepFunc | None,
+    func_name: str | None = None,
+    raise_max_retries_error: bool = False,
+) -> Any:
+    """Core sync retry logic shared by sync decorator and executor.
+
+    Args:
+        func: Function to execute
+        args: Positional arguments to pass to func
+        kwargs: Keyword arguments to pass to func
+        max_attempts: Maximum number of execution attempts (including first)
+        base_delay_seconds: Base delay before first retry in seconds
+        retryable_exceptions: Exception types to retry
+        sleep_func: Optional custom sleep function
+        func_name: Optional function name for logging (decorator use case)
+        raise_max_retries_error: True to raise MaxRetriesError, False to raise original exception
+
+    Returns:
+        Result of func(*args, **kwargs) on success
+
+    Raises:
+        MaxRetriesError: If raise_max_retries_error is True and all attempts exhausted
+        Exception: If raise_max_retries_error is False and all attempts exhausted,
+                   or if a non-retryable exception is raised
+    """
+    attempt_history: list[AttemptHistory] = []
+
+    for attempt in range(max_attempts):
+        try:
+            return func(*args, **kwargs)
+        except retryable_exceptions as e:
+            is_final_attempt = attempt == max_attempts - 1
+
+            if is_final_attempt:
+                attempt_history.append(
+                    AttemptHistory(
+                        attempt_number=attempt + 1,
+                        exception=e,
+                        delay_seconds=None,
+                    )
+                )
+                if raise_max_retries_error:
+                    logger.warning(f"Function failed after {max_attempts} attempts")
+                    raise MaxRetriesError(
+                        max_attempts=max_attempts,
+                        last_exception=e,
+                        attempt_history=attempt_history,
+                    ) from e
+                else:
+                    logger.error(
+                        f"Max retries ({max_attempts - 1}) exceeded for {func_name or 'function'}",
+                        metadata={
+                            "function": func_name or "function",
+                            "max_retries": max_attempts - 1,
+                        },
+                    )
+                    raise
+
+            delay = _calculate_delay(attempt, base_delay_seconds)
+            attempt_history.append(
+                AttemptHistory(
+                    attempt_number=attempt + 1,
+                    exception=e,
+                    delay_seconds=delay,
+                )
+            )
+
+            if func_name:
+                logger.warning(
+                    f"Retry attempt {attempt + 1}/{max_attempts - 1} for {func_name}",
+                    metadata={"attempt": attempt + 1, "delay": delay, "error": str(e)},
+                )
+            else:
+                logger.debug(
+                    f"Attempt {attempt + 1}/{max_attempts} failed, retrying after {delay}s: {e}"
+                )
+
+            _sync_sleep(delay, sleep_func)
+        except Exception as e:
+            logger.error(
+                f"Non-retryable exception in {func_name or 'function'}: {type(e).__name__}",
+                metadata={"function": func_name or "function", "error": str(e)},
+            )
+            raise
+
+    raise RuntimeError("Unexpected retry loop exit without exception")
+
+
+async def _retry_async_core(
+    func: Callable,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    max_attempts: int,
+    base_delay_seconds: float,
+    retryable_exceptions: tuple[type[Exception], ...],
+    sleep_func: SleepFunc | None,
+    func_name: str | None = None,
+    raise_max_retries_error: bool = False,
+) -> Any:
+    """Core async retry logic shared by async decorator and executor.
+
+    Args:
+        func: Async function to execute
+        args: Positional arguments to pass to func
+        kwargs: Keyword arguments to pass to func
+        max_attempts: Maximum number of execution attempts (including first)
+        base_delay_seconds: Base delay before first retry in seconds
+        retryable_exceptions: Exception types to retry
+        sleep_func: Optional custom sleep function
+        func_name: Optional function name for logging (decorator use case)
+        raise_max_retries_error: True to raise MaxRetriesError, False to raise original exception
+
+    Returns:
+        Result of await func(*args, **kwargs) on success
+
+    Raises:
+        MaxRetriesError: If raise_max_retries_error is True and all attempts exhausted
+        Exception: If raise_max_retries_error is False and all attempts exhausted,
+                   or if a non-retryable exception is raised
+    """
+    attempt_history: list[AttemptHistory] = []
+
+    for attempt in range(max_attempts):
+        try:
+            return await func(*args, **kwargs)
+        except retryable_exceptions as e:
+            is_final_attempt = attempt == max_attempts - 1
+
+            if is_final_attempt:
+                attempt_history.append(
+                    AttemptHistory(
+                        attempt_number=attempt + 1,
+                        exception=e,
+                        delay_seconds=None,
+                    )
+                )
+                if raise_max_retries_error:
+                    logger.warning(f"Async function failed after {max_attempts} attempts")
+                    raise MaxRetriesError(
+                        max_attempts=max_attempts,
+                        last_exception=e,
+                        attempt_history=attempt_history,
+                    ) from e
+                else:
+                    logger.error(
+                        f"Max retries ({max_attempts - 1}) exceeded for {func_name or 'function'}",
+                        metadata={
+                            "function": func_name or "function",
+                            "max_retries": max_attempts - 1,
+                        },
+                    )
+                    raise
+
+            delay = _calculate_delay(attempt, base_delay_seconds)
+            attempt_history.append(
+                AttemptHistory(
+                    attempt_number=attempt + 1,
+                    exception=e,
+                    delay_seconds=delay,
+                )
+            )
+
+            if func_name:
+                logger.warning(
+                    f"Retry attempt {attempt + 1}/{max_attempts - 1} for {func_name}",
+                    metadata={"attempt": attempt + 1, "delay": delay, "error": str(e)},
+                )
+            else:
+                logger.debug(
+                    f"Async attempt {attempt + 1}/{max_attempts} failed, "
+                    f"retrying after {delay}s: {e}"
+                )
+
+            await _async_sleep(delay, sleep_func)
+        except Exception as e:
+            logger.error(
+                f"Non-retryable exception in {func_name or 'function'}: {type(e).__name__}",
+                metadata={"function": func_name or "function", "error": str(e)},
+            )
+            raise
+
+    raise RuntimeError("Unexpected retry loop exit without exception")
+
+
 def retry(
     max_retries: int = 3,
     base_delay_seconds: float = 1,
@@ -200,67 +404,31 @@ def retry(
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            last_exception = None
-            for attempt in range(max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except retryable_exceptions as e:
-                    last_exception = e
-                    if attempt == max_retries:
-                        logger.error(
-                            f"Max retries ({max_retries}) exceeded for {func.__name__}",
-                            metadata={"function": func.__name__, "max_retries": max_retries},
-                        )
-                        raise
-
-                    delay = base_delay_seconds * (2**attempt)
-                    logger.warning(
-                        f"Retry attempt {attempt + 1}/{max_retries} for {func.__name__}",
-                        metadata={"attempt": attempt + 1, "delay": delay, "error": str(e)},
-                    )
-                    _sync_sleep(delay, sleep_func)
-                except Exception as e:
-                    logger.error(
-                        f"Non-retryable exception in {func.__name__}: {type(e).__name__}",
-                        metadata={"function": func.__name__, "error": str(e)},
-                    )
-                    raise
-
-            if last_exception is None:
-                raise RuntimeError("Unexpected retry loop exit without exception")
-            raise last_exception
+            return _retry_sync_core(
+                func=func,
+                args=args,
+                kwargs=kwargs,
+                max_attempts=max_retries + 1,
+                base_delay_seconds=base_delay_seconds,
+                retryable_exceptions=retryable_exceptions,
+                sleep_func=sleep_func,
+                func_name=func.__name__,
+                raise_max_retries_error=False,
+            )
 
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
-            last_exception = None
-            for attempt in range(max_retries + 1):
-                try:
-                    return await func(*args, **kwargs)
-                except retryable_exceptions as e:
-                    last_exception = e
-                    if attempt == max_retries:
-                        logger.error(
-                            f"Max retries ({max_retries}) exceeded for {func.__name__}",
-                            metadata={"function": func.__name__, "max_retries": max_retries},
-                        )
-                        raise
-
-                    delay = base_delay_seconds * (2**attempt)
-                    logger.warning(
-                        f"Retry attempt {attempt + 1}/{max_retries} for {func.__name__}",
-                        metadata={"attempt": attempt + 1, "delay": delay, "error": str(e)},
-                    )
-                    await _async_sleep(delay, sleep_func)
-                except Exception as e:
-                    logger.error(
-                        f"Non-retryable exception in {func.__name__}: {type(e).__name__}",
-                        metadata={"function": func.__name__, "error": str(e)},
-                    )
-                    raise
-
-            if last_exception is None:
-                raise RuntimeError("Unexpected retry loop exit without exception")
-            raise last_exception
+            return await _retry_async_core(
+                func=func,
+                args=args,
+                kwargs=kwargs,
+                max_attempts=max_retries + 1,
+                base_delay_seconds=base_delay_seconds,
+                retryable_exceptions=retryable_exceptions,
+                sleep_func=sleep_func,
+                func_name=func.__name__,
+                raise_max_retries_error=False,
+            )
 
         return async_wrapper if inspect.iscoroutinefunction(func) else wrapper
 
@@ -340,46 +508,17 @@ class RetryableTaskExecutor:
             MaxRetriesError: If all retry attempts are exhausted
             Exception: If an exception not in retryable_exceptions is raised
         """
-        attempt_history: list[AttemptHistory] = []
-
-        for attempt in range(self.max_attempts):
-            try:
-                return func(*args, **kwargs)
-            except self.retryable_exceptions as e:
-                is_final_attempt = attempt == self.max_attempts - 1
-
-                if is_final_attempt:
-                    attempt_history.append(
-                        AttemptHistory(
-                            attempt_number=attempt + 1,
-                            exception=e,  # type: ignore[arg-type]
-                            delay_seconds=None,
-                        )
-                    )
-                    logger.warning(f"Function failed after {self.max_attempts} attempts")
-                    raise MaxRetriesError(
-                        max_attempts=self.max_attempts,
-                        last_exception=e,  # type: ignore[arg-type]
-                        attempt_history=attempt_history,
-                    ) from e
-
-                delay = self.base_delay_seconds * (2**attempt)
-                attempt_history.append(
-                    AttemptHistory(
-                        attempt_number=attempt + 1,
-                        exception=e,  # type: ignore[arg-type]
-                        delay_seconds=delay,
-                    )
-                )
-
-                logger.debug(
-                    f"Attempt {attempt + 1}/{self.max_attempts} failed, "
-                    f"retrying after {delay}s: {e}"
-                )
-
-                _sync_sleep(delay, self.sleep_func)
-
-        raise RuntimeError("Unexpected retry loop exit without exception")
+        return _retry_sync_core(
+            func=func,
+            args=args,
+            kwargs=kwargs,
+            max_attempts=self.max_attempts,
+            base_delay_seconds=self.base_delay_seconds,
+            retryable_exceptions=self.retryable_exceptions,
+            sleep_func=self.sleep_func,
+            func_name=None,
+            raise_max_retries_error=True,
+        )
 
     async def execute_async(self, func: Callable, *args, **kwargs):
         """Execute an async function with retry logic.
@@ -396,43 +535,14 @@ class RetryableTaskExecutor:
             MaxRetriesError: If all retry attempts are exhausted
             Exception: If an exception not in retryable_exceptions is raised
         """
-        attempt_history: list[AttemptHistory] = []
-
-        for attempt in range(self.max_attempts):
-            try:
-                return await func(*args, **kwargs)
-            except self.retryable_exceptions as e:
-                is_final_attempt = attempt == self.max_attempts - 1
-
-                if is_final_attempt:
-                    attempt_history.append(
-                        AttemptHistory(
-                            attempt_number=attempt + 1,
-                            exception=e,  # type: ignore[arg-type]
-                            delay_seconds=None,
-                        )
-                    )
-                    logger.warning(f"Async function failed after {self.max_attempts} attempts")
-                    raise MaxRetriesError(
-                        max_attempts=self.max_attempts,
-                        last_exception=e,  # type: ignore[arg-type]
-                        attempt_history=attempt_history,
-                    ) from e
-
-                delay = self.base_delay_seconds * (2**attempt)
-                attempt_history.append(
-                    AttemptHistory(
-                        attempt_number=attempt + 1,
-                        exception=e,  # type: ignore[arg-type]
-                        delay_seconds=delay,
-                    )
-                )
-
-                logger.debug(
-                    f"Async attempt {attempt + 1}/{self.max_attempts} failed, "
-                    f"retrying after {delay}s: {e}"
-                )
-
-                await _async_sleep(delay, self.sleep_func)
-
-        raise RuntimeError("Unexpected retry loop exit without exception")
+        return await _retry_async_core(
+            func=func,
+            args=args,
+            kwargs=kwargs,
+            max_attempts=self.max_attempts,
+            base_delay_seconds=self.base_delay_seconds,
+            retryable_exceptions=self.retryable_exceptions,
+            sleep_func=self.sleep_func,
+            func_name=None,
+            raise_max_retries_error=True,
+        )
