@@ -362,10 +362,20 @@
     }
 
     /**
+     * Check if the UI is showing the vote reveal panel
+     */
+    function isInRevealState() {
+        return !!document.getElementById('btn-next-matchup');
+    }
+
+    /**
      * Submit a vote via HTMX form
      */
     function submitVote(winner) {
         if (isProcessing) return;
+
+        // Don't accept votes during reveal state
+        if (isInRevealState()) return;
 
         // Update form fields from current matchup
         if (!updateFormFields()) {
@@ -408,21 +418,32 @@
             return;
         }
 
-        // Ignore if processing
-        if (isProcessing) return;
-
-        // Handle Ctrl+Z for undo
-        if ((event.ctrlKey || event.metaKey) && (key === 'z' || key === 'Z')) {
+        // Handle SPACE to advance from reveal panel
+        if (key === ' ' && isInRevealState()) {
             event.preventDefault();
-            highlightButton(btnUndo);
-            htmx.trigger(btnUndo, 'click');
+            document.getElementById('btn-next-matchup').click();
             return;
         }
 
-        // Handle undo with just 'z' or 'Z'
+        // Ignore if processing
+        if (isProcessing) return;
+
+        // Handle Ctrl+Z for undo (blocked during reveal)
+        if ((event.ctrlKey || event.metaKey) && (key === 'z' || key === 'Z')) {
+            event.preventDefault();
+            if (!isInRevealState()) {
+                highlightButton(btnUndo);
+                htmx.trigger(btnUndo, 'click');
+            }
+            return;
+        }
+
+        // Handle undo with just 'z' or 'Z' (blocked during reveal)
         if (key === 'z' || key === 'Z') {
-            highlightButton(btnUndo);
-            htmx.trigger(btnUndo, 'click');
+            if (!isInRevealState()) {
+                highlightButton(btnUndo);
+                htmx.trigger(btnUndo, 'click');
+            }
             return;
         }
 

@@ -307,6 +307,44 @@ class DataRepository:
         self._votes_cache = None
         self._evaluations_cache = None
 
+    def get_all_samples_or_empty(self) -> list[ArtSample]:
+        """Get all samples, returning empty list if file not found."""
+        try:
+            return self.get_all_samples()
+        except FileNotFoundError:
+            return []
+
+    def get_valid_samples_or_empty(self) -> list[ArtSample]:
+        """Get valid samples, returning empty list if file not found."""
+        try:
+            return self.get_valid_samples()
+        except FileNotFoundError:
+            return []
+
+    def get_votes_or_empty(self) -> list[Vote]:
+        """Get votes, returning empty list if file not found."""
+        try:
+            return self.get_votes()
+        except FileNotFoundError:
+            return []
+
+    def get_evaluations_or_empty(self) -> list[VLMEvaluation]:
+        """Get evaluations, returning empty list if file not found."""
+        try:
+            return self.get_evaluations()
+        except FileNotFoundError:
+            return []
+
+    @staticmethod
+    def build_sample_lookup(samples: list[ArtSample]) -> dict[str, ArtSample]:
+        """Build {sample_id_str: ArtSample} mapping."""
+        return {str(s.id): s for s in samples}
+
+    @staticmethod
+    def build_sample_model_lookup(samples: list[ArtSample]) -> dict[str, str]:
+        """Build {sample_id_str: model_id} mapping."""
+        return {str(s.id): s.model_id for s in samples}
+
     def is_cache_enabled(self) -> bool:
         """Check if caching is enabled for this repository instance.
 

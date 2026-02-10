@@ -50,16 +50,8 @@ class ProgressService:
             ProgressResponse with votes_completed, unique_pairs_judged,
             total_possible_pairs, and by_category breakdown.
         """
-        try:
-            votes = self._repo.get_votes()
-        except FileNotFoundError:
-            votes = []
-
-        try:
-            all_samples = self._repo.get_all_samples()
-        except FileNotFoundError:
-            all_samples = []
-
+        votes = self._repo.get_votes_or_empty()
+        all_samples = self._repo.get_all_samples_or_empty()
         valid_samples = [s for s in all_samples if s.is_valid]
 
         votes_completed = len(votes)
@@ -89,7 +81,7 @@ class ProgressService:
         Returns:
             Dictionary mapping category names to CategoryProgress objects
         """
-        sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
+        sample_lookup = DataRepository.build_sample_lookup(samples)
 
         samples_by_category: dict[str, list[ArtSample]] = {}
         for sample in samples:

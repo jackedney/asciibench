@@ -9,6 +9,7 @@ making it easy to test and mock.
 """
 
 import statistics
+from collections.abc import Callable
 
 from asciibench.analyst.elo import calculate_elo
 from asciibench.analyst.stability import generate_stability_report
@@ -68,15 +69,8 @@ class AnalyticsService:
             >>> analytics = service.get_analytics_data(n_bootstrap=100)
             >>> print(f"Leaderboard has {len(analytics.leaderboard)} entries")
         """
-        try:
-            votes = self._repo.get_votes()
-        except FileNotFoundError:
-            votes = []
-
-        try:
-            samples = self._repo.get_valid_samples()
-        except FileNotFoundError:
-            samples = []
+        votes = self._repo.get_votes_or_empty()
+        samples = self._repo.get_valid_samples_or_empty()
 
         if not votes:
             return AnalyticsResponse(
@@ -106,15 +100,8 @@ class AnalyticsService:
             >>> vlm_data = service.get_vlm_accuracy_data()
             >>> print(f"Accuracy data for {len(vlm_data.by_model)} models")
         """
-        try:
-            evaluations = self._repo.get_evaluations()
-        except FileNotFoundError:
-            evaluations = []
-
-        try:
-            samples = self._repo.get_all_samples()
-        except FileNotFoundError:
-            samples = []
+        evaluations = self._repo.get_evaluations_or_empty()
+        samples = self._repo.get_all_samples_or_empty()
 
         if not evaluations:
             return VLMAccuracyResponse(by_model={}, by_category={})
@@ -162,7 +149,7 @@ class AnalyticsService:
         samples: list[ArtSample],
     ) -> dict[str, dict[str, HeadToHeadRecord]]:
         """Calculate head-to-head win/loss records between all model pairs."""
-        sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
+        sample_to_model = DataRepository.build_sample_model_lookup(samples)
 
         win_counts: dict[str, dict[str, int]] = {}
 
@@ -256,89 +243,71 @@ class AnalyticsService:
             total_votes=len(votes),
         )
 
-    def _calculate_vlm_accuracy(
+    def _calculate_grouped_accuracy(
         self,
         evaluations: list[VLMEvaluation],
         samples: list[ArtSample],
-    ) -> dict[str, ModelAccuracyStats]:
-        """Calculate VLM accuracy statistics per ASCII-generating model.
+        group_key_fn: Callable[[ArtSample], str],
+    ) -> dict[str, dict[str, int]]:
+        """Calculate accuracy stats grouped by an arbitrary key.
 
         Args:
             evaluations: List of VLM evaluations
             samples: List of all samples from database
+            group_key_fn: Function to extract grouping key from a sample
 
         Returns:
-            Dictionary mapping model_id to accuracy statistics
+            Dict mapping group_key -> {"total": int, "correct": int}
         """
-        sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
-
-        by_model: dict[str, dict[str, int]] = {}
+        sample_lookup = DataRepository.build_sample_lookup(samples)
+        grouped: dict[str, dict[str, int]] = {}
 
         for evaluation in evaluations:
             sample = sample_lookup.get(evaluation.sample_id)
             if not sample:
                 continue
 
-            model_id = sample.model_id
-            if model_id not in by_model:
-                by_model[model_id] = {"total": 0, "correct": 0}
+            key = group_key_fn(sample)
+            if key not in grouped:
+                grouped[key] = {"total": 0, "correct": 0}
 
-            by_model[model_id]["total"] += 1
+            grouped[key]["total"] += 1
             if evaluation.is_correct:
-                by_model[model_id]["correct"] += 1
+                grouped[key]["correct"] += 1
 
-        result: dict[str, ModelAccuracyStats] = {}
-        for model_id, stats in by_model.items():
-            accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
-            result[model_id] = ModelAccuracyStats(
-                total=stats["total"],
-                correct=stats["correct"],
-                accuracy=round(accuracy, 2),
+        return grouped
+
+    def _calculate_vlm_accuracy(
+        self,
+        evaluations: list[VLMEvaluation],
+        samples: list[ArtSample],
+    ) -> dict[str, ModelAccuracyStats]:
+        """Calculate VLM accuracy statistics per ASCII-generating model."""
+        grouped = self._calculate_grouped_accuracy(evaluations, samples, lambda s: s.model_id)
+        return {
+            k: ModelAccuracyStats(
+                total=v["total"],
+                correct=v["correct"],
+                accuracy=round(v["correct"] / v["total"], 2) if v["total"] else 0.0,
             )
-
-        return result
+            for k, v in grouped.items()
+        }
 
     def _calculate_category_accuracy(
         self,
         evaluations: list[VLMEvaluation],
         samples: list[ArtSample],
     ) -> dict[str, CategoryAccuracyStats]:
-        """Calculate VLM accuracy statistics per category.
-
-        Args:
-            evaluations: List of VLM evaluations
-            samples: List of all samples from database
-
-        Returns:
-            Dictionary mapping category to accuracy statistics
-        """
-        sample_lookup: dict[str, ArtSample] = {str(s.id): s for s in samples}
-
-        by_category: dict[str, dict[str, int]] = {}
-
-        for evaluation in evaluations:
-            sample = sample_lookup.get(evaluation.sample_id)
-            if not sample:
-                continue
-
-            category = sample.category
-            if category not in by_category:
-                by_category[category] = {"total": 0, "correct": 0}
-
-            by_category[category]["total"] += 1
-            if evaluation.is_correct:
-                by_category[category]["correct"] += 1
-
-        result: dict[str, CategoryAccuracyStats] = {}
-        for category, stats in by_category.items():
-            accuracy = stats["correct"] / stats["total"] if stats["total"] > 0 else 0.0
-            result[category] = CategoryAccuracyStats(
-                total=stats["total"],
-                correct=stats["correct"],
-                accuracy=round(accuracy, 2),
+        """Calculate VLM accuracy statistics per category."""
+        grouped = self._calculate_grouped_accuracy(evaluations, samples, lambda s: s.category)
+        return {
+            k: CategoryAccuracyStats(
+                total=v["total"],
+                correct=v["correct"],
+                accuracy=round(v["correct"] / v["total"], 2) if v["total"] else 0.0,
             )
-
-        return result
+            for k, v in grouped.items()
+        }
 
     def calculate_pearson_correlation(self, x: list[float], y: list[float]) -> float | None:
         """Calculate Pearson correlation coefficient.
@@ -394,14 +363,7 @@ class AnalyticsService:
         Returns:
             Dictionary mapping model_id to accuracy statistics
         """
-        try:
-            evaluations = self._repo.get_evaluations()
-        except FileNotFoundError:
-            evaluations = []
-
-        try:
-            samples = self._repo.get_all_samples()
-        except FileNotFoundError:
-            samples = []
+        evaluations = self._repo.get_evaluations_or_empty()
+        samples = self._repo.get_all_samples_or_empty()
 
         return self._calculate_vlm_accuracy(evaluations, samples)

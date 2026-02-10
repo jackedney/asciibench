@@ -1,0 +1,46 @@
+{# HTMX partial template for post-vote reveal display #}
+{# Shows model identities and triggers VLM evaluation #}
+<div class="comparison-container grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="sample border-2 {% if winner == 'A' %}border-green-500{% elif winner == 'B' %}border-red-500{% else %}border-slate-600{% endif %} p-4 brutalist-shadow">
+        <h2 class="text-lg text-slate-400 mb-3 border-b border-slate-700 pb-2">// SAMPLE A
+            {% if winner == 'A' %}<span class="text-green-400 ml-2">WINNER</span>
+            {% elif winner == 'tie' %}<span class="text-yellow-400 ml-2">TIE</span>
+            {% elif winner == 'fail' %}<span class="text-red-400 ml-2">FAIL</span>{% endif %}
+        </h2>
+        <pre class="art-display bg-slate-950 p-4 min-h-32 overflow-x-auto text-sm leading-none text-slate-200 font-classic border border-slate-700">{{ sample_a.sanitized_output }}</pre>
+        <p class="mt-2 text-sm text-cyan-400 border-t border-slate-700 pt-2">Model: {{ sample_a.model_id }}</p>
+    </div>
+    <div class="sample border-2 {% if winner == 'B' %}border-green-500{% elif winner == 'A' %}border-red-500{% else %}border-slate-600{% endif %} p-4 brutalist-shadow">
+        <h2 class="text-lg text-slate-400 mb-3 border-b border-slate-700 pb-2">// SAMPLE B
+            {% if winner == 'B' %}<span class="text-green-400 ml-2">WINNER</span>
+            {% elif winner == 'tie' %}<span class="text-yellow-400 ml-2">TIE</span>
+            {% elif winner == 'fail' %}<span class="text-red-400 ml-2">FAIL</span>{% endif %}
+        </h2>
+        <pre class="art-display bg-slate-950 p-4 min-h-32 overflow-x-auto text-sm leading-none text-slate-200 font-classic border border-slate-700">{{ sample_b.sanitized_output }}</pre>
+        <p class="mt-2 text-sm text-cyan-400 border-t border-slate-700 pt-2">Model: {{ sample_b.model_id }}</p>
+    </div>
+</div>
+
+{# VLM evaluation results - loads automatically #}
+<div id="vlm-results-container"
+     class="mt-6 border border-slate-700 p-4"
+     hx-get="/htmx/vlm-eval?sample_a_id={{ sample_a.id }}&amp;sample_b_id={{ sample_b.id }}"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+    <p class="text-slate-500 text-sm text-center">Evaluating with VLM...</p>
+</div>
+
+{# Next matchup button #}
+<div class="text-center mt-6">
+    <button id="btn-next-matchup"
+            class="px-8 py-3 text-base border-2 border-slate-500 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:border-slate-400 brutalist-shadow-sm transition-all duration-150"
+            hx-get="/htmx/matchup"
+            hx-target="#matchup-container"
+            hx-swap="innerHTML"
+            hx-indicator="#loading-indicator">
+        [SPACE] NEXT MATCHUP
+    </button>
+</div>
+
+{# OOB prompt update #}
+<div id="prompt-update" hx-swap-oob="innerHTML:#prompt-display">Prompt: {{ prompt }}</div>

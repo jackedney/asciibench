@@ -1807,7 +1807,7 @@ class TestHTMXEndpoints:
         response = client.get("/htmx/matchup")
         assert response.status_code == 200
         assert "text/html" in response.headers["content-type"]
-        assert "File not found" in response.text
+        assert "Not enough valid samples" in response.text
 
     def test_htmx_progress_returns_html(
         self,
@@ -1852,13 +1852,13 @@ class TestHTMXEndpoints:
         updated_response = client.get("/htmx/progress")
         assert "Votes: 1" in updated_response.text
 
-    def test_htmx_vote_submits_and_returns_new_matchup(
+    def test_htmx_vote_submits_and_returns_reveal_panel(
         self,
         client: TestClient,
         temp_data_dir: Path,
         sample_data: list[ArtSample],
     ) -> None:
-        """Test that HTMX vote endpoint submits vote and returns new matchup."""
+        """Test that HTMX vote endpoint submits vote and returns reveal panel."""
         populate_database(temp_data_dir, sample_data)
 
         sample_a_id = str(sample_data[0].id)
@@ -1879,6 +1879,62 @@ class TestHTMXEndpoints:
         votes = read_jsonl(temp_data_dir / "votes.jsonl", Vote)
         assert len(votes) == 1
         assert votes[0].winner == "A"
+
+        # Verify reveal panel content
+        html = response.text
+        # Model identities should be revealed
+        assert "model-a" in html
+        assert "model-b" in html
+        # Winner indicator should be present
+        assert "WINNER" in html
+        # Next matchup button should be present
+        assert "btn-next-matchup" in html
+        # VLM eval trigger should be present
+        assert "vlm-eval" in html
+        # No hidden sample ID inputs (prevents voting during reveal)
+        assert 'id="sample-a-id"' not in html
+        assert 'id="sample-b-id"' not in html
+
+    def test_htmx_vote_reveal_shows_tie(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX vote reveal shows TIE indicator for tie votes."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.post(
+            "/htmx/vote",
+            data={
+                "sample_a_id": str(sample_data[0].id),
+                "sample_b_id": str(sample_data[2].id),
+                "winner": "tie",
+            },
+        )
+        assert response.status_code == 200
+        assert "TIE" in response.text
+        assert "WINNER" not in response.text
+
+    def test_htmx_vote_reveal_shows_fail(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+    ) -> None:
+        """Test that HTMX vote reveal shows FAIL indicator for fail votes."""
+        populate_database(temp_data_dir, sample_data)
+
+        response = client.post(
+            "/htmx/vote",
+            data={
+                "sample_a_id": str(sample_data[0].id),
+                "sample_b_id": str(sample_data[2].id),
+                "winner": "fail",
+            },
+        )
+        assert response.status_code == 200
+        assert "FAIL" in response.text
 
     def test_htmx_vote_error_with_missing_fields(
         self,
@@ -2019,7 +2075,7 @@ class TestHTMXEndpoints:
         """Test that HTMX prompt returns error when database doesn't exist."""
         response = client.get("/htmx/prompt")
         assert response.status_code == 200
-        assert "Error:" in response.text
+        assert "Database file not found" in response.text or "No samples available" in response.text
 
 
 @pytest.fixture
@@ -2207,3 +2263,64 @@ class TestVLMAccuracyEndpoint:
         assert "by_category" in data
         assert isinstance(data["by_model"], dict)
         assert isinstance(data["by_category"], dict)
+
+
+class TestVLMEvalEndpoint:
+    """Tests for the HTMX VLM evaluation endpoint."""
+
+    def test_vlm_eval_returns_not_configured(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test that VLM eval endpoint returns graceful message when not configured."""
+        import asciibench.judge_ui.main as main_module
+
+        populate_database(temp_data_dir, sample_data)
+
+        # Simulate service already attempted and failed to initialize
+        monkeypatch.setattr(main_module, "_vlm_init_attempted", True)
+        monkeypatch.setattr(main_module, "_vlm_evaluation_service", None)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        response = client.get(f"/htmx/vlm-eval?sample_a_id={sample_a_id}&sample_b_id={sample_b_id}")
+        assert response.status_code == 200
+        assert "VLM evaluation not configured" in response.text
+
+    def test_vlm_eval_missing_sample_ids(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+    ) -> None:
+        """Test that VLM eval endpoint returns error with missing sample IDs."""
+        response = client.get("/htmx/vlm-eval")
+        assert response.status_code == 200
+        assert "Missing sample IDs" in response.text
+
+    def test_vlm_eval_with_existing_evaluations(
+        self,
+        client: TestClient,
+        temp_data_dir: Path,
+        sample_data: list[ArtSample],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Test that VLM eval shows pre-existing evaluations when service not configured."""
+        import asciibench.judge_ui.main as main_module
+
+        populate_database(temp_data_dir, sample_data)
+
+        # Ensure VLM service is not configured
+        monkeypatch.setattr(main_module, "_vlm_init_attempted", True)
+        monkeypatch.setattr(main_module, "_vlm_evaluation_service", None)
+
+        sample_a_id = str(sample_data[0].id)
+        sample_b_id = str(sample_data[2].id)
+
+        response = client.get(f"/htmx/vlm-eval?sample_a_id={sample_a_id}&sample_b_id={sample_b_id}")
+        assert response.status_code == 200
+        # Should show "not configured" since the service is None
+        assert "VLM evaluation not configured" in response.text

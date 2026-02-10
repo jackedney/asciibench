@@ -75,6 +75,10 @@ def sample_prompts() -> list[Prompt]:
 def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Set up temporary data directory for all modules."""
     import asciibench.judge_ui.main as judge_main
+    from asciibench.common.repository import DataRepository
+    from asciibench.judge_ui.analytics_service import AnalyticsService
+    from asciibench.judge_ui.matchup_service import MatchupService
+    from asciibench.judge_ui.progress_service import ProgressService
     from asciibench.judge_ui.undo_service import UndoService
 
     data_dir = tmp_path / "data"
@@ -83,9 +87,23 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(judge_main, "DATA_DIR", data_dir)
     monkeypatch.setattr(judge_main, "DATABASE_PATH", data_dir / "database.jsonl")
     monkeypatch.setattr(judge_main, "VOTES_PATH", data_dir / "votes.jsonl")
-    # Replace undo_service with one using temp votes path
-    temp_undo_service = UndoService(votes_path=data_dir / "votes.jsonl")
-    monkeypatch.setattr(judge_main, "undo_service", temp_undo_service)
+
+    repo = DataRepository(data_dir=data_dir)
+    matchup_service = MatchupService(
+        database_path=data_dir / "database.jsonl", votes_path=data_dir / "votes.jsonl"
+    )
+    undo_service = UndoService(votes_path=data_dir / "votes.jsonl")
+    progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
+    analytics_service = AnalyticsService(repo=repo)
+
+    monkeypatch.setattr(judge_main, "repo", repo)
+    monkeypatch.setattr(judge_main, "matchup_service", matchup_service)
+    monkeypatch.setattr(judge_main, "undo_service", undo_service)
+    monkeypatch.setattr(judge_main, "progress_service", progress_service)
+    monkeypatch.setattr(judge_main, "analytics_service", analytics_service)
+    monkeypatch.setattr(judge_main, "VLM_EVALUATIONS_PATH", data_dir / "vlm_evaluations.jsonl")
+    monkeypatch.setattr(judge_main, "_vlm_evaluation_service", None)
+    monkeypatch.setattr(judge_main, "_vlm_init_attempted", False)
 
     return data_dir
 
