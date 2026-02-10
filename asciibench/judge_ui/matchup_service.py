@@ -116,7 +116,14 @@ class MatchupService:
         """
         if valid_samples is None:
             repo = DataRepository(data_dir=self._database_path.parent)
-            valid_samples = repo.get_valid_samples_or_empty()
+            if self._database_path == repo.database_path:
+                valid_samples = repo.get_valid_samples_or_empty()
+            else:
+                try:
+                    all_samples = read_jsonl(self._database_path, ArtSample)
+                except FileNotFoundError:
+                    all_samples = []
+                valid_samples = [s for s in all_samples if s.is_valid]
 
         try:
             votes = read_jsonl(self._votes_path, Vote)
@@ -175,7 +182,13 @@ class MatchupService:
                 votes = []
         if samples is None:
             repo = DataRepository(data_dir=self._database_path.parent)
-            samples = repo.get_all_samples_or_empty()
+            if self._database_path == repo.database_path:
+                samples = repo.get_all_samples_or_empty()
+            else:
+                try:
+                    samples = read_jsonl(self._database_path, ArtSample)
+                except FileNotFoundError:
+                    samples = []
 
         model_pair_counts = self._get_model_pair_comparison_counts(votes, samples)
         return len(model_pair_counts)

@@ -26,7 +26,7 @@ from rich.progress import (
 from asciibench.common.config import EvaluatorConfig, RendererConfig, Settings
 from asciibench.common.logging import get_logger
 from asciibench.common.models import ArtSample, VLMEvaluation
-from asciibench.common.persistence import append_jsonl
+from asciibench.common.persistence import append_jsonl, read_jsonl
 from asciibench.common.repository import DataRepository
 from asciibench.evaluator.renderer import render_ascii_to_image
 from asciibench.evaluator.similarity import compute_similarity
@@ -433,7 +433,15 @@ async def run_evaluation(
 
     logger.info("Loading valid samples from database", {"database_path": database_path})
     repo = DataRepository(data_dir=database_path.parent)
-    all_samples = repo.get_all_samples_or_empty()
+
+    if database_path == repo.database_path:
+        all_samples = repo.get_all_samples_or_empty()
+    else:
+        try:
+            all_samples = read_jsonl(database_path, ArtSample)
+        except FileNotFoundError:
+            all_samples = []
+
     if not all_samples:
         logger.warning("Database file not found or empty", {"database_path": str(database_path)})
         return []
@@ -451,7 +459,14 @@ async def run_evaluation(
     logger.info(
         "Loading existing evaluations for idempotency", {"evaluations_path": evaluations_path}
     )
-    existing_evaluations = repo.get_evaluations_or_empty()
+
+    if evaluations_path == repo.evaluations_path:
+        existing_evaluations = repo.get_evaluations_or_empty()
+    else:
+        try:
+            existing_evaluations = read_jsonl(evaluations_path, VLMEvaluation)
+        except FileNotFoundError:
+            existing_evaluations = []
 
     logger.info(
         "Loaded existing evaluations",
