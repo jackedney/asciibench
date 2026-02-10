@@ -50,6 +50,102 @@ class MaxRetriesError(Exception):
         )
 
 
+def _validate_retry_config(
+    max_retries: int,
+    base_delay_seconds: float,
+    retryable_exceptions: tuple[type[Exception], ...],
+    min_max_retries: int = 0,
+    param_name: str = "max_retries",
+) -> None:
+    """Validate retry configuration parameters.
+
+    Args:
+        max_retries: Maximum number of retries
+        base_delay_seconds: Base delay before first retry in seconds
+        retryable_exceptions: Tuple of exception types to retry
+        min_max_retries: Minimum allowed value for max_retries (default: 0 for decorator)
+        param_name: Name of the parameter for error messages (default: "max_retries")
+
+    Raises:
+        ValueError: If max_retries or base_delay_seconds are invalid
+        TypeError: If retryable_exceptions is invalid
+    """
+    if not isinstance(max_retries, int):
+        raise ValueError(f"{param_name} must be an integer, got {type(max_retries).__name__}")
+    if max_retries < min_max_retries:
+        raise ValueError(f"{param_name} must be >= {min_max_retries}, got {max_retries}")
+    if not isinstance(base_delay_seconds, (int, float)):
+        raise ValueError(
+            f"base_delay_seconds must be a number, got {type(base_delay_seconds).__name__}"
+        )
+    if base_delay_seconds < 0:
+        raise ValueError(f"base_delay_seconds must be >= 0, got {base_delay_seconds}")
+    if not isinstance(retryable_exceptions, tuple):
+        raise TypeError(
+            f"retryable_exceptions must be a tuple, got {type(retryable_exceptions).__name__}"
+        )
+    if len(retryable_exceptions) == 0:
+        raise TypeError("retryable_exceptions must not be empty")
+    for exc_type in retryable_exceptions:
+        if not (isinstance(exc_type, type) and issubclass(exc_type, Exception)):
+            raise TypeError(f"retryable_exceptions must contain Exception types, got {exc_type}")
+
+
+async def _async_sleep(delay: float, custom_sleep: SleepFunc | None) -> None:
+    """Execute sleep, handling both sync and async sleep functions.
+
+    Args:
+        delay: Delay in seconds
+        custom_sleep: Optional custom sleep function
+
+    Raises:
+        RuntimeError: If a non-awaitable sleep function is called in async context
+    """
+    if custom_sleep is None:
+        await asyncio.sleep(delay)
+    else:
+        result = custom_sleep(delay)
+        if inspect.isawaitable(result):
+            await result
+
+
+def _sync_sleep(delay: float, custom_sleep: SleepFunc | None) -> None:
+    """Execute sleep for sync context, handling async sleep functions.
+
+    Args:
+        delay: Delay in seconds
+        custom_sleep: Optional custom sleep function
+
+    Raises:
+        RuntimeError: If called from async context with coroutine sleep function or
+                    if a non-coroutine awaitable is provided
+    """
+    if custom_sleep is None:
+        time.sleep(delay)
+    else:
+        result = custom_sleep(delay)
+        if inspect.iscoroutine(result):
+            coro = cast(Coroutine[Any, Any, None], result)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                coro.close()
+                raise RuntimeError(
+                    "Sync retry path was called from an async context with a coroutine "
+                    "sleep function. Use the async retry wrapper or execute_async method instead."
+                )
+            else:
+                asyncio.run(coro)
+        elif inspect.isawaitable(result):
+            raise RuntimeError(
+                "Sync retry path received a non-coroutine awaitable (e.g., "
+                "Future, Task) which is not supported. Use async retry wrapper "
+                "or execute_async method instead."
+            )
+
+
 def retry(
     max_retries: int = 3,
     base_delay_seconds: float = 1,
@@ -93,69 +189,13 @@ def retry(
         or an Awaitable[None] (async). This includes lambdas, functools.partial,
         and mock objects. The awaitability is detected at call time.
     """
-    if not isinstance(max_retries, int):
-        raise ValueError(f"max_retries must be an integer, got {type(max_retries).__name__}")
-    if max_retries < 0:
-        raise ValueError(f"max_retries must be >= 0, got {max_retries}")
-    if not isinstance(base_delay_seconds, (int, float)):
-        raise ValueError(
-            f"base_delay_seconds must be a number, got {type(base_delay_seconds).__name__}"
-        )
-    if base_delay_seconds < 0:
-        raise ValueError(f"base_delay_seconds must be >= 0, got {base_delay_seconds}")
-    if not isinstance(retryable_exceptions, tuple):
-        raise TypeError(
-            f"retryable_exceptions must be a tuple, got {type(retryable_exceptions).__name__}"
-        )
-    if len(retryable_exceptions) == 0:
-        raise TypeError("retryable_exceptions must not be empty")
-    for exc_type in retryable_exceptions:
-        if not (isinstance(exc_type, type) and issubclass(exc_type, Exception)):
-            raise TypeError(f"retryable_exceptions must contain Exception types, got {exc_type}")
-
-    async def _async_sleep(delay: float, custom_sleep: SleepFunc | None) -> None:
-        """Execute sleep, handling both sync and async sleep functions."""
-        if custom_sleep is None:
-            await asyncio.sleep(delay)
-        else:
-            result = custom_sleep(delay)
-            if inspect.isawaitable(result):
-                await result
-
-    def _sync_sleep(delay: float, custom_sleep: SleepFunc | None) -> None:
-        """Execute sleep for sync context, handling async sleep functions."""
-        if custom_sleep is None:
-            time.sleep(delay)
-        else:
-            result = custom_sleep(delay)
-            if inspect.iscoroutine(result):
-                # Handle coroutine sleep function in sync context
-                coro = cast(Coroutine[Any, Any, None], result)
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = None
-                if loop is not None:
-                    # We're in an async context but called synchronously - cannot use
-                    # run_until_complete on a running loop. Close the coroutine to avoid
-                    # warnings and raise a clear error.
-                    coro.close()
-                    raise RuntimeError(
-                        "_sync_sleep was called from an async context with a coroutine "
-                        "sleep function. This is not supported because run_until_complete "
-                        "cannot be called on a running event loop. Use the async retry "
-                        "wrapper or execute_async method instead."
-                    )
-                else:
-                    # No running loop, create one to run the coroutine
-                    asyncio.run(coro)
-            elif inspect.isawaitable(result):
-                # Non-coroutine awaitable (e.g., Future, Task) - not supported in sync path
-                raise RuntimeError(
-                    "_sync_sleep received a non-coroutine awaitable (e.g., Future, Task) "
-                    "which is not supported in the sync retry path. Use the async retry "
-                    "wrapper or execute_async method instead."
-                )
+    _validate_retry_config(
+        max_retries,
+        base_delay_seconds,
+        retryable_exceptions,
+        min_max_retries=0,
+        param_name="max_retries",
+    )
 
     def decorator(func):
         @functools.wraps(func)
@@ -180,14 +220,12 @@ def retry(
                     )
                     _sync_sleep(delay, sleep_func)
                 except Exception as e:
-                    # Non-retryable exception
                     logger.error(
                         f"Non-retryable exception in {func.__name__}: {type(e).__name__}",
                         metadata={"function": func.__name__, "error": str(e)},
                     )
                     raise
 
-            # This should never be reached, but type checkers need it
             if last_exception is None:
                 raise RuntimeError("Unexpected retry loop exit without exception")
             raise last_exception
@@ -214,14 +252,12 @@ def retry(
                     )
                     await _async_sleep(delay, sleep_func)
                 except Exception as e:
-                    # Non-retryable exception
                     logger.error(
                         f"Non-retryable exception in {func.__name__}: {type(e).__name__}",
                         metadata={"function": func.__name__, "error": str(e)},
                     )
                     raise
 
-            # This should never be reached, but type checkers need it
             if last_exception is None:
                 raise RuntimeError("Unexpected retry loop exit without exception")
             raise last_exception
@@ -276,27 +312,13 @@ class RetryableTaskExecutor:
             ValueError: If max_attempts < 1 or base_delay_seconds < 0
             TypeError: If retryable_exceptions is not a tuple of Exception types
         """
-        if not isinstance(max_attempts, int):
-            raise ValueError(f"max_attempts must be an integer, got {type(max_attempts).__name__}")
-        if max_attempts < 1:
-            raise ValueError(f"max_attempts must be >= 1, got {max_attempts}")
-        if not isinstance(base_delay_seconds, (int, float)):
-            raise ValueError(
-                f"base_delay_seconds must be a number, got {type(base_delay_seconds).__name__}"
-            )
-        if base_delay_seconds < 0:
-            raise ValueError(f"base_delay_seconds must be >= 0, got {base_delay_seconds}")
-        if not isinstance(retryable_exceptions, tuple):
-            raise TypeError(
-                f"retryable_exceptions must be a tuple, got {type(retryable_exceptions).__name__}"
-            )
-        if len(retryable_exceptions) == 0:
-            raise TypeError("retryable_exceptions must not be empty")
-        for exc_type in retryable_exceptions:
-            if not (isinstance(exc_type, type) and issubclass(exc_type, Exception)):
-                raise TypeError(
-                    f"retryable_exceptions must contain Exception types, got {exc_type}"
-                )
+        _validate_retry_config(
+            max_attempts,
+            base_delay_seconds,
+            retryable_exceptions,
+            min_max_retries=1,
+            param_name="max_attempts",
+        )
 
         self.max_attempts = max_attempts
         self.base_delay_seconds = base_delay_seconds
@@ -327,7 +349,6 @@ class RetryableTaskExecutor:
                 is_final_attempt = attempt == self.max_attempts - 1
 
                 if is_final_attempt:
-                    # Final attempt - no delay, record and raise
                     attempt_history.append(
                         AttemptHistory(
                             attempt_number=attempt + 1,
@@ -342,7 +363,6 @@ class RetryableTaskExecutor:
                         attempt_history=attempt_history,
                     ) from e
 
-                # Non-final attempt - calculate delay, record, sleep, and retry
                 delay = self.base_delay_seconds * (2**attempt)
                 attempt_history.append(
                     AttemptHistory(
@@ -357,37 +377,7 @@ class RetryableTaskExecutor:
                     f"retrying after {delay}s: {e}"
                 )
 
-                if self.sleep_func is None:
-                    time.sleep(delay)
-                else:
-                    result = self.sleep_func(delay)
-                    if inspect.iscoroutine(result):
-                        # Handle coroutine sleep function in sync context
-                        coro = cast(Coroutine[Any, Any, None], result)
-                        try:
-                            loop = asyncio.get_running_loop()
-                        except RuntimeError:
-                            loop = None
-                        if loop is not None:
-                            # We're in an async context but called synchronously - cannot
-                            # use run_until_complete on a running loop. Close coroutine
-                            # and raise error.
-                            coro.close()
-                            raise RuntimeError(
-                                "RetryableTaskExecutor.execute was called from an async "
-                                "context with a coroutine sleep function. This is not "
-                                "supported because run_until_complete cannot be called on "
-                                "a running event loop. Use execute_async instead."
-                            ) from None
-                        else:
-                            asyncio.run(coro)
-                    elif inspect.isawaitable(result):
-                        # Non-coroutine awaitable (e.g., Future, Task) - not supported
-                        raise RuntimeError(
-                            "RetryableTaskExecutor.execute received a non-coroutine "
-                            "awaitable (e.g., Future, Task) which is not supported in "
-                            "the sync execute path. Use execute_async instead."
-                        ) from None
+                _sync_sleep(delay, self.sleep_func)
 
         raise RuntimeError("Unexpected retry loop exit without exception")
 
@@ -415,7 +405,6 @@ class RetryableTaskExecutor:
                 is_final_attempt = attempt == self.max_attempts - 1
 
                 if is_final_attempt:
-                    # Final attempt - no delay, record and raise
                     attempt_history.append(
                         AttemptHistory(
                             attempt_number=attempt + 1,
@@ -430,7 +419,6 @@ class RetryableTaskExecutor:
                         attempt_history=attempt_history,
                     ) from e
 
-                # Non-final attempt - calculate delay, record, sleep, and retry
                 delay = self.base_delay_seconds * (2**attempt)
                 attempt_history.append(
                     AttemptHistory(
@@ -445,11 +433,6 @@ class RetryableTaskExecutor:
                     f"retrying after {delay}s: {e}"
                 )
 
-                if self.sleep_func is None:
-                    await asyncio.sleep(delay)
-                else:
-                    result = self.sleep_func(delay)
-                    if inspect.isawaitable(result):
-                        await result
+                await _async_sleep(delay, self.sleep_func)
 
         raise RuntimeError("Unexpected retry loop exit without exception")
