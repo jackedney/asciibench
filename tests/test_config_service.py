@@ -477,6 +477,126 @@ class TestConfigServiceGetAppConfig:
         assert "Invalid config.yaml structure" in str(exc_info.value)
 
 
+class TestConfigServiceGetTournamentConfig:
+    """Tests for ConfigService.get_tournament_config() method."""
+
+    def test_get_tournament_config_from_valid_file(self, tmp_path):
+        """Test loading tournament config from a valid config.yaml."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """generation:
+  attempts_per_prompt: 5
+tournament:
+  round_size: 5
+"""
+        )
+
+        config_service = ConfigService()
+        config_service._cache.tournament_config_loaded = False
+        tournament_config = config_service.get_tournament_config(path=str(config_file))
+
+        assert tournament_config.round_size == 5
+
+    def test_get_tournament_config_defaults(self, tmp_path):
+        """Test that missing tournament section uses defaults."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """generation:
+  attempts_per_prompt: 5
+"""
+        )
+
+        config_service = ConfigService()
+        config_service._cache.tournament_config_loaded = False
+        tournament_config = config_service.get_tournament_config(path=str(config_file))
+
+        assert tournament_config.round_size == 10  # Default value
+
+    def test_get_tournament_config_custom_round_size(self, tmp_path):
+        """Test that custom round_size value is loaded correctly."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """generation:
+  attempts_per_prompt: 5
+tournament:
+  round_size: 15
+"""
+        )
+
+        config_service = ConfigService()
+        config_service._cache.tournament_config_loaded = False
+        tournament_config = config_service.get_tournament_config(path=str(config_file))
+
+        assert tournament_config.round_size == 15
+
+    def test_get_tournament_config_caches_result(self, tmp_path):
+        """Test that tournament config is cached after first load."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """generation:
+  attempts_per_prompt: 5
+tournament:
+  round_size: 5
+"""
+        )
+
+        config_service = ConfigService()
+        config_service._cache.tournament_config_loaded = False
+
+        config1 = config_service.get_tournament_config(path=str(config_file))
+        config2 = config_service.get_tournament_config(path=str(config_file))
+
+        assert config1 is config2
+
+    def test_get_tournament_config_file_not_found(self, tmp_path):
+        """Test that FileNotFoundError raises ConfigServiceError."""
+        config_service = ConfigService()
+        config_service._cache.tournament_config_loaded = False
+
+        with pytest.raises(ConfigServiceError) as exc_info:
+            config_service.get_tournament_config(path=str(tmp_path / "nonexistent.yaml"))
+
+        assert "not found" in str(exc_info.value)
+
+    def test_get_tournament_config_invalid_round_size_zero(self, tmp_path):
+        """Test that round_size=0 raises ConfigServiceError."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """generation:
+  attempts_per_prompt: 5
+tournament:
+  round_size: 0
+"""
+        )
+
+        config_service = ConfigService()
+        config_service._cache.tournament_config_loaded = False
+
+        with pytest.raises(ConfigServiceError) as exc_info:
+            config_service.get_tournament_config(path=str(config_file))
+
+        assert "Invalid config.yaml structure" in str(exc_info.value)
+
+    def test_get_tournament_config_invalid_round_size_negative(self, tmp_path):
+        """Test that negative round_size raises ConfigServiceError."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """generation:
+  attempts_per_prompt: 5
+tournament:
+  round_size: -1
+"""
+        )
+
+        config_service = ConfigService()
+        config_service._cache.tournament_config_loaded = False
+
+        with pytest.raises(ConfigServiceError) as exc_info:
+            config_service.get_tournament_config(path=str(config_file))
+
+        assert "Invalid config.yaml structure" in str(exc_info.value)
+
+
 class TestConfigServiceClearCache:
     """Tests for ConfigService.clear_cache() method."""
 
@@ -544,7 +664,7 @@ class TestConfigServiceClearCache:
         config_file.write_text(
             """generation:
   attempts_per_prompt: 5
-"""
+ """
         )
 
         config_service = ConfigService()
@@ -553,6 +673,26 @@ class TestConfigServiceClearCache:
         config1 = config_service.get_app_config(path=str(config_file))
         config_service.clear_cache()
         config2 = config_service.get_app_config(path=str(config_file))
+
+        assert config1 is not config2
+
+    def test_clear_cache_clears_tournament_config(self, tmp_path):
+        """Test that clear_cache clears tournament config cache."""
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """generation:
+  attempts_per_prompt: 5
+tournament:
+  round_size: 5
+"""
+        )
+
+        config_service = ConfigService()
+        config_service._cache.tournament_config_loaded = False
+
+        config1 = config_service.get_tournament_config(path=str(config_file))
+        config_service.clear_cache()
+        config2 = config_service.get_tournament_config(path=str(config_file))
 
         assert config1 is not config2
 

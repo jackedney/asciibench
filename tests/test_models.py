@@ -8,9 +8,11 @@ from pydantic import ValidationError
 from asciibench.common.models import (
     ArtSample,
     DemoResult,
+    Matchup,
     Model,
     OpenRouterResponse,
     Prompt,
+    RoundState,
     VLMEvaluation,
     Vote,
 )
@@ -485,3 +487,251 @@ def test_vlm_evaluation_serialization_with_optional_cost():
     data = evaluation_without_cost.model_dump(mode="json")
     assert "cost" in data
     assert data["cost"] is None
+
+
+def test_matchup_valid():
+    """Matchup with required fields creates valid instance with auto-generated UUID."""
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    assert matchup.model_a_id == "openai/gpt-4"
+    assert matchup.model_b_id == "anthropic/claude-3"
+    assert matchup.prompt_text == "Draw a cat"
+    assert matchup.prompt_category == "animal"
+    assert isinstance(matchup.id, UUID)
+    assert matchup.sample_a_id is None
+    assert matchup.sample_b_id is None
+    assert matchup.is_judged is False
+    assert matchup.vote_id is None
+
+
+def test_matchup_uuid_generation():
+    """Matchup generates a unique UUID automatically."""
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    assert isinstance(matchup.id, UUID)
+
+
+def test_two_matchups_have_different_uuids():
+    """Two matchups created sequentially have different UUIDs."""
+    matchup1 = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    matchup2 = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a dog",
+        prompt_category="animal",
+    )
+    assert matchup1.id != matchup2.id
+
+
+def test_matchup_with_sample_ids():
+    """Matchup with sample_a_id and sample_b_id fields."""
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+        sample_a_id="sample-1",
+        sample_b_id="sample-2",
+    )
+    assert matchup.sample_a_id == "sample-1"
+    assert matchup.sample_b_id == "sample-2"
+
+
+def test_matchup_with_judged_status():
+    """Matchup with is_judged and vote_id fields."""
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+        is_judged=True,
+        vote_id="vote-1",
+    )
+    assert matchup.is_judged is True
+    assert matchup.vote_id == "vote-1"
+
+
+def test_matchup_serialization_round_trip():
+    """Matchup serializes to/from JSON correctly for JSONL persistence."""
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+        sample_a_id="sample-1",
+        sample_b_id="sample-2",
+        is_judged=True,
+        vote_id="vote-1",
+    )
+    json_data = matchup.model_dump_json()
+    restored_matchup = Matchup.model_validate_json(json_data)
+    assert restored_matchup.model_a_id == matchup.model_a_id
+    assert restored_matchup.model_b_id == matchup.model_b_id
+    assert restored_matchup.prompt_text == matchup.prompt_text
+    assert restored_matchup.prompt_category == matchup.prompt_category
+    assert restored_matchup.sample_a_id == matchup.sample_a_id
+    assert restored_matchup.sample_b_id == matchup.sample_b_id
+    assert restored_matchup.is_judged == matchup.is_judged
+    assert restored_matchup.vote_id == matchup.vote_id
+    assert restored_matchup.id == matchup.id
+
+
+def test_round_state_valid():
+    """RoundState with required fields creates valid instance with defaults."""
+    matchup1 = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    matchup2 = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="google/gemini-pro",
+        prompt_text="Draw a dog",
+        prompt_category="animal",
+    )
+    round_state = RoundState(
+        round_number=1,
+        matchups=[matchup1, matchup2],
+    )
+    assert round_state.round_number == 1
+    assert len(round_state.matchups) == 2
+    assert isinstance(round_state.id, UUID)
+    assert round_state.elo_snapshot == {}
+    assert round_state.generation_complete is False
+    assert round_state.all_judged is False
+    assert isinstance(round_state.created_at, datetime)
+
+
+def test_round_state_uuid_generation():
+    """RoundState generates a unique UUID automatically."""
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    round_state = RoundState(round_number=1, matchups=[matchup])
+    assert isinstance(round_state.id, UUID)
+
+
+def test_round_state_with_elo_snapshot():
+    """RoundState with elo_snapshot field."""
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    round_state = RoundState(
+        round_number=1,
+        matchups=[matchup],
+        elo_snapshot={"openai/gpt-4": 1500.0, "anthropic/claude-3": 1480.0},
+    )
+    assert round_state.elo_snapshot == {"openai/gpt-4": 1500.0, "anthropic/claude-3": 1480.0}
+
+
+def test_round_state_with_generation_complete():
+    """RoundState with generation_complete and all_judged fields."""
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    round_state = RoundState(
+        round_number=1,
+        matchups=[matchup],
+        generation_complete=True,
+        all_judged=True,
+    )
+    assert round_state.generation_complete is True
+    assert round_state.all_judged is True
+
+
+def test_round_state_created_at_default():
+    """RoundState generates a timestamp automatically."""
+    before = datetime.now(tz=UTC)
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    round_state = RoundState(round_number=1, matchups=[matchup])
+    after = datetime.now(tz=UTC)
+    assert before <= round_state.created_at <= after
+
+
+def test_round_state_without_required_matchups_raises_validation_error():
+    """RoundState without required matchups raises ValidationError."""
+    with pytest.raises(ValidationError) as exc_info:
+        RoundState(round_number=1)  # type: ignore[call-arg]
+    exc = exc_info.value
+    assert isinstance(exc, ValidationError)
+    errors = exc.errors()
+    assert len(errors) == 1
+    assert errors[0]["loc"] == ("matchups",)
+    assert errors[0]["type"] == "missing"
+
+
+def test_round_state_serialization_round_trip():
+    """RoundState serializes to/from JSON correctly for JSONL persistence."""
+    matchup1 = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    matchup2 = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="google/gemini-pro",
+        prompt_text="Draw a dog",
+        prompt_category="animal",
+    )
+    round_state = RoundState(
+        round_number=1,
+        matchups=[matchup1, matchup2],
+        elo_snapshot={
+            "openai/gpt-4": 1500.0,
+            "anthropic/claude-3": 1480.0,
+            "google/gemini-pro": 1490.0,
+        },
+        generation_complete=True,
+        all_judged=False,
+    )
+    json_data = round_state.model_dump_json()
+    restored_round_state = RoundState.model_validate_json(json_data)
+    assert restored_round_state.round_number == round_state.round_number
+    assert len(restored_round_state.matchups) == len(round_state.matchups)
+    assert restored_round_state.elo_snapshot == round_state.elo_snapshot
+    assert restored_round_state.generation_complete == round_state.generation_complete
+    assert restored_round_state.all_judged == round_state.all_judged
+    assert restored_round_state.id == round_state.id
+    assert restored_round_state.created_at == round_state.created_at
+
+
+def test_two_round_states_have_different_uuids():
+    """Two round states created sequentially have different UUIDs."""
+    matchup = Matchup(
+        model_a_id="openai/gpt-4",
+        model_b_id="anthropic/claude-3",
+        prompt_text="Draw a cat",
+        prompt_category="animal",
+    )
+    round_state1 = RoundState(round_number=1, matchups=[matchup])
+    round_state2 = RoundState(round_number=2, matchups=[matchup])
+    assert round_state1.id != round_state2.id

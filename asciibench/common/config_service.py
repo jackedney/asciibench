@@ -50,7 +50,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from asciibench.common.config import EvaluatorConfig, GenerationConfig
+from asciibench.common.config import EvaluatorConfig, GenerationConfig, TournamentConfig
 from asciibench.common.models import Model, Prompt
 
 # Note: dataclasses.field is used for ConfigCache (a dataclass),
@@ -134,6 +134,7 @@ class ConfigCache:
         prompts: Cached list of Prompt objects
         evaluator_config: Cached EvaluatorConfig
         app_config: Cached GenerationConfig
+        tournament_config: Cached TournamentConfig
         models_loaded: Flag indicating if models have been loaded
         models_loaded_path: Path from which models were loaded
         prompts_loaded: Flag indicating if prompts have been loaded
@@ -142,12 +143,15 @@ class ConfigCache:
         evaluator_config_loaded_path: Path from which evaluator config was loaded
         app_config_loaded: Flag indicating if app config has been loaded
         app_config_loaded_path: Path from which app config was loaded
+        tournament_config_loaded: Flag indicating if tournament config has been loaded
+        tournament_config_loaded_path: Path from which tournament config was loaded
     """
 
     models: list[Model] = field(default_factory=list)
     prompts: list[Prompt] = field(default_factory=list)
     evaluator_config: EvaluatorConfig = field(default_factory=EvaluatorConfig)
     app_config: GenerationConfig = field(default_factory=GenerationConfig)
+    tournament_config: TournamentConfig = field(default_factory=TournamentConfig)
     models_loaded: bool = False
     models_loaded_path: str | None = None
     prompts_loaded: bool = False
@@ -156,6 +160,8 @@ class ConfigCache:
     evaluator_config_loaded_path: str | None = None
     app_config_loaded: bool = False
     app_config_loaded_path: str | None = None
+    tournament_config_loaded: bool = False
+    tournament_config_loaded_path: str | None = None
 
 
 class ConfigService:
@@ -465,6 +471,50 @@ class ConfigService:
                 raise ConfigServiceError(f"Invalid config.yaml structure: {e}") from e
 
         return self._cache.app_config
+
+    def get_tournament_config(self, path: str = "config.yaml") -> TournamentConfig:
+        """Get validated tournament configuration.
+
+        Loads tournament configuration from the specified YAML file on first
+        access, then returns cached data on subsequent calls with the same path.
+
+        Args:
+            path: Path to config.yaml file (default: "config.yaml")
+
+        Returns:
+            Validated TournamentConfig object.
+
+        Raises:
+            ConfigServiceError: If config.yaml is not found
+            ValidationError: If config.yaml structure is invalid
+
+        Example:
+            >>> config = ConfigService()
+            >>> tournament_config = config.get_tournament_config()
+            >>> print(f"Round size: {tournament_config.round_size}")
+        """
+        if (
+            not self._cache.tournament_config_loaded
+            or self._cache.tournament_config_loaded_path != path
+        ):
+            try:
+                with Path(path).open() as f:
+                    data = yaml.safe_load(f)
+                # Handle None or non-dict data by constructing default config
+                if not isinstance(data, dict):
+                    self._cache.tournament_config = TournamentConfig()
+                else:
+                    tournament_data = data.get("tournament", {})
+                    self._cache.tournament_config = TournamentConfig(**tournament_data)
+                self._cache.tournament_config_loaded = True
+                self._cache.tournament_config_loaded_path = path
+                logger.debug(f"Loaded tournament config from {path}")
+            except FileNotFoundError as e:
+                raise ConfigServiceError(f"config.yaml not found: {path}") from e
+            except ValidationError as e:
+                raise ConfigServiceError(f"Invalid config.yaml structure: {e}") from e
+
+        return self._cache.tournament_config
 
     def clear_cache(self) -> None:
         """Clear all cached configuration data.

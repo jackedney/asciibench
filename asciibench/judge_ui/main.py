@@ -31,6 +31,7 @@ HTMX integration:
 import json
 import logging
 import random
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, cast
@@ -41,6 +42,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from asciibench.common.config import Settings
+from asciibench.common.config_service import ConfigService
 from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
 from asciibench.common.persistence import (
     append_jsonl,
@@ -48,6 +51,7 @@ from asciibench.common.persistence import (
 )
 from asciibench.common.repository import DataRepository
 from asciibench.common.yaml_config import load_models
+from asciibench.generator.client import OpenRouterClient
 from asciibench.judge_ui.analytics_service import AnalyticsService
 from asciibench.judge_ui.api_models import (
     AnalyticsResponse,
@@ -60,15 +64,13 @@ from asciibench.judge_ui.api_models import (
     VoteRequest,
     VoteResponse,
 )
+from asciibench.judge_ui.generation_service import GenerationService
 from asciibench.judge_ui.matchup_service import MatchupService
 from asciibench.judge_ui.progress_service import ProgressService
+from asciibench.judge_ui.tournament_service import TournamentService
 from asciibench.judge_ui.undo_service import UndoService
 
-app = FastAPI(title="ASCIIBench Judge UI")
 templates = Jinja2Templates(directory="templates")
-
-# Mount static files directory
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Data file paths
 DATA_DIR = Path("data")
@@ -76,6 +78,12 @@ DATABASE_PATH = DATA_DIR / "database.jsonl"
 VOTES_PATH = DATA_DIR / "votes.jsonl"
 VLM_EVALUATIONS_PATH = DATA_DIR / "vlm_evaluations.jsonl"
 RANKINGS_PATH = DATA_DIR / "rankings.json"
+
+# Configuration and settings
+settings = Settings()
+config_service = ConfigService()
+tournament_config = config_service.get_tournament_config()
+generation_config = config_service.get_app_config()
 
 
 @lru_cache(maxsize=1)
@@ -127,6 +135,45 @@ analytics_service = AnalyticsService(repo=repo)
 matchup_service = MatchupService(database_path=DATABASE_PATH, votes_path=VOTES_PATH)
 progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
 undo_service = UndoService(votes_path=VOTES_PATH)
+
+# Tournament-related services
+openrouter_client = OpenRouterClient(
+    api_key=settings.openrouter_api_key,
+    base_url=settings.base_url,
+    timeout=settings.openrouter_timeout_seconds,
+)
+generation_service = GenerationService(
+    client=openrouter_client,
+    config=generation_config,
+    database_path=DATABASE_PATH,
+)
+tournament_service: TournamentService | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for FastAPI application.
+
+    Initializes tournament service on startup.
+    """
+    global tournament_service
+    # Initialize tournament service
+    tournament_service = TournamentService(
+        generation_service=generation_service,
+        config_service=config_service,
+        repo=repo,
+        n=tournament_config.round_size,
+    )
+    await tournament_service.initialize()
+    yield
+    # Cleanup on shutdown
+    await tournament_service.shutdown()
+
+
+app = FastAPI(title="ASCIIBench Judge UI", lifespan=lifespan)
+
+# Mount static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -316,32 +363,44 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
     On error, returns an error message HTML fragment.
     """
     try:
-        # Check if database file exists
-        if not DATABASE_PATH.exists():
+        # Get next matchup from tournament service
+        if tournament_service is None:
             return templates.TemplateResponse(
                 request,
                 "partials/matchup.html",
-                {"error": "File not found: database.jsonl"},
+                {"error": "Tournament service not initialized"},
             )
 
-        # Load valid samples from database
-        all_samples = _get_all_samples()
-        valid_samples = [s for s in all_samples if s.is_valid]
+        matchup = tournament_service.get_next_matchup()
 
-        # Check if we have enough samples
-        if len(valid_samples) < 2:
+        if matchup is None:
             return templates.TemplateResponse(
                 request,
                 "partials/matchup.html",
                 {
-                    "error": f"Not enough valid samples for comparison. "
-                    f"Found {len(valid_samples)} valid sample(s), need at least 2. "
-                    "Please run the generator to create more samples.",
+                    "error": "No matchups available. "
+                    "All rounds complete or next round is being generated.",
                 },
             )
 
-        # Select a matchup
-        sample_a, sample_b = matchup_service.get_matchup(valid_samples)
+        # Check if sample IDs are populated
+        if matchup.sample_a_id is None or matchup.sample_b_id is None:
+            return templates.TemplateResponse(
+                request,
+                "partials/matchup.html",
+                {"error": "Sample data not ready for this matchup"},
+            )
+
+        # Load samples using cached lookup
+        sample_a = _get_sample_by_id(matchup.sample_a_id)
+        sample_b = _get_sample_by_id(matchup.sample_b_id)
+
+        if sample_a is None or sample_b is None:
+            return templates.TemplateResponse(
+                request,
+                "partials/matchup.html",
+                {"error": "Sample data not found for this matchup"},
+            )
 
         # Randomize which sample is A vs B to prevent position bias
         if random.random() < 0.5:
@@ -360,6 +419,7 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
                     "sanitized_output": sample_b.sanitized_output,
                 },
                 "prompt": sample_a.prompt_text,
+                "matchup_id": str(matchup.id),
             },
         )
     except Exception as e:
@@ -420,6 +480,11 @@ async def htmx_get_progress(request: Request) -> HTMLResponse:
     """
     progress = progress_service.get_progress()
 
+    # Get round progress from tournament service
+    round_progress = {}
+    if tournament_service is not None:
+        round_progress = tournament_service.get_round_progress()
+
     return templates.TemplateResponse(
         request,
         "partials/progress.html",
@@ -427,6 +492,9 @@ async def htmx_get_progress(request: Request) -> HTMLResponse:
             "votes_completed": progress.votes_completed,
             "unique_pairs_judged": progress.unique_pairs_judged,
             "total_possible_pairs": progress.total_possible_pairs,
+            "round_number": round_progress.get("round_number", 0),
+            "round_judged": round_progress.get("judged_count", 0),
+            "round_total": round_progress.get("total_count", 0),
         },
     )
 
@@ -435,7 +503,7 @@ async def htmx_get_progress(request: Request) -> HTMLResponse:
 async def htmx_submit_vote(request: Request) -> HTMLResponse:
     """HTMX endpoint to submit a vote and get new matchup as HTML.
 
-    Accepts form data with sample_a_id, sample_b_id, and winner.
+    Accepts form data with sample_a_id, sample_b_id, winner, and matchup_id.
     Returns a new matchup HTML fragment after saving the vote.
     """
     try:
@@ -444,6 +512,7 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
         sample_a_id = form_data.get("sample_a_id")
         sample_b_id = form_data.get("sample_b_id")
         winner = form_data.get("winner")
+        matchup_id = form_data.get("matchup_id")
 
         if not all([sample_a_id, sample_b_id, winner]):
             return templates.TemplateResponse(
@@ -478,14 +547,32 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
                 {"error": f"Sample B not found: {sample_b_id}"},
             )
 
-        # Create and save the vote
+        # Validate matchup_id as UUID if provided
+        validated_matchup_id: UUID | None = None
+        if matchup_id is not None:
+            try:
+                validated_matchup_id = UUID(str(matchup_id))
+            except ValueError:
+                return templates.TemplateResponse(
+                    request,
+                    "partials/matchup.html",
+                    {"error": f"Invalid matchup ID: {matchup_id}"},
+                )
+
+        # Create the vote
         # winner is validated above to be one of "A", "B", "tie", "fail"
         vote = Vote(
             sample_a_id=str(sample_a_id),
             sample_b_id=str(sample_b_id),
             winner=cast(Literal["A", "B", "tie", "fail"], winner),
         )
+
+        # Persist to votes.jsonl first (source of truth)
         append_jsonl(VOTES_PATH, vote)
+
+        # Then update tournament state (reconstructed from votes on restart if this fails)
+        if tournament_service is not None and validated_matchup_id is not None:
+            await tournament_service.record_vote(validated_matchup_id, str(vote.id))
 
         # Clear the undo state since a new vote was submitted
         undo_service.record_vote_submitted()
@@ -528,6 +615,14 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
                 "partials/matchup.html",
                 {"error": "No votes to undo."},
             )
+
+        # Find the matchup for this vote and tell tournament service to undo
+        if tournament_service is not None:
+            matchup = tournament_service.find_matchup_by_samples(
+                last_vote.sample_a_id, last_vote.sample_b_id
+            )
+            if matchup is not None:
+                await tournament_service.undo_last_vote(matchup.id)
 
         # Return the current matchup (don't load a new one)
         return await htmx_get_matchup(request)

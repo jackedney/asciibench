@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 from pydantic_settings import SettingsConfigDict
 
-from asciibench.common.config import GenerationConfig, Settings
+from asciibench.common.config import GenerationConfig, Settings, TournamentConfig
 from asciibench.common.yaml_config import load_generation_config, load_models, load_prompts
 
 
@@ -180,6 +180,32 @@ def test_generation_config_max_concurrent_requests_zero():
     with pytest.raises(ValidationError) as exc_info:
         GenerationConfig(max_concurrent_requests=0)
     assert "max_concurrent_requests must be greater than 0" in str(exc_info.value)
+
+
+def test_tournament_config_defaults():
+    """Test that TournamentConfig defaults to round_size=10."""
+    config = TournamentConfig()
+    assert config.round_size == 10
+
+
+def test_tournament_config_custom():
+    """Test that TournamentConfig can be set with custom values."""
+    config = TournamentConfig(round_size=5)
+    assert config.round_size == 5
+
+
+def test_tournament_config_round_size_zero():
+    """Test that round_size=0 raises validation error."""
+    with pytest.raises(ValidationError) as exc_info:
+        TournamentConfig(round_size=0)
+    assert "round_size must be at least 1" in str(exc_info.value)
+
+
+def test_tournament_config_round_size_negative():
+    """Test that negative round_size raises validation error."""
+    with pytest.raises(ValidationError) as exc_info:
+        TournamentConfig(round_size=-1)
+    assert "round_size must be at least 1" in str(exc_info.value)
 
 
 def test_load_models():

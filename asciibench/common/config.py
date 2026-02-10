@@ -100,6 +100,18 @@ class EvaluatorConfig(BaseModel):
         return v
 
 
+class TournamentConfig(BaseModel):
+    round_size: int = 10
+
+    @field_validator("round_size")
+    @classmethod
+    def validate_round_size(cls, v) -> int:
+        """Validate round_size is at least 1."""
+        if v < 1:
+            raise ValueError("round_size must be at least 1")
+        return v
+
+
 class Settings(BaseSettings):
     openrouter_api_key: str = ""
     base_url: str = "https://openrouter.ai/api/v1"
