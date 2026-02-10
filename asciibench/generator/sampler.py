@@ -147,7 +147,6 @@ async def _generate_single_sample(
     Returns:
         Tuple of (ArtSample, duration_ms, error_message)
     """
-    # Generate and set request_id for this sample generation
     request_id = generate_id()
     set_request_id(request_id)
 
@@ -191,84 +190,32 @@ async def _generate_single_sample(
                 output_tokens=response.completion_tokens,
                 cost=response.cost,
             )
-        except RateLimitError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Rate limited after retries",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"RateLimitError: {e}"
-            if span is not None:
-                span.record_exception(e)
-        except AuthenticationError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Authentication failed",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"AuthenticationError: {e}"
-            if span is not None:
-                span.record_exception(e)
-        except TransientError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Transient error encountered",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"TransientError: {e}"
-            if span is not None:
-                span.record_exception(e)
-        except ModelError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Model error encountered",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"ModelError: {e}"
-            if span is not None:
-                span.record_exception(e)
-        except OpenRouterClientError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "OpenRouter client error",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"OpenRouterClientError: {e}"
-            if span is not None:
-                span.record_exception(e)
         except Exception as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Unexpected exception",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error_type": type(e).__name__,
-                    "error": str(e),
-                    "traceback": traceback.format_exc(),
-                },
+            exception_type = type(e)
+            error_info_map: dict[type[Exception], tuple[str, str]] = {
+                RateLimitError: ("Rate limited after retries", "RateLimitError"),
+                AuthenticationError: ("Authentication failed", "AuthenticationError"),
+                TransientError: ("Transient error encountered", "TransientError"),
+                ModelError: ("Model error encountered", "ModelError"),
+                OpenRouterClientError: ("OpenRouter client error", "OpenRouterClientError"),
+            }
+
+            log_message, error_prefix = error_info_map.get(
+                exception_type, ("Unexpected exception", f"Unexpected {exception_type.__name__}")
             )
-            error_message = f"Unexpected {type(e).__name__}: {e}"
+
+            sample = _create_error_sample(task)
+            log_context = {
+                "model": task.model.id,
+                "attempt": task.attempt,
+                "error": str(e),
+            }
+            if log_message == "Unexpected exception":
+                log_context["error_type"] = exception_type.__name__
+                log_context["traceback"] = traceback.format_exc()
+
+            logger.error(log_message, log_context)
+            error_message = f"{error_prefix}: {e}"
             if span is not None:
                 span.record_exception(e)
 
