@@ -12,6 +12,7 @@ from typing import ClassVar
 
 import httpx
 
+from asciibench.common.api_exceptions import raise_for_error_message, raise_for_httpx_status_error
 from asciibench.common.config import Settings
 from asciibench.common.logging import get_logger
 from asciibench.common.retry import retry
@@ -39,6 +40,18 @@ class RateLimitError(EmbeddingClientError):
 
 class TransientError(EmbeddingClientError):
     """Raised for transient API errors that can be retried (5xx, connection errors)."""
+
+
+_HTTPX_ERROR_MAP: dict[str, type[Exception]] = {
+    "rate_limit": RateLimitError,
+    "transient": TransientError,
+    "auth": AuthenticationError,
+}
+
+_GENERIC_ERROR_MAP: dict[str, type[Exception]] = {
+    "rate_limit": RateLimitError,
+    "auth": AuthenticationError,
+}
 
 
 class EmbeddingClient:
@@ -77,6 +90,18 @@ class EmbeddingClient:
             return 0.0
 
         return dot_product / (norm1 * norm2)
+
+    async def _get_or_cache_embedding(self, text: str) -> list[float]:
+        """Get embedding from cache or fetch and cache it (LRU eviction)."""
+        if text in self._cache:
+            self._cache.move_to_end(text)
+            return self._cache[text]
+
+        embedding = await self._get_embedding(text)
+        self._cache[text] = embedding
+        while len(self._cache) > self._max_cache_size:
+            self._cache.popitem(last=False)
+        return embedding
 
     @retry(
         max_retries=3,
@@ -127,37 +152,13 @@ class EmbeddingClient:
             raise EmbeddingClientError("No embedding returned from API")
 
         except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-            error_text = e.response.text.lower() if e.response.text else ""
-
-            if status_code == 429:
-                raise RateLimitError(f"Rate limit exceeded: {e}") from e
-
-            if status_code in (502, 503, 504):
-                raise TransientError(f"Transient error ({status_code}): {e}") from e
-
-            if (
-                status_code == 401
-                or "unauthorized" in error_text
-                or "invalid api key" in error_text
-            ):
-                raise AuthenticationError(f"Authentication failed: {e}") from e
-
-            raise EmbeddingClientError(f"API error: {e}") from e
+            raise_for_httpx_status_error(e, _HTTPX_ERROR_MAP, EmbeddingClientError)
 
         except httpx.RequestError as e:
             raise TransientError(f"Request error: {e}") from e
 
         except Exception as e:
-            error_message = str(e).lower()
-
-            if "429" in error_message or "rate limit" in error_message:
-                raise RateLimitError(f"Rate limit exceeded: {e}") from e
-
-            if "unauthorized" in error_message or "authentication" in error_message:
-                raise AuthenticationError(f"Authentication failed: {e}") from e
-
-            raise EmbeddingClientError(f"Embedding client error: {e}") from e
+            raise_for_error_message(e, _GENERIC_ERROR_MAP, EmbeddingClientError)
 
     async def compute_similarity(self, text1: str, text2: str) -> float:
         """Compute semantic similarity between two text strings.
@@ -199,43 +200,8 @@ class EmbeddingClient:
             )
             return 1.0
 
-        if text1 in self._cache:
-            # Move to end for LRU ordering
-            self._cache.move_to_end(text1)
-            embedding1 = self._cache[text1]
-            logger.debug(
-                "Using cached embedding for text1",
-                {"text": text1[:50] if len(text1) > 50 else text1},
-            )
-        else:
-            embedding1 = await self._get_embedding(text1)
-            self._cache[text1] = embedding1
-            # Evict oldest entries if cache exceeds max size
-            while len(self._cache) > self._max_cache_size:
-                self._cache.popitem(last=False)
-            logger.debug(
-                "Cached new embedding for text1",
-                {"text": text1[:50] if len(text1) > 50 else text1},
-            )
-
-        if text2 in self._cache:
-            # Move to end for LRU ordering
-            self._cache.move_to_end(text2)
-            embedding2 = self._cache[text2]
-            logger.debug(
-                "Using cached embedding for text2",
-                {"text": text2[:50] if len(text2) > 50 else text2},
-            )
-        else:
-            embedding2 = await self._get_embedding(text2)
-            self._cache[text2] = embedding2
-            # Evict oldest entries if cache exceeds max size
-            while len(self._cache) > self._max_cache_size:
-                self._cache.popitem(last=False)
-            logger.debug(
-                "Cached new embedding for text2",
-                {"text": text2[:50] if len(text2) > 50 else text2},
-            )
+        embedding1 = await self._get_or_cache_embedding(text1)
+        embedding2 = await self._get_or_cache_embedding(text2)
 
         similarity = self._compute_cosine_similarity(embedding1, embedding2)
 

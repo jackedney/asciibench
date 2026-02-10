@@ -10,6 +10,7 @@ making it easy to test and mock.
 
 import statistics
 from collections.abc import Callable
+from typing import Protocol, TypeVar
 
 from asciibench.analyst.elo import calculate_elo
 from asciibench.analyst.stability import generate_stability_report
@@ -27,6 +28,17 @@ from asciibench.judge_ui.api_models import (
     StabilityData,
     VLMAccuracyResponse,
 )
+
+
+class _AccuracyStats(Protocol):
+    """Protocol for accuracy stats models."""
+
+    total: int
+    correct: int
+    accuracy: float
+
+
+_T = TypeVar("_T", bound=_AccuracyStats)
 
 
 class AnalyticsService:
@@ -106,8 +118,12 @@ class AnalyticsService:
         if not evaluations:
             return VLMAccuracyResponse(by_model={}, by_category={})
 
-        by_model = self._calculate_vlm_accuracy(evaluations, samples)
-        by_category = self._calculate_category_accuracy(evaluations, samples)
+        by_model = self._calculate_accuracy_stats(
+            evaluations, samples, lambda s: s.model_id, ModelAccuracyStats
+        )
+        by_category = self._calculate_accuracy_stats(
+            evaluations, samples, lambda s: s.category, CategoryAccuracyStats
+        )
 
         return VLMAccuracyResponse(by_model=by_model, by_category=by_category)
 
@@ -277,31 +293,24 @@ class AnalyticsService:
 
         return grouped
 
-    def _calculate_vlm_accuracy(
+    def _calculate_accuracy_stats(
         self,
         evaluations: list[VLMEvaluation],
         samples: list[ArtSample],
-    ) -> dict[str, ModelAccuracyStats]:
-        """Calculate VLM accuracy statistics per ASCII-generating model."""
-        grouped = self._calculate_grouped_accuracy(evaluations, samples, lambda s: s.model_id)
-        return {
-            k: ModelAccuracyStats(
-                total=v["total"],
-                correct=v["correct"],
-                accuracy=round(v["correct"] / v["total"], 2) if v["total"] else 0.0,
-            )
-            for k, v in grouped.items()
-        }
+        group_key_fn: Callable[[ArtSample], str],
+        stats_cls: type[_T],
+    ) -> dict[str, _T]:
+        """Calculate accuracy statistics grouped by an arbitrary key.
 
-    def _calculate_category_accuracy(
-        self,
-        evaluations: list[VLMEvaluation],
-        samples: list[ArtSample],
-    ) -> dict[str, CategoryAccuracyStats]:
-        """Calculate VLM accuracy statistics per category."""
-        grouped = self._calculate_grouped_accuracy(evaluations, samples, lambda s: s.category)
+        Args:
+            evaluations: List of VLM evaluations
+            samples: List of all samples from database
+            group_key_fn: Function to extract grouping key from a sample
+            stats_cls: Pydantic model class with total, correct, accuracy fields
+        """
+        grouped = self._calculate_grouped_accuracy(evaluations, samples, group_key_fn)
         return {
-            k: CategoryAccuracyStats(
+            k: stats_cls(
                 total=v["total"],
                 correct=v["correct"],
                 accuracy=round(v["correct"] / v["total"], 2) if v["total"] else 0.0,
@@ -310,18 +319,6 @@ class AnalyticsService:
         }
 
     def calculate_pearson_correlation(self, x: list[float], y: list[float]) -> float | None:
-        """Calculate Pearson correlation coefficient.
-
-        Args:
-            x: First list of values
-            y: Second list of values
-
-        Returns:
-            Pearson correlation coefficient, or None if fewer than 3 data points
-        """
-        return self._calculate_pearson_correlation(x, y)
-
-    def _calculate_pearson_correlation(self, x: list[float], y: list[float]) -> float | None:
         """Calculate Pearson correlation coefficient.
 
         Args:
@@ -366,4 +363,6 @@ class AnalyticsService:
         evaluations = self._repo.get_evaluations_or_empty()
         samples = self._repo.get_all_samples_or_empty()
 
-        return self._calculate_vlm_accuracy(evaluations, samples)
+        return self._calculate_accuracy_stats(
+            evaluations, samples, lambda s: s.model_id, ModelAccuracyStats
+        )
