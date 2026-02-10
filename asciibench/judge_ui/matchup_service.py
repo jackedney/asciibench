@@ -16,6 +16,7 @@ from pathlib import Path
 
 from asciibench.common.models import ArtSample, Vote
 from asciibench.common.persistence import read_jsonl
+from asciibench.common.repository import DataRepository
 from asciibench.judge_ui.selectors import ModelPairSelector, SampleSelector
 
 
@@ -114,11 +115,8 @@ class MatchupService:
             ValueError: If not enough valid samples for a matchup
         """
         if valid_samples is None:
-            try:
-                all_samples = read_jsonl(self._database_path, ArtSample)
-            except FileNotFoundError:
-                all_samples = []
-            valid_samples = [s for s in all_samples if s.is_valid]
+            repo = DataRepository(data_dir=self._database_path.parent)
+            valid_samples = repo.get_valid_samples_or_empty()
 
         try:
             votes = read_jsonl(self._votes_path, Vote)
@@ -176,10 +174,8 @@ class MatchupService:
             except FileNotFoundError:
                 votes = []
         if samples is None:
-            try:
-                samples = read_jsonl(self._database_path, ArtSample)
-            except FileNotFoundError:
-                samples = []
+            repo = DataRepository(data_dir=self._database_path.parent)
+            samples = repo.get_all_samples_or_empty()
 
         model_pair_counts = self._get_model_pair_comparison_counts(votes, samples)
         return len(model_pair_counts)

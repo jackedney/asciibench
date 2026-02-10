@@ -44,7 +44,7 @@ from fastapi.templating import Jinja2Templates
 
 from asciibench.common.config import Settings
 from asciibench.common.config_service import ConfigService
-from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
+from asciibench.common.models import ArtSample, Model, Vote
 from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
@@ -69,6 +69,10 @@ from asciibench.judge_ui.matchup_service import MatchupService
 from asciibench.judge_ui.progress_service import ProgressService
 from asciibench.judge_ui.tournament_service import TournamentService
 from asciibench.judge_ui.undo_service import UndoService
+
+# Lazy-initialized VLM evaluation service (None until first use)
+_vlm_evaluation_service: object = None  # VLMEvaluationService | None
+_vlm_init_attempted = False
 
 templates = Jinja2Templates(directory="templates")
 
@@ -577,8 +581,25 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
         # Clear the undo state since a new vote was submitted
         undo_service.record_vote_submitted()
 
-        # Return a new matchup
-        return await htmx_get_matchup(request)
+        # Return reveal panel with model identities (instead of next matchup)
+        return templates.TemplateResponse(
+            request,
+            "partials/vote_reveal.html",
+            {
+                "sample_a": {
+                    "id": str(sample_a.id),
+                    "sanitized_output": sample_a.sanitized_output,
+                    "model_id": sample_a.model_id,
+                },
+                "sample_b": {
+                    "id": str(sample_b.id),
+                    "sanitized_output": sample_b.sanitized_output,
+                    "model_id": sample_b.model_id,
+                },
+                "prompt": sample_a.prompt_text,
+                "winner": winner,
+            },
+        )
 
     except Exception as e:
         return templates.TemplateResponse(
@@ -635,6 +656,97 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
         )
 
 
+@app.get("/htmx/vlm-eval", response_class=HTMLResponse)
+async def htmx_vlm_eval(request: Request) -> HTMLResponse:
+    """HTMX endpoint to evaluate samples with VLM after a vote.
+
+    Lazily initializes VLMEvaluationService on first call.
+    Evaluates both samples with all configured VLM models (idempotent).
+    Returns graceful fallback if VLM evaluation is not configured.
+    """
+    global _vlm_evaluation_service, _vlm_init_attempted
+
+    sample_a_id = request.query_params.get("sample_a_id")
+    sample_b_id = request.query_params.get("sample_b_id")
+
+    if not sample_a_id or not sample_b_id:
+        return templates.TemplateResponse(
+            request,
+            "partials/vlm_results.html",
+            {"error": "Missing sample IDs"},
+        )
+
+    # Lazy-init VLM evaluation service
+    if not _vlm_init_attempted:
+        _vlm_init_attempted = True
+        try:
+            from asciibench.evaluator.vlm_evaluation_service import VLMEvaluationService
+
+            _vlm_evaluation_service = VLMEvaluationService(VLM_EVALUATIONS_PATH)
+        except Exception:
+            logging.info("VLM evaluation service not available (missing config or API key)")
+            _vlm_evaluation_service = None
+
+    if _vlm_evaluation_service is None:
+        return templates.TemplateResponse(
+            request,
+            "partials/vlm_results.html",
+            {"error": "VLM evaluation not configured"},
+        )
+
+    try:
+        # Load samples
+        sample_a = _get_sample_by_id(sample_a_id)
+        sample_b = _get_sample_by_id(sample_b_id)
+
+        if not sample_a or not sample_b:
+            return templates.TemplateResponse(
+                request,
+                "partials/vlm_results.html",
+                {"error": "Sample not found"},
+            )
+
+        # Load existing evaluations for idempotency
+        existing_evaluations = repo.get_evaluations_or_empty()
+        existing_keys = {(e.sample_id, e.vlm_model_id) for e in existing_evaluations}
+
+        # Evaluate both samples (skips already-evaluated pairs)
+        new_results_a = await _vlm_evaluation_service.evaluate_sample_all_models(
+            sample_a, existing_keys
+        )
+        new_results_b = await _vlm_evaluation_service.evaluate_sample_all_models(
+            sample_b, existing_keys
+        )
+
+        # Collect all results (pre-existing + new) for these samples, deduplicated
+        seen_a: set[str] = set()
+        results_a = []
+        for e in [*[e for e in existing_evaluations if e.sample_id == sample_a_id], *new_results_a]:
+            if e.vlm_model_id not in seen_a:
+                seen_a.add(e.vlm_model_id)
+                results_a.append(e)
+
+        seen_b: set[str] = set()
+        results_b = []
+        for e in [*[e for e in existing_evaluations if e.sample_id == sample_b_id], *new_results_b]:
+            if e.vlm_model_id not in seen_b:
+                seen_b.add(e.vlm_model_id)
+                results_b.append(e)
+
+        return templates.TemplateResponse(
+            request,
+            "partials/vlm_results.html",
+            {"results_a": results_a, "results_b": results_b},
+        )
+    except Exception:
+        logging.exception("Error during VLM evaluation")
+        return templates.TemplateResponse(
+            request,
+            "partials/vlm_results.html",
+            {"error": "VLM evaluation failed"},
+        )
+
+
 # =============================================================================
 # Analytics Endpoints
 # =============================================================================
@@ -674,7 +786,7 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
         HTTPException: 500 if data files are malformed
     """
     try:
-        evaluations = read_jsonl(VLM_EVALUATIONS_PATH, VLMEvaluation)
+        evaluations = repo.get_evaluations()
     except FileNotFoundError:
         evaluations = []
     except Exception as e:

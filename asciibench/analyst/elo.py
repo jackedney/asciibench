@@ -24,6 +24,7 @@ Dependencies:
 """
 
 from asciibench.common.models import ArtSample, Vote
+from asciibench.common.repository import DataRepository
 
 BASE_RATING = 1500
 K_FACTOR = 32
@@ -68,7 +69,7 @@ def calculate_elo(votes: list[Vote], samples: list[ArtSample]) -> dict[str, floa
     if not votes:
         return {}
 
-    sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
+    sample_to_model = DataRepository.build_sample_model_lookup(samples)
 
     votes_sorted = sorted(votes, key=lambda v: v.timestamp)
 

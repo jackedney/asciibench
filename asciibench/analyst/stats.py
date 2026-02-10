@@ -18,6 +18,7 @@ Dependencies:
 """
 
 from asciibench.common.models import ArtSample, Vote
+from asciibench.common.repository import DataRepository
 
 
 def calculate_consistency(
@@ -68,7 +69,7 @@ def calculate_consistency(
     if not votes:
         return {"win_rate": 0.0, "std_dev": 0.0, "comparisons": 0.0}
 
-    sample_to_model: dict[str, str] = {str(s.id): s.model_id for s in samples}
+    sample_to_model = DataRepository.build_sample_model_lookup(samples)
 
     outcomes: list[float] = []
 
