@@ -44,7 +44,7 @@ from fastapi.templating import Jinja2Templates
 
 from asciibench.common.config import Settings
 from asciibench.common.config_service import ConfigService
-from asciibench.common.models import ArtSample, Model, Vote
+from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
 from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
@@ -660,6 +660,36 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
         )
 
 
+def _deduplicate_evaluations(
+    existing_evaluations: list[VLMEvaluation],
+    new_evaluations: list[VLMEvaluation],
+    sample_id: str,
+) -> list[VLMEvaluation]:
+    """Deduplicate evaluations by vlm_model_id for a specific sample.
+
+    Args:
+        existing_evaluations: All existing evaluations from the repository
+        new_evaluations: New evaluations from the current request
+        sample_id: The sample ID to filter existing evaluations by
+
+    Returns:
+        Deduplicated list of evaluations with unique vlm_model_id values.
+        Existing evaluations are preferred over new ones.
+    """
+    seen: set[str] = set()
+    results: list[VLMEvaluation] = []
+
+    for e in [
+        *[e for e in existing_evaluations if e.sample_id == sample_id],
+        *new_evaluations,
+    ]:
+        if e.vlm_model_id not in seen:
+            seen.add(e.vlm_model_id)
+            results.append(e)
+
+    return results
+
+
 @app.get("/htmx/vlm-eval", response_class=HTMLResponse)
 async def htmx_vlm_eval(request: Request) -> HTMLResponse:
     """HTMX endpoint to evaluate samples with VLM after a vote.
@@ -724,19 +754,8 @@ async def htmx_vlm_eval(request: Request) -> HTMLResponse:
         )
 
         # Collect all results (pre-existing + new) for these samples, deduplicated
-        seen_a: set[str] = set()
-        results_a = []
-        for e in [*[e for e in existing_evaluations if e.sample_id == sample_a_id], *new_results_a]:
-            if e.vlm_model_id not in seen_a:
-                seen_a.add(e.vlm_model_id)
-                results_a.append(e)
-
-        seen_b: set[str] = set()
-        results_b = []
-        for e in [*[e for e in existing_evaluations if e.sample_id == sample_b_id], *new_results_b]:
-            if e.vlm_model_id not in seen_b:
-                seen_b.add(e.vlm_model_id)
-                results_b.append(e)
+        results_a = _deduplicate_evaluations(existing_evaluations, new_results_a, sample_a_id)
+        results_b = _deduplicate_evaluations(existing_evaluations, new_results_b, sample_b_id)
 
         return templates.TemplateResponse(
             request,
