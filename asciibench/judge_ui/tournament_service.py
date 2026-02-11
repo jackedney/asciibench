@@ -64,6 +64,9 @@ class TournamentService:
         self._current_round: RoundState | None = None
         self._next_round: RoundState | None = None
         self._background_task: asyncio.Task | None = None
+        self._initial_generation_task: asyncio.Task | None = None
+        self._generation_total: int = 0
+        self._generation_completed: int = 0
         self._lock = asyncio.Lock()
 
         self._rounds_path: Path = Path("data/rounds.jsonl")
@@ -92,10 +95,12 @@ class TournamentService:
             logger.info(f"Created round 1 with {len(self._current_round.matchups)} matchups")
 
         if self._current_round is not None and not self._current_round.generation_complete:
+            self._generation_total = len(self._current_round.matchups)
             samples = self.repo.get_all_samples_or_empty()
             self._current_round = await self.generation_service.ensure_samples_for_round(
                 self._current_round, samples
             )
+            self._generation_completed = self._generation_total
             self._persist_round_state(self._current_round)
 
         if self._next_round is None and self._current_round is not None:
@@ -442,4 +447,19 @@ class TournamentService:
             "judged_count": judged_count,
             "total_count": total_count,
             "next_round_ready": next_round_ready,
+        }
+
+    def get_generation_status(self) -> dict:
+        """Get generation progress status.
+
+        Returns:
+            Dictionary with generating: bool, completed: int, total: int
+        """
+        generating = (
+            self._initial_generation_task is not None and not self._initial_generation_task.done()
+        )
+        return {
+            "generating": generating,
+            "completed": self._generation_completed,
+            "total": self._generation_total,
         }

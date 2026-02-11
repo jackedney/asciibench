@@ -565,3 +565,80 @@ class TestCompleteRound:
             await service._complete_round()
 
         mock_elo.assert_called_once()
+
+
+class TestGetGenerationStatus:
+    """Tests for get_generation_status method."""
+
+    @pytest.fixture
+    def service(self, tmp_path: Path) -> TournamentService:
+        """Create a TournamentService instance for tests."""
+        mock_generation_service = MagicMock(spec=GenerationService)
+        mock_config_service = MagicMock()
+        mock_config_service.get_models.return_value = []
+        mock_config_service.get_prompts.return_value = []
+        mock_repo = MagicMock()
+        mock_repo.get_all_samples.return_value = []
+        mock_repo.get_votes.return_value = []
+
+        service = TournamentService(
+            generation_service=mock_generation_service,
+            config_service=mock_config_service,
+            repo=mock_repo,
+            n=1,
+        )
+        service._rounds_path = tmp_path / "rounds.jsonl"
+        return service
+
+    def test_get_generation_status_defaults_to_not_generating(
+        self, service: TournamentService
+    ) -> None:
+        """Test get_generation_status() returns defaults when no generation."""
+        result = service.get_generation_status()
+
+        assert result["generating"] is False
+        assert result["completed"] == 0
+        assert result["total"] == 0
+
+    def test_get_generation_status_with_generation_complete(
+        self, service: TournamentService
+    ) -> None:
+        """Test get_generation_status() returns completed state after generation."""
+        service._generation_total = 10
+        service._generation_completed = 10
+        service._initial_generation_task = None
+
+        result = service.get_generation_status()
+
+        assert result["generating"] is False
+        assert result["completed"] == 10
+        assert result["total"] == 10
+
+    def test_get_generation_status_during_generation(self, service: TournamentService) -> None:
+        """Test get_generation_status() returns generating true during generation."""
+        service._generation_total = 10
+        service._generation_completed = 3
+
+        mock_task = MagicMock()
+        mock_task.done.return_value = False
+        service._initial_generation_task = mock_task
+
+        result = service.get_generation_status()
+
+        assert result["generating"] is True
+        assert result["completed"] == 3
+        assert result["total"] == 10
+
+    def test_get_generation_status_with_partial_completion(
+        self, service: TournamentService
+    ) -> None:
+        """Test get_generation_status() returns partial progress."""
+        service._generation_total = 5
+        service._generation_completed = 2
+        service._initial_generation_task = None
+
+        result = service.get_generation_status()
+
+        assert result["generating"] is False
+        assert result["completed"] == 2
+        assert result["total"] == 5
