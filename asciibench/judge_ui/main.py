@@ -55,7 +55,6 @@ from asciibench.generator.client import OpenRouterClient
 from asciibench.judge_ui.analytics_service import AnalyticsService
 from asciibench.judge_ui.api_models import (
     AnalyticsResponse,
-    CorrelationDataPoint,
     EloVLMCorrelationResponse,
     MatchupResponse,
     ProgressResponse,
@@ -781,16 +780,6 @@ async def get_elo_vlm_correlation(request: Request) -> EloVLMCorrelationResponse
         HTTPException: 500 if data files are malformed
     """
     try:
-        evaluations = request.app.state.repo.get_evaluations()
-    except FileNotFoundError:
-        evaluations = []
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error reading vlm_evaluations.jsonl: {e}",
-        ) from e
-
-    try:
         with open(RANKINGS_PATH) as f:
             rankings_data = json.load(f)
     except FileNotFoundError:
@@ -811,43 +800,7 @@ async def get_elo_vlm_correlation(request: Request) -> EloVLMCorrelationResponse
             detail=f"Error reading models.yaml: {e}",
         ) from e
 
-    if not evaluations or not rankings_data.get("overall_ratings"):
-        return EloVLMCorrelationResponse(correlation_coefficient=None, data=[])
-
-    elo_ratings = rankings_data["overall_ratings"]
-    vlm_accuracy = request.app.state.analytics_service.get_vlm_accuracy_by_model()
-
-    model_lookup: dict[str, Model] = {m.id: m for m in models}
-
-    correlation_data: list[CorrelationDataPoint] = []
-    elo_values: list[float] = []
-    accuracy_values: list[float] = []
-
-    for model_id, elo_rating in elo_ratings.items():
-        if model_id in vlm_accuracy:
-            model = model_lookup.get(model_id)
-            model_name = model.name if model else model_id
-            accuracy = vlm_accuracy[model_id].accuracy
-
-            correlation_data.append(
-                CorrelationDataPoint(
-                    model_id=model_id,
-                    model_name=model_name,
-                    elo_rating=elo_rating,
-                    vlm_accuracy=accuracy,
-                )
-            )
-            elo_values.append(elo_rating)
-            accuracy_values.append(accuracy)
-
-    correlation_coefficient = request.app.state.analytics_service.calculate_pearson_correlation(
-        elo_values, accuracy_values
-    )
-
-    return EloVLMCorrelationResponse(
-        correlation_coefficient=correlation_coefficient,
-        data=correlation_data,
-    )
+    return request.app.state.analytics_service.compute_elo_vlm_correlation(rankings_data, models)
 
 
 @app.get("/htmx/analytics", response_class=HTMLResponse)

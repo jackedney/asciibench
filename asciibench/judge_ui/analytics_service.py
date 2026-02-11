@@ -14,13 +14,15 @@ from typing import Protocol, TypeVar
 
 from asciibench.analyst.elo import calculate_elo
 from asciibench.analyst.stability import generate_stability_report
-from asciibench.common.models import ArtSample, VLMEvaluation, Vote
+from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
 from asciibench.common.repository import DataRepository
 from asciibench.judge_ui.api_models import (
     AnalyticsResponse,
     CategoryAccuracyStats,
     ConfidenceIntervalData,
+    CorrelationDataPoint,
     EloHistoryPoint,
+    EloVLMCorrelationResponse,
     HeadToHeadRecord,
     LeaderboardEntry,
     ModelAccuracyStats,
@@ -365,4 +367,60 @@ class AnalyticsService:
 
         return self._calculate_accuracy_stats(
             evaluations, samples, lambda s: s.model_id, ModelAccuracyStats
+        )
+
+    def compute_elo_vlm_correlation(
+        self, rankings_data: dict, models: list[Model]
+    ) -> EloVLMCorrelationResponse:
+        """Compute correlation between Elo ratings and VLM accuracy.
+
+        Args:
+            rankings_data: Rankings data from rankings.json
+            models: List of model configurations
+
+        Returns:
+            EloVLMCorrelationResponse with correlation coefficient and data array
+
+        Example:
+            >>> repo = DataRepository()
+            >>> service = AnalyticsService(repo)
+            >>> rankings_data = {"overall_ratings": {"model-a": 1200.0}}
+            >>> models = [Model(id="model-a", name="Model A")]
+            >>> result = service.compute_elo_vlm_correlation(rankings_data, models)
+        """
+        evaluations = self._repo.get_evaluations_or_empty()
+        elo_ratings = rankings_data.get("overall_ratings", {})
+
+        if not evaluations or not elo_ratings:
+            return EloVLMCorrelationResponse(correlation_coefficient=None, data=[])
+
+        vlm_accuracy = self.get_vlm_accuracy_by_model()
+        model_lookup: dict[str, Model] = {m.id: m for m in models}
+
+        correlation_data: list[CorrelationDataPoint] = []
+        elo_values: list[float] = []
+        accuracy_values: list[float] = []
+
+        for model_id, elo_rating in elo_ratings.items():
+            if model_id in vlm_accuracy:
+                model = model_lookup.get(model_id)
+                model_name = model.name if model else model_id
+                accuracy = vlm_accuracy[model_id].accuracy
+
+                correlation_data.append(
+                    CorrelationDataPoint(
+                        model_id=model_id,
+                        model_name=model_name,
+                        elo_rating=elo_rating,
+                        vlm_accuracy=accuracy,
+                    )
+                )
+                elo_values.append(elo_rating)
+                accuracy_values.append(accuracy)
+
+        correlation_coefficient = self.calculate_pearson_correlation(elo_values, accuracy_values)
+
+        return EloVLMCorrelationResponse(
+            correlation_coefficient=correlation_coefficient,
+            data=correlation_data,
         )
