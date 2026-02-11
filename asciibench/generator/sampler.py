@@ -132,6 +132,49 @@ def _create_error_sample(task: SampleTask) -> ArtSample:
     )
 
 
+def _handle_generation_error(
+    task: SampleTask,
+    exception: Exception,
+) -> tuple[ArtSample, str]:
+    """Handle generation errors with logging and error message generation.
+
+    Args:
+        task: Sample task with model, prompt, and attempt info
+        exception: The exception that was raised
+
+    Returns:
+        Tuple of (error_sample, error_message)
+    """
+    exception_type = type(exception)
+    error_info_map: dict[type[Exception], tuple[str, str]] = {
+        RateLimitError: ("Rate limited after retries", "RateLimitError"),
+        AuthenticationError: ("Authentication failed", "AuthenticationError"),
+        TransientError: ("Transient error encountered", "TransientError"),
+        ModelError: ("Model error encountered", "ModelError"),
+        OpenRouterClientError: ("OpenRouter client error", "OpenRouterClientError"),
+    }
+
+    log_message, error_prefix = error_info_map.get(
+        exception_type,
+        ("Unexpected exception", f"Unexpected {exception_type.__name__}"),
+    )
+
+    sample = _create_error_sample(task)
+    log_context = {
+        "model": task.model.id,
+        "attempt": task.attempt,
+        "error": str(exception),
+    }
+    if log_message == "Unexpected exception":
+        log_context["error_type"] = exception_type.__name__
+        log_context["traceback"] = traceback.format_exc()
+
+    logger.error(log_message, log_context)
+    error_message = f"{error_prefix}: {exception}"
+
+    return sample, error_message
+
+
 async def _generate_single_sample(
     client: OpenRouterClient,
     task: SampleTask,
@@ -187,32 +230,7 @@ async def _generate_single_sample(
                     cost=response.cost,
                 )
             except Exception as e:
-                exception_type = type(e)
-                error_info_map: dict[type[Exception], tuple[str, str]] = {
-                    RateLimitError: ("Rate limited after retries", "RateLimitError"),
-                    AuthenticationError: ("Authentication failed", "AuthenticationError"),
-                    TransientError: ("Transient error encountered", "TransientError"),
-                    ModelError: ("Model error encountered", "ModelError"),
-                    OpenRouterClientError: ("OpenRouter client error", "OpenRouterClientError"),
-                }
-
-                log_message, error_prefix = error_info_map.get(
-                    exception_type,
-                    ("Unexpected exception", f"Unexpected {exception_type.__name__}"),
-                )
-
-                sample = _create_error_sample(task)
-                log_context = {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                }
-                if log_message == "Unexpected exception":
-                    log_context["error_type"] = exception_type.__name__
-                    log_context["traceback"] = traceback.format_exc()
-
-                logger.error(log_message, log_context)
-                error_message = f"{error_prefix}: {e}"
+                sample, error_message = _handle_generation_error(task, e)
                 span.record_exception(e)
                 span.set_attribute("error_message", error_message)
     else:
@@ -238,31 +256,7 @@ async def _generate_single_sample(
                 cost=response.cost,
             )
         except Exception as e:
-            exception_type = type(e)
-            error_info_map: dict[type[Exception], tuple[str, str]] = {
-                RateLimitError: ("Rate limited after retries", "RateLimitError"),
-                AuthenticationError: ("Authentication failed", "AuthenticationError"),
-                TransientError: ("Transient error encountered", "TransientError"),
-                ModelError: ("Model error encountered", "ModelError"),
-                OpenRouterClientError: ("OpenRouter client error", "OpenRouterClientError"),
-            }
-
-            log_message, error_prefix = error_info_map.get(
-                exception_type, ("Unexpected exception", f"Unexpected {exception_type.__name__}")
-            )
-
-            sample = _create_error_sample(task)
-            log_context = {
-                "model": task.model.id,
-                "attempt": task.attempt,
-                "error": str(e),
-            }
-            if log_message == "Unexpected exception":
-                log_context["error_type"] = exception_type.__name__
-                log_context["traceback"] = traceback.format_exc()
-
-            logger.error(log_message, log_context)
-            error_message = f"{error_prefix}: {e}"
+            sample, error_message = _handle_generation_error(task, e)
 
     end_time = time.perf_counter()
     duration_ms = (end_time - start_time) * 1000
