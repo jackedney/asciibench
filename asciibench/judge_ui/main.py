@@ -444,6 +444,32 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/htmx/generation-status", response_class=HTMLResponse)
+async def htmx_get_generation_status(request: Request) -> HTMLResponse:
+    """HTMX endpoint to get generation status as HTML fragment.
+
+    Returns rendered HTML for the generation progress display.
+    """
+    if request.app.state.tournament_service is None:
+        return templates.TemplateResponse(
+            request,
+            "partials/generation_progress.html",
+            {"generating": False, "completed": 0, "total": 0},
+        )
+
+    status = request.app.state.tournament_service.get_generation_status()
+
+    return templates.TemplateResponse(
+        request,
+        "partials/generation_progress.html",
+        {
+            "generating": status["generating"],
+            "completed": status["completed"],
+            "total": status["total"],
+        },
+    )
+
+
 @app.get("/htmx/prompt", response_class=HTMLResponse)
 @htmx_error_handler(
     "partials/prompt.html", error_context_key="prompt", error_message_prefix="Error: "

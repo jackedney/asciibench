@@ -1,0 +1,7 @@
+{# HTMX partial template for generation progress display #}
+<div id="generation-progress" class="generation-progress">
+    <div class="progress-bar-container bg-slate-800 rounded-full h-4 overflow-hidden">
+        <div class="progress-bar bg-blue-600 h-full transition-all duration-300" style="width: {{ (completed / total * 100) if total > 0 else 0 }}%"></div>
+    </div>
+    <span class="progress-text text-slate-400 text-sm mt-2 block">Generating samples: {{ completed }}/{{ total }}</span>
+</div>
