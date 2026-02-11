@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Literal, cast
 from uuid import UUID
 
+import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -102,7 +103,7 @@ def _get_all_samples() -> list[ArtSample]:
         mtime = DATABASE_PATH.stat().st_mtime_ns
         samples, _ = _get_database_indexed(DATABASE_PATH, mtime)
         return samples
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError):
         # Fallback to direct read on error (e.g. file deleted between check and read)
         try:
             return read_jsonl(DATABASE_PATH, ArtSample)
@@ -696,8 +697,8 @@ async def htmx_vlm_eval(request: Request) -> HTMLResponse:
             )
 
             request.app.state.vlm_evaluation_service = VLMEvaluationService(VLM_EVALUATIONS_PATH)
-        except Exception:
-            logging.info("VLM evaluation service not available (missing config or API key)")
+        except (ImportError, FileNotFoundError) as e:
+            logging.info(f"VLM evaluation service not available: {e.__class__.__name__}: {e}")
             request.app.state.vlm_evaluation_service = None
 
     if request.app.state.vlm_evaluation_service is None:
@@ -880,7 +881,7 @@ async def htmx_get_vlm_accuracy(request: Request) -> HTMLResponse:
     # Load models for display names
     try:
         models = load_models()
-    except (FileNotFoundError, Exception):
+    except (FileNotFoundError, yaml.YAMLError):
         models = []
 
     model_lookup: dict[str, Model] = {m.id: m for m in models}

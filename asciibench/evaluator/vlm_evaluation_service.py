@@ -84,12 +84,14 @@ class VLMEvaluationService:
             )
             self._writer.write(evaluation)
             return evaluation
-        except Exception:
+        except Exception as e:
             logger.error(
                 "Single-sample evaluation failed",
                 {
                     "sample_id": str(sample.id),
                     "vlm_model_id": vlm_model_id,
+                    "error_type": e.__class__.__name__,
+                    "error_message": str(e),
                 },
             )
             return None

@@ -119,8 +119,7 @@ def write_jsonl(path: str | Path, objects: list[T]) -> None:
                     f.write(obj.model_dump_json() + "\n")
             # Atomic rename using pathlib
             temp_path.replace(path)
-        except Exception:
+        finally:
             # Clean up temp file on error
             if temp_path.exists():
                 temp_path.unlink()
-            raise
