@@ -130,39 +130,14 @@ class ModelsConfig(BaseModel):
 class ConfigCache:
     """Cache for loaded configuration data.
 
+    Uses a dict-based cache keyed by file path to avoid field bloat.
+    Each path maps to the parsed configuration object.
+
     Attributes:
-        models: Cached list of Model objects
-        prompts: Cached list of Prompt objects
-        evaluator_config: Cached EvaluatorConfig
-        app_config: Cached GenerationConfig
-        tournament_config: Cached TournamentConfig
-        models_loaded: Flag indicating if models have been loaded
-        models_loaded_path: Path from which models were loaded
-        prompts_loaded: Flag indicating if prompts have been loaded
-        prompts_loaded_path: Path from which prompts were loaded
-        evaluator_config_loaded: Flag indicating if evaluator config has been loaded
-        evaluator_config_loaded_path: Path from which evaluator config was loaded
-        app_config_loaded: Flag indicating if app config has been loaded
-        app_config_loaded_path: Path from which app config was loaded
-        tournament_config_loaded: Flag indicating if tournament config has been loaded
-        tournament_config_loaded_path: Path from which tournament config was loaded
+        cache: Dictionary mapping file paths to loaded configuration objects.
     """
 
-    models: list[Model] = field(default_factory=list)
-    prompts: list[Prompt] = field(default_factory=list)
-    evaluator_config: EvaluatorConfig = field(default_factory=EvaluatorConfig)
-    app_config: GenerationConfig = field(default_factory=GenerationConfig)
-    tournament_config: TournamentConfig = field(default_factory=TournamentConfig)
-    models_loaded: bool = False
-    models_loaded_path: str | None = None
-    prompts_loaded: bool = False
-    prompts_loaded_path: str | None = None
-    evaluator_config_loaded: bool = False
-    evaluator_config_loaded_path: str | None = None
-    app_config_loaded: bool = False
-    app_config_loaded_path: str | None = None
-    tournament_config_loaded: bool = False
-    tournament_config_loaded_path: str | None = None
+    cache: dict[str, Any] = field(default_factory=dict)
 
 
 class ConfigService:
@@ -222,7 +197,6 @@ class ConfigService:
     def _load_yaml_config(
         self,
         path: str,
-        cache_field: str,
         file_name: str,
         parser_fn: Callable[[dict[str, Any]], Any],
     ) -> Any:
@@ -230,7 +204,6 @@ class ConfigService:
 
         Args:
             path: Path to the YAML file
-            cache_field: Name of the cache field (e.g., 'models', 'prompts', etc.)
             file_name: Name of the file for error messages (e.g., 'models.yaml')
             parser_fn: Function to parse the loaded data into the final config object
 
@@ -240,26 +213,21 @@ class ConfigService:
         Raises:
             ConfigServiceError: If the file is not found or invalid
         """
-        loaded_flag = f"{cache_field}_loaded"
-        loaded_path = f"{cache_field}_loaded_path"
-
-        if not getattr(self._cache, loaded_flag) or getattr(self._cache, loaded_path) != path:
+        if path not in self._cache.cache:
             try:
                 with Path(path).open() as f:
                     data = yaml.safe_load(f)
                 if not isinstance(data, dict):
                     data = {}
                 parsed_value = parser_fn(data)
-                setattr(self._cache, cache_field, parsed_value)
-                setattr(self._cache, loaded_flag, True)
-                setattr(self._cache, loaded_path, path)
+                self._cache.cache[path] = parsed_value
                 logger.debug(f"Loaded {file_name} from {path}")
             except FileNotFoundError as e:
                 raise ConfigServiceError(f"{file_name} not found: {path}") from e
             except ValidationError as e:
                 raise ConfigServiceError(f"Invalid {file_name} structure: {e}") from e
 
-        return getattr(self._cache, cache_field)
+        return self._cache.cache[path]
 
     def get_models(self, path: str = "models.yaml") -> list[Model]:
         """Get validated list of model configurations.
@@ -288,7 +256,7 @@ class ConfigService:
             models_config = ModelsConfig(**data)
             return [Model(**model_dict) for model_dict in models_config.models]
 
-        return self._load_yaml_config(path, "models", "models.yaml", parse_models)
+        return self._load_yaml_config(path, "models.yaml", parse_models)
 
     def get_prompts(self, path: str = "prompts.yaml") -> list[Prompt]:
         """Get validated list of prompts (expanded from templates).
@@ -321,7 +289,7 @@ class ConfigService:
             else:
                 return self._expand_templates(prompts_config.templates, prompts_config.word_lists)
 
-        return self._load_yaml_config(path, "prompts", "prompts.yaml", parse_prompts)
+        return self._load_yaml_config(path, "prompts.yaml", parse_prompts)
 
     def _expand_templates(
         self, templates: list[TemplateDefinition], word_lists: WordLists
@@ -422,9 +390,7 @@ class ConfigService:
             evaluator_data = data.get("evaluator", {})
             return EvaluatorConfig(**evaluator_data)
 
-        return self._load_yaml_config(
-            path, "evaluator_config", "evaluator_config.yaml", parse_evaluator_config
-        )
+        return self._load_yaml_config(path, "evaluator_config.yaml", parse_evaluator_config)
 
     def get_app_config(self, path: str = "config.yaml") -> GenerationConfig:
         """Get validated application/generation configuration.
@@ -454,7 +420,7 @@ class ConfigService:
             generation_data = data.get("generation", {})
             return GenerationConfig(**generation_data)
 
-        return self._load_yaml_config(path, "app_config", "config.yaml", parse_app_config)
+        return self._load_yaml_config(path, "config.yaml", parse_app_config)
 
     def get_tournament_config(self, path: str = "config.yaml") -> TournamentConfig:
         """Get validated tournament configuration.
@@ -482,9 +448,7 @@ class ConfigService:
             tournament_data = data.get("tournament", {})
             return TournamentConfig(**tournament_data)
 
-        return self._load_yaml_config(
-            path, "tournament_config", "config.yaml", parse_tournament_config
-        )
+        return self._load_yaml_config(path, "config.yaml", parse_tournament_config)
 
     def clear_cache(self) -> None:
         """Clear all cached configuration data.
@@ -499,5 +463,5 @@ class ConfigService:
             >>> config.clear_cache()
             >>> models = config.get_models()  # Reloads from file
         """
-        self._cache = ConfigCache()
+        self._cache.cache.clear()
         logger.debug("Configuration cache cleared")
