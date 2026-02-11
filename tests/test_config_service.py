@@ -770,6 +770,35 @@ class TestConfigModels:
         assert len(config.templates) == 1
 
 
+class TestCacheKeyCollision:
+    """Tests for cache key collision between config types."""
+
+    def test_get_app_and_tournament_config_no_cache_collision(self, tmp_path):
+        """Test that get_app_config and get_tournament_config don't collide when using same path."""
+        from asciibench.common.config import TournamentConfig
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """generation:
+  attempts_per_prompt: 10
+  temperature: 0.7
+  max_tokens: 2000
+tournament:
+  round_size: 5
+"""
+        )
+
+        config_service = ConfigService()
+        config_service.clear_cache()
+
+        app_config = config_service.get_app_config(path=str(config_file))
+        tournament_config = config_service.get_tournament_config(path=str(config_file))
+
+        assert isinstance(app_config, GenerationConfig)
+        assert isinstance(tournament_config, TournamentConfig)
+        assert app_config is not tournament_config
+
+
 class TestConfigServiceIntegration:
     """Integration tests for ConfigService with real config files."""
 
