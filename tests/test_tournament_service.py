@@ -188,6 +188,8 @@ class TestGetNextMatchup:
             prompt_text="Draw a cat",
             prompt_category="animal",
             is_judged=False,
+            sample_a_id=str(uuid4()),
+            sample_b_id=str(uuid4()),
         )
         judged_matchup = Matchup(
             id=uuid4(),
@@ -196,6 +198,8 @@ class TestGetNextMatchup:
             prompt_text="Draw a dog",
             prompt_category="animal",
             is_judged=True,
+            sample_a_id=str(uuid4()),
+            sample_b_id=str(uuid4()),
         )
 
         service._current_round = RoundState(
@@ -240,6 +244,199 @@ class TestGetNextMatchup:
         result = service.get_next_matchup()
 
         assert result is None
+
+    def test_get_next_matchup_returns_none_without_both_samples(
+        self, service: TournamentService
+    ) -> None:
+        """Test get_next_matchup() returns None when matchup lacks both samples."""
+        matchup_with_only_sample_a = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-b",
+            prompt_text="Draw a cat",
+            prompt_category="animal",
+            is_judged=False,
+            sample_a_id=str(uuid4()),
+            sample_b_id=None,
+        )
+        matchup_with_only_sample_b = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-c",
+            prompt_text="Draw a dog",
+            prompt_category="animal",
+            is_judged=False,
+            sample_a_id=None,
+            sample_b_id=str(uuid4()),
+        )
+        matchup_with_no_samples = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-d",
+            prompt_text="Draw a bird",
+            prompt_category="animal",
+            is_judged=False,
+            sample_a_id=None,
+            sample_b_id=None,
+        )
+
+        service._current_round = RoundState(
+            id=uuid4(),
+            round_number=1,
+            matchups=[
+                matchup_with_only_sample_a,
+                matchup_with_only_sample_b,
+                matchup_with_no_samples,
+            ],
+        )
+
+        result = service.get_next_matchup()
+
+        assert result is None
+
+    def test_get_next_matchup_filters_incomplete_matchups(self, service: TournamentService) -> None:
+        """Test get_next_matchup() only returns matchups with both samples."""
+        incomplete_matchup = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-b",
+            prompt_text="Draw a cat",
+            prompt_category="animal",
+            is_judged=False,
+            sample_a_id=str(uuid4()),
+            sample_b_id=None,
+        )
+        complete_matchup = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-c",
+            prompt_text="Draw a dog",
+            prompt_category="animal",
+            is_judged=False,
+            sample_a_id=str(uuid4()),
+            sample_b_id=str(uuid4()),
+        )
+
+        service._current_round = RoundState(
+            id=uuid4(),
+            round_number=1,
+            matchups=[incomplete_matchup, complete_matchup],
+        )
+
+        result = service.get_next_matchup()
+
+        assert result is not None
+        assert result.id == complete_matchup.id
+
+
+class TestOnMatchupGenerated:
+    """Tests for _on_matchup_generated callback method."""
+
+    @pytest.fixture
+    def service(self, tmp_path: Path) -> TournamentService:
+        """Create a TournamentService instance for tests."""
+        mock_generation_service = MagicMock(spec=GenerationService)
+        mock_config_service = MagicMock()
+        mock_config_service.get_models.return_value = []
+        mock_config_service.get_prompts.return_value = []
+        mock_repo = MagicMock()
+        mock_repo.get_all_samples.return_value = []
+        mock_repo.get_votes.return_value = []
+
+        service = TournamentService(
+            generation_service=mock_generation_service,
+            config_service=mock_config_service,
+            repo=mock_repo,
+            n=1,
+        )
+        service._rounds_path = tmp_path / "rounds.jsonl"
+        return service
+
+    def test_on_matchup_generated_updates_matchup(self, service: TournamentService) -> None:
+        """Test _on_matchup_generated updates matchup in _current_round."""
+        matchup1 = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-b",
+            prompt_text="Draw a cat",
+            prompt_category="animal",
+            is_judged=False,
+        )
+        matchup2 = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-c",
+            prompt_text="Draw a dog",
+            prompt_category="animal",
+            is_judged=False,
+        )
+
+        service._current_round = RoundState(
+            id=uuid4(),
+            round_number=1,
+            matchups=[matchup1, matchup2],
+        )
+        service._generation_total = 2
+        service._generation_completed = 0
+
+        updated_matchup = matchup1.model_copy(
+            update={"sample_a_id": str(uuid4()), "sample_b_id": str(uuid4())}
+        )
+        service._on_matchup_generated(0, updated_matchup)
+
+        assert service._current_round.matchups[0].sample_a_id is not None
+        assert service._current_round.matchups[0].sample_b_id is not None
+        assert service._generation_completed == 1
+
+    def test_on_matchup_generated_bumps_generation_completed(
+        self, service: TournamentService
+    ) -> None:
+        """Test _on_matchup_generated increments _generation_completed."""
+        matchup = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-b",
+            prompt_text="Draw a cat",
+            prompt_category="animal",
+            is_judged=False,
+        )
+
+        service._current_round = RoundState(
+            id=uuid4(),
+            round_number=1,
+            matchups=[matchup],
+        )
+        service._generation_total = 1
+        service._generation_completed = 0
+
+        updated_matchup = matchup.model_copy(
+            update={"sample_a_id": str(uuid4()), "sample_b_id": str(uuid4())}
+        )
+        service._on_matchup_generated(0, updated_matchup)
+
+        assert service._generation_completed == 1
+
+    def test_on_matchup_generated_handles_no_current_round(
+        self, service: TournamentService
+    ) -> None:
+        """Test _on_matchup_generated handles case when no current round."""
+        service._current_round = None
+        service._generation_total = 1
+        service._generation_completed = 0
+
+        updated_matchup = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-b",
+            prompt_text="Draw a cat",
+            prompt_category="animal",
+            sample_a_id=str(uuid4()),
+            sample_b_id=str(uuid4()),
+        )
+
+        service._on_matchup_generated(0, updated_matchup)
+
+        assert service._generation_completed == 0
 
 
 class TestRecordVote:

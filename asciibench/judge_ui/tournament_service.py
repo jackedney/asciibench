@@ -116,7 +116,7 @@ class TournamentService:
                 samples = self.repo.get_all_samples_or_empty()
 
                 self._current_round = await self.generation_service.ensure_samples_for_round(
-                    self._current_round, samples, on_matchup_ready=None
+                    self._current_round, samples, on_matchup_ready=self._on_matchup_generated
                 )
 
                 self._generation_completed = self._generation_total
@@ -129,6 +129,30 @@ class TournamentService:
                 logger.error(f"Error in initial generation: {e}")
 
         self._initial_generation_task = asyncio.create_task(generate_initial_round())
+
+    def _on_matchup_generated(self, index: int, matchup: Matchup) -> None:
+        """Callback called when a matchup's samples are generated.
+
+        Updates the matchup in _current_round and increments generation progress.
+
+        Args:
+            index: 0-based index of the matchup in the round
+            matchup: Updated matchup with sample_a_id and sample_b_id filled
+        """
+        if self._current_round is None:
+            return
+
+        updated_matchups = list(self._current_round.matchups)
+        if 0 <= index < len(updated_matchups):
+            updated_matchups[index] = matchup
+            self._current_round = self._current_round.model_copy(
+                update={"matchups": updated_matchups}
+            )
+            self._generation_completed += 1
+            logger.debug(
+                f"Matchup {index} generated, "
+                f"progress: {self._generation_completed}/{self._generation_total}"
+            )
 
     def _load_latest_round(self) -> RoundState | None:
         """Load the latest round from rounds.jsonl.
@@ -295,20 +319,25 @@ class TournamentService:
         self._background_task = asyncio.create_task(generate_next_round())
 
     def get_next_matchup(self) -> Matchup | None:
-        """Get a random unjudged matchup from the current round.
+        """Get a random unjudged matchup from the current round with both samples ready.
 
         Returns:
-            A random unjudged Matchup, or None if all judged or no current round
+            A random unjudged Matchup with sample_a_id and sample_b_id set,
+            or None if all judged or no current round or no ready matchups
         """
         if self._current_round is None:
             return None
 
-        unjudged_matchups = [m for m in self._current_round.matchups if not m.is_judged]
+        ready_matchups = [
+            m
+            for m in self._current_round.matchups
+            if not m.is_judged and m.sample_a_id is not None and m.sample_b_id is not None
+        ]
 
-        if not unjudged_matchups:
+        if not ready_matchups:
             return None
 
-        return random.choice(unjudged_matchups)
+        return random.choice(ready_matchups)
 
     async def record_vote(self, matchup_id: UUID, vote_id: str) -> None:
         """Record a vote for a matchup.
