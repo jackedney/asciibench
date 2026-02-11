@@ -4,6 +4,7 @@ This module provides decorators for handling exceptions in HTMX endpoints
 and rendering appropriate error templates.
 """
 
+import copy
 import inspect
 import logging
 from collections.abc import Callable
@@ -131,7 +132,7 @@ def htmx_error_handler_with_context(
                 from asciibench.judge_ui.main import templates
 
                 request = _get_request_from_args(args, kwargs)
-                error_context = default_context.copy()
+                error_context = copy.deepcopy(default_context)
                 if custom_error_message:
                     error_context[error_context_key] = custom_error_message
                 else:
