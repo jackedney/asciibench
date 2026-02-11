@@ -235,6 +235,8 @@ class ConfigService:
                 raise ConfigServiceError(f"Invalid {file_name} structure: {e}") from e
             except ValueError as e:
                 raise ConfigServiceError(f"Invalid {file_name} structure: {e}") from e
+            except yaml.YAMLError as e:
+                raise ConfigServiceError(f"Malformed YAML in {file_name}: {e}") from e
 
         return self._cache.cache[key]
 
