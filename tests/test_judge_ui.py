@@ -407,7 +407,9 @@ class TestComparisonPrioritization:
         )
         counts = matchup_service._get_pair_comparison_counts([vote])
         # Pair should be stored in sorted order
-        expected_pair = matchup_service._make_sorted_pair("sample-1", "sample-2")
+        expected_pair = matchup_service._model_pair_selector._make_sorted_pair(
+            "sample-1", "sample-2"
+        )
         assert counts[expected_pair] == 1
 
     def test_get_pair_comparison_counts_normalizes_order(
@@ -419,7 +421,9 @@ class TestComparisonPrioritization:
             Vote(sample_a_id="sample-2", sample_b_id="sample-1", winner="B"),
         ]
         counts = matchup_service._get_pair_comparison_counts(votes)
-        expected_pair = matchup_service._make_sorted_pair("sample-1", "sample-2")
+        expected_pair = matchup_service._model_pair_selector._make_sorted_pair(
+            "sample-1", "sample-2"
+        )
         assert counts[expected_pair] == 2
         assert len(counts) == 1  # Only one unique pair
 
@@ -453,7 +457,7 @@ class TestComparisonPrioritization:
             winner="A",
         )
         counts = matchup_service._get_model_pair_comparison_counts([vote], samples)
-        expected_pair = matchup_service._make_sorted_pair("model-a", "model-b")
+        expected_pair = matchup_service._model_pair_selector._make_sorted_pair("model-a", "model-b")
         assert counts[expected_pair] == 1
 
     def test_select_matchup_prioritizes_less_compared(
@@ -491,14 +495,16 @@ class TestComparisonPrioritization:
         pair_counts: dict[tuple[str, str], int] = {}
         for _ in range(100):
             sample_a, sample_b = matchup_service._select_matchup(samples, votes)
-            pair = matchup_service._make_sorted_pair(sample_a.model_id, sample_b.model_id)
+            pair = matchup_service._model_pair_selector._make_sorted_pair(
+                sample_a.model_id, sample_b.model_id
+            )
             pair_counts[pair] = pair_counts.get(pair, 0) + 1
 
         # model-a vs model-b should be selected less often than other pairs
         # because they already have 10 comparisons
-        ab_pair = matchup_service._make_sorted_pair("model-a", "model-b")
-        ac_pair = matchup_service._make_sorted_pair("model-a", "model-c")
-        bc_pair = matchup_service._make_sorted_pair("model-b", "model-c")
+        ab_pair = matchup_service._model_pair_selector._make_sorted_pair("model-a", "model-b")
+        ac_pair = matchup_service._model_pair_selector._make_sorted_pair("model-a", "model-c")
+        bc_pair = matchup_service._model_pair_selector._make_sorted_pair("model-b", "model-c")
 
         # The less-compared pairs should dominate
         assert ab_pair not in pair_counts or pair_counts.get(ab_pair, 0) == 0
