@@ -92,7 +92,7 @@ class TournamentService:
             logger.info(f"Created round 1 with {len(self._current_round.matchups)} matchups")
 
         if self._current_round is not None and not self._current_round.generation_complete:
-            samples = self.repo.get_all_samples()
+            samples = self.repo.get_all_samples_or_empty()
             self._current_round = await self.generation_service.ensure_samples_for_round(
                 self._current_round, samples
             )
@@ -254,7 +254,7 @@ class TournamentService:
                 next_round_number = current_round.round_number + 1
                 self._next_round = await self._create_round(next_round_number)
 
-                samples = self.repo.get_all_samples()
+                samples = self.repo.get_all_samples_or_empty()
                 self._next_round = await self.generation_service.ensure_samples_for_round(
                     self._next_round, samples
                 )
@@ -344,7 +344,7 @@ class TournamentService:
         else:
             next_round_number = self._current_round.round_number + 1
             self._current_round = await self._create_round(next_round_number)
-            samples = self.repo.get_all_samples()
+            samples = self.repo.get_all_samples_or_empty()
             self._current_round = await self.generation_service.ensure_samples_for_round(
                 self._current_round, samples
             )
