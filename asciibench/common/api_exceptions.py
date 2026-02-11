@@ -39,7 +39,7 @@ def raise_for_httpx_status_error(
         raise error_map["auth"](f"Authentication failed: {exc}") from exc
 
     if "model_not_found" in error_map and (
-        status_code == 404 or "not found" in error_text or "model" in error_text
+        status_code == 404 or "model not found" in error_text or "invalid model" in error_text
     ):
         msg = f"Invalid model ID '{model_context}': {exc}" if model_context else f"Not found: {exc}"
         raise error_map["model_not_found"](msg) from exc
