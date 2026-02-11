@@ -414,22 +414,16 @@ def generate_html() -> None:
         filter_controls_html = ""
         model_cards_html = _read_template("no_results.html")
 
-    # Substitute content into base template
-    html_content = base_template.substitute(content=model_cards_html)
-
-    # Insert stats bar and filter controls before models container
+    # Combine stats and filters into a single placeholder content
+    stats_and_filters_html = ""
     if results:
-        # Find the position of models-container div and insert stats/filter before it
-        models_container_pos = html_content.find('<div class="models-container">')
-        if models_container_pos != -1:
-            html_content = (
-                html_content[:models_container_pos]
-                + stats_bar_html
-                + "\n"
-                + filter_controls_html
-                + "\n"
-                + html_content[models_container_pos:]
-            )
+        stats_and_filters_html = stats_bar_html + "\n" + filter_controls_html + "\n"
+
+    # Substitute content into base template
+    html_content = base_template.substitute(
+        stats_and_filters=stats_and_filters_html,
+        content=model_cards_html,
+    )
 
     with DEMO_HTML_PATH.open("w", encoding="utf-8") as f:
         f.write(html_content)
