@@ -199,6 +199,7 @@ class ConfigService:
         path: str,
         file_name: str,
         parser_fn: Callable[[dict[str, Any]], Any],
+        cache_key: str | None = None,
     ) -> Any:
         """Generic helper for loading YAML configuration files with caching.
 
@@ -206,6 +207,7 @@ class ConfigService:
             path: Path to the YAML file
             file_name: Name of the file for error messages (e.g., 'models.yaml')
             parser_fn: Function to parse the loaded data into the final config object
+            cache_key: Optional custom cache key (defaults to path if not provided)
 
         Returns:
             The parsed and cached configuration object.
@@ -213,21 +215,22 @@ class ConfigService:
         Raises:
             ConfigServiceError: If the file is not found or invalid
         """
-        if path not in self._cache.cache:
+        key = cache_key if cache_key is not None else path
+        if key not in self._cache.cache:
             try:
                 with Path(path).open() as f:
                     data = yaml.safe_load(f)
                 if not isinstance(data, dict):
                     data = {}
                 parsed_value = parser_fn(data)
-                self._cache.cache[path] = parsed_value
+                self._cache.cache[key] = parsed_value
                 logger.debug(f"Loaded {file_name} from {path}")
             except FileNotFoundError as e:
                 raise ConfigServiceError(f"{file_name} not found: {path}") from e
             except ValidationError as e:
                 raise ConfigServiceError(f"Invalid {file_name} structure: {e}") from e
 
-        return self._cache.cache[path]
+        return self._cache.cache[key]
 
     def get_models(self, path: str = "models.yaml") -> list[Model]:
         """Get validated list of model configurations.
@@ -420,7 +423,7 @@ class ConfigService:
             generation_data = data.get("generation", {})
             return GenerationConfig(**generation_data)
 
-        return self._load_yaml_config(path, "config.yaml", parse_app_config)
+        return self._load_yaml_config(path, "config.yaml", parse_app_config, f"{path}:generation")
 
     def get_tournament_config(self, path: str = "config.yaml") -> TournamentConfig:
         """Get validated tournament configuration.
@@ -448,7 +451,9 @@ class ConfigService:
             tournament_data = data.get("tournament", {})
             return TournamentConfig(**tournament_data)
 
-        return self._load_yaml_config(path, "config.yaml", parse_tournament_config)
+        return self._load_yaml_config(
+            path, "config.yaml", parse_tournament_config, f"{path}:tournament"
+        )
 
     def clear_cache(self) -> None:
         """Clear all cached configuration data.
