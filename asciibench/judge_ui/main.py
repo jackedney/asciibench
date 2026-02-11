@@ -70,24 +70,14 @@ from asciibench.judge_ui.progress_service import ProgressService
 from asciibench.judge_ui.tournament_service import TournamentService
 from asciibench.judge_ui.undo_service import UndoService
 
-# Lazy-initialized VLM evaluation service (None until first use)
-_vlm_evaluation_service: object = None  # VLMEvaluationService | None
-_vlm_init_attempted = False
-
 templates = Jinja2Templates(directory="templates")
 
-# Data file paths
+# Data file paths (constants)
 DATA_DIR = Path("data")
 DATABASE_PATH = DATA_DIR / "database.jsonl"
 VOTES_PATH = DATA_DIR / "votes.jsonl"
 VLM_EVALUATIONS_PATH = DATA_DIR / "vlm_evaluations.jsonl"
 RANKINGS_PATH = DATA_DIR / "rankings.json"
-
-# Configuration and settings
-settings = Settings()
-config_service = ConfigService()
-tournament_config = config_service.get_tournament_config()
-generation_config = config_service.get_app_config()
 
 
 @lru_cache(maxsize=1)
@@ -131,47 +121,59 @@ def _get_sample_by_id(sample_id: str | UUID) -> ArtSample | None:
     return indexed.get(target_id)
 
 
-# Service instances
-# Use cache_ttl=0 to disable caching - votes are written directly to file
-# and need to be immediately visible in subsequent reads
-repo = DataRepository(data_dir=DATA_DIR, cache_ttl=0)
-analytics_service = AnalyticsService(repo=repo)
-matchup_service = MatchupService(database_path=DATABASE_PATH, votes_path=VOTES_PATH)
-progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
-undo_service = UndoService(votes_path=VOTES_PATH)
-
-# Tournament-related services
-openrouter_client = OpenRouterClient(
-    api_key=settings.openrouter_api_key,
-    base_url=settings.base_url,
-    timeout=settings.openrouter_timeout_seconds,
-)
-generation_service = GenerationService(
-    client=openrouter_client,
-    config=generation_config,
-    database_path=DATABASE_PATH,
-)
-tournament_service: TournamentService | None = None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI application.
 
-    Initializes tournament service on startup.
+    Initializes all services on startup.
     """
-    global tournament_service
-    # Initialize tournament service
-    tournament_service = TournamentService(
-        generation_service=generation_service,
-        config_service=config_service,
-        repo=repo,
-        n=tournament_config.round_size,
+    # Initialize settings and config
+    app.state.settings = Settings()
+    app.state.config_service = ConfigService()
+    app.state.tournament_config = app.state.config_service.get_tournament_config()
+    app.state.generation_config = app.state.config_service.get_app_config()
+
+    # Initialize repository
+    app.state.repo = DataRepository(data_dir=DATA_DIR, cache_ttl=0)
+
+    # Initialize core services
+    app.state.analytics_service = AnalyticsService(repo=app.state.repo)
+    app.state.matchup_service = MatchupService(database_path=DATABASE_PATH, votes_path=VOTES_PATH)
+    app.state.progress_service = ProgressService(
+        repo=app.state.repo, matchup_service=app.state.matchup_service
     )
-    await tournament_service.initialize()
+    app.state.undo_service = UndoService(votes_path=VOTES_PATH)
+
+    # Initialize tournament-related services
+    app.state.openrouter_client = OpenRouterClient(
+        api_key=app.state.settings.openrouter_api_key,
+        base_url=app.state.settings.base_url,
+        timeout=app.state.settings.openrouter_timeout_seconds,
+    )
+    app.state.generation_service = GenerationService(
+        client=app.state.openrouter_client,
+        config=app.state.generation_config,
+        database_path=DATABASE_PATH,
+    )
+
+    # Initialize tournament service
+    app.state.tournament_service = TournamentService(
+        generation_service=app.state.generation_service,
+        config_service=app.state.config_service,
+        repo=app.state.repo,
+        n=app.state.tournament_config.round_size,
+    )
+    await app.state.tournament_service.initialize()
+
+    # Initialize VLM evaluation service state
+    # Type: VLMEvaluationService | None
+    app.state.vlm_evaluation_service = None
+    app.state.vlm_init_attempted = False
+
     yield
+
     # Cleanup on shutdown
-    await tournament_service.shutdown()
+    await app.state.tournament_service.shutdown()
 
 
 app = FastAPI(title="ASCIIBench Judge UI", lifespan=lifespan)
@@ -191,7 +193,7 @@ async def judge(request: Request) -> HTMLResponse:
 
 
 @app.get("/api/matchup", response_model=MatchupResponse)
-async def get_matchup() -> MatchupResponse:
+async def get_matchup(request: Request) -> MatchupResponse:
     """Get a random matchup of two samples for comparison.
 
     Returns two samples from different models for blind comparison.
@@ -220,7 +222,7 @@ async def get_matchup() -> MatchupResponse:
         )
 
     # Select a matchup
-    sample_a, sample_b = matchup_service.get_matchup(valid_samples)
+    sample_a, sample_b = request.app.state.matchup_service.get_matchup(valid_samples)
 
     # Randomize which sample is A vs B to prevent position bias
     if random.random() < 0.5:
@@ -243,7 +245,7 @@ async def get_matchup() -> MatchupResponse:
 
 
 @app.post("/api/votes", response_model=VoteResponse)
-async def submit_vote(vote_request: VoteRequest) -> VoteResponse:
+async def submit_vote(vote_request: VoteRequest, request: Request) -> VoteResponse:
     """Submit a vote for a matchup comparison.
 
     Validates that both sample IDs exist in the database and persists
@@ -286,7 +288,7 @@ async def submit_vote(vote_request: VoteRequest) -> VoteResponse:
     append_jsonl(VOTES_PATH, vote)
 
     # Clear the undo state since a new vote was submitted
-    undo_service.record_vote_submitted()
+    request.app.state.undo_service.record_vote_submitted()
 
     # Return the saved vote with generated ID and timestamp
     return VoteResponse(
@@ -299,7 +301,7 @@ async def submit_vote(vote_request: VoteRequest) -> VoteResponse:
 
 
 @app.post("/api/undo", response_model=VoteResponse)
-async def undo_vote() -> VoteResponse:
+async def undo_vote(request: Request) -> VoteResponse:
     """Undo the most recent vote.
 
     Removes the last vote from votes.jsonl and returns it for confirmation.
@@ -315,10 +317,10 @@ async def undo_vote() -> VoteResponse:
         HTTPException: 404 if no votes exist
         HTTPException: 400 if undo was already called without a new vote in between
     """
-    last_vote = undo_service.undo_vote()
+    last_vote = request.app.state.undo_service.undo_vote()
 
     if last_vote is None:
-        if undo_service.last_action_was_undo:
+        if request.app.state.undo_service.last_action_was_undo:
             raise HTTPException(
                 status_code=400,
                 detail="Cannot undo twice in a row. Please submit a new vote before undoing again.",
@@ -341,7 +343,7 @@ async def undo_vote() -> VoteResponse:
 
 
 @app.get("/api/progress", response_model=ProgressResponse)
-async def get_progress() -> ProgressResponse:
+async def get_progress(request: Request) -> ProgressResponse:
     """Get progress statistics for judging.
 
     Returns the number of votes completed, unique model pairs judged,
@@ -351,7 +353,7 @@ async def get_progress() -> ProgressResponse:
         ProgressResponse with votes_completed, unique_pairs_judged,
         total_possible_pairs, and by_category breakdown.
     """
-    return progress_service.get_progress()
+    return request.app.state.progress_service.get_progress()
 
 
 # =============================================================================
@@ -368,14 +370,14 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
     """
     try:
         # Get next matchup from tournament service
-        if tournament_service is None:
+        if request.app.state.tournament_service is None:
             return templates.TemplateResponse(
                 request,
                 "partials/matchup.html",
                 {"error": "Tournament service not initialized"},
             )
 
-        matchup = tournament_service.get_next_matchup()
+        matchup = request.app.state.tournament_service.get_next_matchup()
 
         if matchup is None:
             return templates.TemplateResponse(
@@ -461,7 +463,7 @@ async def htmx_get_prompt(request: Request) -> HTMLResponse:
             )
 
         # Select a matchup to get the prompt
-        sample_a, _ = matchup_service.get_matchup(valid_samples)
+        sample_a, _ = request.app.state.matchup_service.get_matchup(valid_samples)
 
         return templates.TemplateResponse(
             request,
@@ -482,12 +484,12 @@ async def htmx_get_progress(request: Request) -> HTMLResponse:
 
     Returns rendered HTML for the progress display area.
     """
-    progress = progress_service.get_progress()
+    progress = request.app.state.progress_service.get_progress()
 
     # Get round progress from tournament service
     round_progress = {}
-    if tournament_service is not None:
-        round_progress = tournament_service.get_round_progress()
+    if request.app.state.tournament_service is not None:
+        round_progress = request.app.state.tournament_service.get_round_progress()
 
     return templates.TemplateResponse(
         request,
@@ -575,11 +577,13 @@ async def htmx_submit_vote(request: Request) -> HTMLResponse:
         append_jsonl(VOTES_PATH, vote)
 
         # Then update tournament state (reconstructed from votes on restart if this fails)
-        if tournament_service is not None and validated_matchup_id is not None:
-            await tournament_service.record_vote(validated_matchup_id, str(vote.id))
+        if request.app.state.tournament_service is not None and validated_matchup_id is not None:
+            await request.app.state.tournament_service.record_vote(
+                validated_matchup_id, str(vote.id)
+            )
 
         # Clear the undo state since a new vote was submitted
-        undo_service.record_vote_submitted()
+        request.app.state.undo_service.record_vote_submitted()
 
         # Return reveal panel with model identities (instead of next matchup)
         return templates.TemplateResponse(
@@ -618,7 +622,7 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
     """
     try:
         # Check if last action was already an undo (prevent double-undo)
-        if undo_service.last_action_was_undo:
+        if request.app.state.undo_service.last_action_was_undo:
             return templates.TemplateResponse(
                 request,
                 "partials/matchup.html",
@@ -627,7 +631,7 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
                 },
             )
 
-        last_vote = undo_service.undo_vote()
+        last_vote = request.app.state.undo_service.undo_vote()
 
         # Check if there was a vote to undo
         if last_vote is None:
@@ -638,12 +642,12 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
             )
 
         # Find the matchup for this vote and tell tournament service to undo
-        if tournament_service is not None:
-            matchup = tournament_service.find_matchup_by_samples(
+        if request.app.state.tournament_service is not None:
+            matchup = request.app.state.tournament_service.find_matchup_by_samples(
                 last_vote.sample_a_id, last_vote.sample_b_id
             )
             if matchup is not None:
-                await tournament_service.undo_last_vote(matchup.id)
+                await request.app.state.tournament_service.undo_last_vote(matchup.id)
 
         # Return the current matchup (don't load a new one)
         return await htmx_get_matchup(request)
@@ -664,7 +668,6 @@ async def htmx_vlm_eval(request: Request) -> HTMLResponse:
     Evaluates both samples with all configured VLM models (idempotent).
     Returns graceful fallback if VLM evaluation is not configured.
     """
-    global _vlm_evaluation_service, _vlm_init_attempted
 
     sample_a_id = request.query_params.get("sample_a_id")
     sample_b_id = request.query_params.get("sample_b_id")
@@ -677,17 +680,19 @@ async def htmx_vlm_eval(request: Request) -> HTMLResponse:
         )
 
     # Lazy-init VLM evaluation service
-    if not _vlm_init_attempted:
-        _vlm_init_attempted = True
+    if not request.app.state.vlm_init_attempted:
+        request.app.state.vlm_init_attempted = True
         try:
-            from asciibench.evaluator.vlm_evaluation_service import VLMEvaluationService
+            from asciibench.evaluator.vlm_evaluation_service import (
+                VLMEvaluationService,
+            )
 
-            _vlm_evaluation_service = VLMEvaluationService(VLM_EVALUATIONS_PATH)
+            request.app.state.vlm_evaluation_service = VLMEvaluationService(VLM_EVALUATIONS_PATH)
         except Exception:
             logging.info("VLM evaluation service not available (missing config or API key)")
-            _vlm_evaluation_service = None
+            request.app.state.vlm_evaluation_service = None
 
-    if _vlm_evaluation_service is None:
+    if request.app.state.vlm_evaluation_service is None:
         return templates.TemplateResponse(
             request,
             "partials/vlm_results.html",
@@ -707,14 +712,14 @@ async def htmx_vlm_eval(request: Request) -> HTMLResponse:
             )
 
         # Load existing evaluations for idempotency
-        existing_evaluations = repo.get_evaluations_or_empty()
+        existing_evaluations = request.app.state.repo.get_evaluations_or_empty()
         existing_keys = {(e.sample_id, e.vlm_model_id) for e in existing_evaluations}
 
         # Evaluate both samples (skips already-evaluated pairs)
-        new_results_a = await _vlm_evaluation_service.evaluate_sample_all_models(
+        new_results_a = await request.app.state.vlm_evaluation_service.evaluate_sample_all_models(
             sample_a, existing_keys
         )
-        new_results_b = await _vlm_evaluation_service.evaluate_sample_all_models(
+        new_results_b = await request.app.state.vlm_evaluation_service.evaluate_sample_all_models(
             sample_b, existing_keys
         )
 
@@ -753,27 +758,27 @@ async def htmx_vlm_eval(request: Request) -> HTMLResponse:
 
 
 @app.get("/api/analytics", response_model=AnalyticsResponse)
-async def get_analytics() -> AnalyticsResponse:
+async def get_analytics(request: Request) -> AnalyticsResponse:
     """Get complete analytics data for the leaderboard and stability metrics.
 
     Returns leaderboard rankings, stability metrics, ELO history over time,
     and head-to-head comparison matrix.
     """
-    return analytics_service.get_analytics_data()
+    return request.app.state.analytics_service.get_analytics_data()
 
 
 @app.get("/api/vlm-accuracy", response_model=VLMAccuracyResponse)
-async def get_vlm_accuracy() -> VLMAccuracyResponse:
+async def get_vlm_accuracy(request: Request) -> VLMAccuracyResponse:
     """Get VLM accuracy statistics per model and category.
 
     Returns accuracy statistics from vlm_evaluations.jsonl,
     broken down by model and category.
     """
-    return analytics_service.get_vlm_accuracy_data()
+    return request.app.state.analytics_service.get_vlm_accuracy_data()
 
 
 @app.get("/api/elo-vlm-correlation", response_model=EloVLMCorrelationResponse)
-async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
+async def get_elo_vlm_correlation(request: Request) -> EloVLMCorrelationResponse:
     """Get Elo ratings and VLM accuracy per model for correlation analysis.
 
     Returns correlation data between human Elo ratings and VLM recognition rates.
@@ -786,7 +791,7 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
         HTTPException: 500 if data files are malformed
     """
     try:
-        evaluations = repo.get_evaluations()
+        evaluations = request.app.state.repo.get_evaluations()
     except FileNotFoundError:
         evaluations = []
     except Exception as e:
@@ -820,7 +825,7 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
         return EloVLMCorrelationResponse(correlation_coefficient=None, data=[])
 
     elo_ratings = rankings_data["overall_ratings"]
-    vlm_accuracy = analytics_service.get_vlm_accuracy_by_model()
+    vlm_accuracy = request.app.state.analytics_service.get_vlm_accuracy_by_model()
 
     model_lookup: dict[str, Model] = {m.id: m for m in models}
 
@@ -845,7 +850,7 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
             elo_values.append(elo_rating)
             accuracy_values.append(accuracy)
 
-    correlation_coefficient = analytics_service.calculate_pearson_correlation(
+    correlation_coefficient = request.app.state.analytics_service.calculate_pearson_correlation(
         elo_values, accuracy_values
     )
 
@@ -859,7 +864,7 @@ async def get_elo_vlm_correlation() -> EloVLMCorrelationResponse:
 async def htmx_get_analytics(request: Request) -> HTMLResponse:
     """HTMX endpoint to get analytics dashboard as HTML fragment."""
     try:
-        analytics = analytics_service.get_analytics_data()
+        analytics = request.app.state.analytics_service.get_analytics_data()
 
         if not analytics.leaderboard:
             return templates.TemplateResponse(
@@ -938,7 +943,7 @@ async def htmx_get_vlm_accuracy(request: Request) -> HTMLResponse:
         model_lookup: dict[str, Model] = {m.id: m for m in models}
 
         # Get VLM accuracy data from service
-        vlm_response = analytics_service.get_vlm_accuracy_data()
+        vlm_response = request.app.state.analytics_service.get_vlm_accuracy_data()
         by_model = vlm_response.by_model
 
         if not by_model:
@@ -981,7 +986,7 @@ async def htmx_get_elo_vlm_correlation(request: Request) -> HTMLResponse:
     """HTMX endpoint to get Elo-VLM correlation chart as HTML fragment."""
     try:
         # Get correlation data from API endpoint
-        correlation_response = await get_elo_vlm_correlation()
+        correlation_response = await get_elo_vlm_correlation(request)
 
         # Convert correlation data to JSON for Chart.js
         correlation_json = json.dumps(
