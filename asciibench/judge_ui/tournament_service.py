@@ -95,16 +95,40 @@ class TournamentService:
             logger.info(f"Created round 1 with {len(self._current_round.matchups)} matchups")
 
         if self._current_round is not None and not self._current_round.generation_complete:
-            self._generation_total = len(self._current_round.matchups)
-            samples = self.repo.get_all_samples_or_empty()
-            self._current_round = await self.generation_service.ensure_samples_for_round(
-                self._current_round, samples
-            )
-            self._generation_completed = self._generation_total
-            self._persist_round_state(self._current_round)
+            self._start_initial_generation()
 
         if self._next_round is None and self._current_round is not None:
             self._start_background_generation()
+
+    def _start_initial_generation(self) -> None:
+        """Start background initial generation for the current round."""
+        if self._initial_generation_task is not None and not self._initial_generation_task.done():
+            logger.debug("Initial generation already in progress")
+            return
+
+        async def generate_initial_round() -> None:
+            try:
+                if self._current_round is None:
+                    return
+
+                self._generation_total = len(self._current_round.matchups)
+                self._generation_completed = 0
+                samples = self.repo.get_all_samples_or_empty()
+
+                self._current_round = await self.generation_service.ensure_samples_for_round(
+                    self._current_round, samples, on_matchup_ready=None
+                )
+
+                self._generation_completed = self._generation_total
+                self._persist_round_state(self._current_round)
+
+                logger.info(
+                    f"Initial generation complete for round {self._current_round.round_number}"
+                )
+            except Exception as e:
+                logger.error(f"Error in initial generation: {e}")
+
+        self._initial_generation_task = asyncio.create_task(generate_initial_round())
 
     def _load_latest_round(self) -> RoundState | None:
         """Load the latest round from rounds.jsonl.
@@ -393,6 +417,14 @@ class TournamentService:
 
     async def shutdown(self) -> None:
         """Shut down the tournament service and cancel background tasks."""
+        if self._initial_generation_task is not None and not self._initial_generation_task.done():
+            self._initial_generation_task.cancel()
+            try:
+                await self._initial_generation_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Initial generation task cancelled")
+
         if self._background_task is not None and not self._background_task.done():
             self._background_task.cancel()
             try:

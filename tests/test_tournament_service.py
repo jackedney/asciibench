@@ -70,7 +70,7 @@ class TestInitialize:
         """Test initialize() with no existing rounds.jsonl creates round 1 with all random pairs."""
         service._rounds_path = tmp_path / "rounds.jsonl"
 
-        def ensure_samples_for_round_impl(round_state, samples):
+        def ensure_samples_for_round_impl(round_state, samples, on_matchup_ready=None):
             """Mock implementation that marks generation complete."""
             updated_matchups = []
             for matchup in round_state.matchups:
@@ -94,6 +94,9 @@ class TestInitialize:
 
         with patch.object(service, "_start_background_generation"):
             await service.initialize()
+
+        if service._initial_generation_task is not None:
+            await service._initial_generation_task
 
         assert service._current_round is not None
         assert service._current_round.round_number == 1
