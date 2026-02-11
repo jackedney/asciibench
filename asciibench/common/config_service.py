@@ -42,6 +42,7 @@ Singleton pattern:
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
@@ -129,39 +130,14 @@ class ModelsConfig(BaseModel):
 class ConfigCache:
     """Cache for loaded configuration data.
 
+    Uses a dict-based cache keyed by file path to avoid field bloat.
+    Each path maps to the parsed configuration object.
+
     Attributes:
-        models: Cached list of Model objects
-        prompts: Cached list of Prompt objects
-        evaluator_config: Cached EvaluatorConfig
-        app_config: Cached GenerationConfig
-        tournament_config: Cached TournamentConfig
-        models_loaded: Flag indicating if models have been loaded
-        models_loaded_path: Path from which models were loaded
-        prompts_loaded: Flag indicating if prompts have been loaded
-        prompts_loaded_path: Path from which prompts were loaded
-        evaluator_config_loaded: Flag indicating if evaluator config has been loaded
-        evaluator_config_loaded_path: Path from which evaluator config was loaded
-        app_config_loaded: Flag indicating if app config has been loaded
-        app_config_loaded_path: Path from which app config was loaded
-        tournament_config_loaded: Flag indicating if tournament config has been loaded
-        tournament_config_loaded_path: Path from which tournament config was loaded
+        cache: Dictionary mapping file paths to loaded configuration objects.
     """
 
-    models: list[Model] = field(default_factory=list)
-    prompts: list[Prompt] = field(default_factory=list)
-    evaluator_config: EvaluatorConfig = field(default_factory=EvaluatorConfig)
-    app_config: GenerationConfig = field(default_factory=GenerationConfig)
-    tournament_config: TournamentConfig = field(default_factory=TournamentConfig)
-    models_loaded: bool = False
-    models_loaded_path: str | None = None
-    prompts_loaded: bool = False
-    prompts_loaded_path: str | None = None
-    evaluator_config_loaded: bool = False
-    evaluator_config_loaded_path: str | None = None
-    app_config_loaded: bool = False
-    app_config_loaded_path: str | None = None
-    tournament_config_loaded: bool = False
-    tournament_config_loaded_path: str | None = None
+    cache: dict[str, Any] = field(default_factory=dict)
 
 
 class ConfigService:
@@ -218,6 +194,52 @@ class ConfigService:
         """Initialize ConfigService (noop for singleton)."""
         pass
 
+    def _load_yaml_config(
+        self,
+        path: str,
+        file_name: str,
+        parser_fn: Callable[[dict[str, Any]], Any],
+        cache_key: str | None = None,
+    ) -> Any:
+        """Generic helper for loading YAML configuration files with caching.
+
+        Args:
+            path: Path to the YAML file
+            file_name: Name of the file for error messages (e.g., 'models.yaml')
+            parser_fn: Function to parse the loaded data into the final config object
+            cache_key: Optional custom cache key (defaults to path if not provided)
+
+        Returns:
+            The parsed and cached configuration object.
+
+        Raises:
+            ConfigServiceError: If the file is not found or invalid
+        """
+        key = cache_key if cache_key is not None else path
+        if key not in self._cache.cache:
+            try:
+                with Path(path).open() as f:
+                    data = yaml.safe_load(f)
+                if data is None:
+                    data = {}
+                elif not isinstance(data, dict):
+                    raise ValueError(
+                        f"{path}: expected a YAML mapping at the root, got {type(data).__name__}"
+                    )
+                parsed_value = parser_fn(data)
+                self._cache.cache[key] = parsed_value
+                logger.debug(f"Loaded {file_name} from {path}")
+            except FileNotFoundError as e:
+                raise ConfigServiceError(f"{file_name} not found: {path}") from e
+            except ValidationError as e:
+                raise ConfigServiceError(f"Invalid {file_name} structure: {e}") from e
+            except ValueError as e:
+                raise ConfigServiceError(f"Invalid {file_name} structure: {e}") from e
+            except yaml.YAMLError as e:
+                raise ConfigServiceError(f"Malformed YAML in {file_name}: {e}") from e
+
+        return self._cache.cache[key]
+
     def get_models(self, path: str = "models.yaml") -> list[Model]:
         """Get validated list of model configurations.
 
@@ -240,24 +262,12 @@ class ConfigService:
             >>> for model in models:
             ...     print(f"{model.name}: {model.id}")
         """
-        if not self._cache.models_loaded or self._cache.models_loaded_path != path:
-            try:
-                with Path(path).open() as f:
-                    data = yaml.safe_load(f)
-                # Handle non-dict data (e.g., scalar or list) by using empty dict
-                if not isinstance(data, dict):
-                    data = {}
-                models_config = ModelsConfig(**data)
-                self._cache.models = [Model(**model_dict) for model_dict in models_config.models]
-                self._cache.models_loaded = True
-                self._cache.models_loaded_path = path
-                logger.debug(f"Loaded {len(self._cache.models)} models from {path}")
-            except FileNotFoundError as e:
-                raise ConfigServiceError(f"models.yaml not found: {path}") from e
-            except ValidationError as e:
-                raise ConfigServiceError(f"Invalid models.yaml structure: {e}") from e
 
-        return self._cache.models
+        def parse_models(data: dict[str, Any]) -> list[Model]:
+            models_config = ModelsConfig(**data)
+            return [Model(**model_dict) for model_dict in models_config.models]
+
+        return self._load_yaml_config(path, "models.yaml", parse_models)
 
     def get_prompts(self, path: str = "prompts.yaml") -> list[Prompt]:
         """Get validated list of prompts (expanded from templates).
@@ -282,35 +292,15 @@ class ConfigService:
             >>> for prompt in prompts:
             ...     print(f"[{prompt.category}] {prompt.text}")
         """
-        if not self._cache.prompts_loaded or self._cache.prompts_loaded_path != path:
-            try:
-                with Path(path).open() as f:
-                    data = yaml.safe_load(f)
-                # Handle non-dict data (e.g., scalar or list) by using empty dict
-                if not isinstance(data, dict):
-                    data = {}
-                prompts_config = PromptsConfig(**data)
 
-                # Legacy format: direct prompts list
-                if prompts_config.prompts is not None:
-                    self._cache.prompts = [
-                        Prompt(**prompt_dict) for prompt_dict in prompts_config.prompts
-                    ]
-                else:
-                    # Template format: expand templates using word lists
-                    self._cache.prompts = self._expand_templates(
-                        prompts_config.templates, prompts_config.word_lists
-                    )
+        def parse_prompts(data: dict[str, Any]) -> list[Prompt]:
+            prompts_config = PromptsConfig(**data)
+            if prompts_config.prompts is not None:
+                return [Prompt(**prompt_dict) for prompt_dict in prompts_config.prompts]
+            else:
+                return self._expand_templates(prompts_config.templates, prompts_config.word_lists)
 
-                self._cache.prompts_loaded = True
-                self._cache.prompts_loaded_path = path
-                logger.debug(f"Loaded {len(self._cache.prompts)} prompts from {path}")
-            except FileNotFoundError as e:
-                raise ConfigServiceError(f"prompts.yaml not found: {path}") from e
-            except ValidationError as e:
-                raise ConfigServiceError(f"Invalid prompts.yaml structure: {e}") from e
-
-        return self._cache.prompts
+        return self._load_yaml_config(path, "prompts.yaml", parse_prompts)
 
     def _expand_templates(
         self, templates: list[TemplateDefinition], word_lists: WordLists
@@ -406,28 +396,12 @@ class ConfigService:
             >>> print(f"VLM models: {eval_config.vlm_models}")
             >>> print(f"Threshold: {eval_config.similarity_threshold}")
         """
-        if (
-            not self._cache.evaluator_config_loaded
-            or self._cache.evaluator_config_loaded_path != path
-        ):
-            try:
-                with Path(path).open() as f:
-                    data = yaml.safe_load(f)
-                # Handle None or non-dict data by constructing default config
-                if not isinstance(data, dict):
-                    self._cache.evaluator_config = EvaluatorConfig()
-                else:
-                    evaluator_data = data.get("evaluator", {})
-                    self._cache.evaluator_config = EvaluatorConfig(**evaluator_data)
-                self._cache.evaluator_config_loaded = True
-                self._cache.evaluator_config_loaded_path = path
-                logger.debug(f"Loaded evaluator config from {path}")
-            except FileNotFoundError as e:
-                raise ConfigServiceError(f"evaluator_config.yaml not found: {path}") from e
-            except ValidationError as e:
-                raise ConfigServiceError(f"Invalid evaluator_config.yaml structure: {e}") from e
 
-        return self._cache.evaluator_config
+        def parse_evaluator_config(data: dict[str, Any]) -> EvaluatorConfig:
+            evaluator_data = data.get("evaluator", {})
+            return EvaluatorConfig(**evaluator_data)
+
+        return self._load_yaml_config(path, "evaluator_config.yaml", parse_evaluator_config)
 
     def get_app_config(self, path: str = "config.yaml") -> GenerationConfig:
         """Get validated application/generation configuration.
@@ -452,25 +426,12 @@ class ConfigService:
             >>> print(f"Max tokens: {app_config.max_tokens}")
             >>> print(f"Attempts per prompt: {app_config.attempts_per_prompt}")
         """
-        if not self._cache.app_config_loaded or self._cache.app_config_loaded_path != path:
-            try:
-                with Path(path).open() as f:
-                    data = yaml.safe_load(f)
-                # Handle None or non-dict data by constructing default config
-                if not isinstance(data, dict):
-                    self._cache.app_config = GenerationConfig()
-                else:
-                    generation_data = data.get("generation", {})
-                    self._cache.app_config = GenerationConfig(**generation_data)
-                self._cache.app_config_loaded = True
-                self._cache.app_config_loaded_path = path
-                logger.debug(f"Loaded app config from {path}")
-            except FileNotFoundError as e:
-                raise ConfigServiceError(f"config.yaml not found: {path}") from e
-            except ValidationError as e:
-                raise ConfigServiceError(f"Invalid config.yaml structure: {e}") from e
 
-        return self._cache.app_config
+        def parse_app_config(data: dict[str, Any]) -> GenerationConfig:
+            generation_data = data.get("generation", {})
+            return GenerationConfig(**generation_data)
+
+        return self._load_yaml_config(path, "config.yaml", parse_app_config, f"{path}:generation")
 
     def get_tournament_config(self, path: str = "config.yaml") -> TournamentConfig:
         """Get validated tournament configuration.
@@ -493,28 +454,14 @@ class ConfigService:
             >>> tournament_config = config.get_tournament_config()
             >>> print(f"Round size: {tournament_config.round_size}")
         """
-        if (
-            not self._cache.tournament_config_loaded
-            or self._cache.tournament_config_loaded_path != path
-        ):
-            try:
-                with Path(path).open() as f:
-                    data = yaml.safe_load(f)
-                # Handle None or non-dict data by constructing default config
-                if not isinstance(data, dict):
-                    self._cache.tournament_config = TournamentConfig()
-                else:
-                    tournament_data = data.get("tournament", {})
-                    self._cache.tournament_config = TournamentConfig(**tournament_data)
-                self._cache.tournament_config_loaded = True
-                self._cache.tournament_config_loaded_path = path
-                logger.debug(f"Loaded tournament config from {path}")
-            except FileNotFoundError as e:
-                raise ConfigServiceError(f"config.yaml not found: {path}") from e
-            except ValidationError as e:
-                raise ConfigServiceError(f"Invalid config.yaml structure: {e}") from e
 
-        return self._cache.tournament_config
+        def parse_tournament_config(data: dict[str, Any]) -> TournamentConfig:
+            tournament_data = data.get("tournament", {})
+            return TournamentConfig(**tournament_data)
+
+        return self._load_yaml_config(
+            path, "config.yaml", parse_tournament_config, f"{path}:tournament"
+        )
 
     def clear_cache(self) -> None:
         """Clear all cached configuration data.
@@ -529,5 +476,5 @@ class ConfigService:
             >>> config.clear_cache()
             >>> models = config.get_models()  # Reloads from file
         """
-        self._cache = ConfigCache()
+        self._cache.cache.clear()
         logger.debug("Configuration cache cleared")

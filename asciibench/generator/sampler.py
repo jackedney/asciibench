@@ -132,6 +132,49 @@ def _create_error_sample(task: SampleTask) -> ArtSample:
     )
 
 
+def _handle_generation_error(
+    task: SampleTask,
+    exception: Exception,
+) -> tuple[ArtSample, str]:
+    """Handle generation errors with logging and error message generation.
+
+    Args:
+        task: Sample task with model, prompt, and attempt info
+        exception: The exception that was raised
+
+    Returns:
+        Tuple of (error_sample, error_message)
+    """
+    exception_type = type(exception)
+    error_info_map: dict[type[Exception], tuple[str, str]] = {
+        RateLimitError: ("Rate limited after retries", "RateLimitError"),
+        AuthenticationError: ("Authentication failed", "AuthenticationError"),
+        TransientError: ("Transient error encountered", "TransientError"),
+        ModelError: ("Model error encountered", "ModelError"),
+        OpenRouterClientError: ("OpenRouter client error", "OpenRouterClientError"),
+    }
+
+    log_message, error_prefix = error_info_map.get(
+        exception_type,
+        ("Unexpected exception", f"Unexpected {exception_type.__name__}"),
+    )
+
+    sample = _create_error_sample(task)
+    log_context = {
+        "model": task.model.id,
+        "attempt": task.attempt,
+        "error": str(exception),
+    }
+    if log_message == "Unexpected exception":
+        log_context["error_type"] = exception_type.__name__
+        log_context["traceback"] = traceback.format_exc()
+
+    logger.error(log_message, log_context)
+    error_message = f"{error_prefix}: {exception}"
+
+    return sample, error_message
+
+
 async def _generate_single_sample(
     client: OpenRouterClient,
     task: SampleTask,
@@ -147,29 +190,50 @@ async def _generate_single_sample(
     Returns:
         Tuple of (ArtSample, duration_ms, error_message)
     """
-    # Generate and set request_id for this sample generation
     request_id = generate_id()
     set_request_id(request_id)
 
-    span = None
+    start_time = time.perf_counter()
+    error_message = None
+
     if is_logfire_enabled():
         import logfire
 
         prompt_id = f"{task.model.id}_{task.prompt.text}_{task.attempt}"
-        span = logfire.span(
+        with logfire.span(
             "sample.generate",
             prompt_id=prompt_id,
             model_id=task.model.id,
             attempt_number=task.attempt,
             run_id=get_run_id(),
             request_id=request_id,
-        )
-        span.__enter__()
+        ) as span:
+            try:
+                response = await client.generate_async(
+                    model_id=task.model.id,
+                    prompt=task.prompt.text,
+                    config=config,
+                )
+                raw_output = response.text
+                sanitized_output = extract_ascii_from_markdown(raw_output)
+                is_valid = _validate_output(raw_output, sanitized_output, config.max_tokens)
 
-    try:
-        start_time = time.perf_counter()
-        error_message = None
-
+                sample = ArtSample(
+                    model_id=task.model.id,
+                    prompt_text=task.prompt.text,
+                    category=task.prompt.category,
+                    attempt_number=task.attempt,
+                    raw_output=raw_output,
+                    sanitized_output=sanitized_output,
+                    is_valid=is_valid,
+                    output_tokens=response.completion_tokens,
+                    cost=response.cost,
+                )
+            except Exception as e:
+                sample, error_message = _handle_generation_error(task, e)
+                span.record_exception(e)
+                span.set_attribute("error_message", error_message)
+    else:
         try:
             response = await client.generate_async(
                 model_id=task.model.id,
@@ -191,96 +255,11 @@ async def _generate_single_sample(
                 output_tokens=response.completion_tokens,
                 cost=response.cost,
             )
-        except RateLimitError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Rate limited after retries",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"RateLimitError: {e}"
-            if span is not None:
-                span.record_exception(e)
-        except AuthenticationError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Authentication failed",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"AuthenticationError: {e}"
-            if span is not None:
-                span.record_exception(e)
-        except TransientError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Transient error encountered",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"TransientError: {e}"
-            if span is not None:
-                span.record_exception(e)
-        except ModelError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Model error encountered",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"ModelError: {e}"
-            if span is not None:
-                span.record_exception(e)
-        except OpenRouterClientError as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "OpenRouter client error",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error": str(e),
-                },
-            )
-            error_message = f"OpenRouterClientError: {e}"
-            if span is not None:
-                span.record_exception(e)
         except Exception as e:
-            sample = _create_error_sample(task)
-            logger.error(
-                "Unexpected exception",
-                {
-                    "model": task.model.id,
-                    "attempt": task.attempt,
-                    "error_type": type(e).__name__,
-                    "error": str(e),
-                    "traceback": traceback.format_exc(),
-                },
-            )
-            error_message = f"Unexpected {type(e).__name__}: {e}"
-            if span is not None:
-                span.record_exception(e)
+            sample, error_message = _handle_generation_error(task, e)
 
-        end_time = time.perf_counter()
-        duration_ms = (end_time - start_time) * 1000
-
-        if span is not None:
-            if error_message:
-                span.set_attribute("error_message", error_message)
-    finally:
-        if span is not None:
-            span.__exit__(None, None, None)
+    end_time = time.perf_counter()
+    duration_ms = (end_time - start_time) * 1000
 
     return sample, duration_ms, error_message
 
@@ -526,8 +505,6 @@ def generate_samples(
     Returns:
         List of newly generated ArtSample objects (excludes existing samples)
     """
-    span = None
-
     if get_run_id() is None:
         run_id = generate_id()
         set_run_id(run_id)
@@ -538,17 +515,13 @@ def generate_samples(
         total_tasks = len(models) * len(prompts) * config.attempts_per_prompt
         model_ids = [m.id for m in models]
 
-        span = logfire.span(
+        with logfire.span(
             "batch.generate",
             total_tasks=total_tasks,
             max_concurrent_requests=config.max_concurrent_requests,
             model_ids=model_ids,
             run_id=get_run_id(),
-        )
-        span.__enter__()
-
-    try:
-        try:
+        ):
             return asyncio.run(
                 generate_samples_async(
                     models=models,
@@ -561,10 +534,16 @@ def generate_samples(
                     stats_callback=stats_callback,
                 )
             )
-        except Exception as e:
-            if span is not None:
-                span.record_exception(e)
-            raise
-    finally:
-        if span is not None:
-            span.__exit__(None, None, None)
+    else:
+        return asyncio.run(
+            generate_samples_async(
+                models=models,
+                prompts=prompts,
+                config=config,
+                database_path=database_path,
+                client=client,
+                settings=settings,
+                progress_callback=progress_callback,
+                stats_callback=stats_callback,
+            )
+        )

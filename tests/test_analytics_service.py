@@ -9,6 +9,7 @@ import pytest
 from asciibench.common.models import ArtSample, VLMEvaluation, Vote
 from asciibench.common.repository import DataRepository
 from asciibench.judge_ui.analytics_service import AnalyticsService
+from asciibench.judge_ui.api_models import CategoryAccuracyStats, ModelAccuracyStats
 
 
 @pytest.fixture
@@ -389,7 +390,9 @@ class TestCalculateVLMAccuracy:
         self, service: AnalyticsService, sample_samples: list[ArtSample]
     ) -> None:
         """Test that VLM accuracy is empty with no evaluations."""
-        accuracy = service._calculate_vlm_accuracy([], sample_samples)
+        accuracy = service._calculate_accuracy_stats(
+            [], sample_samples, lambda s: s.model_id, ModelAccuracyStats
+        )
         assert accuracy == {}
 
     def test_calculate_vlm_accuracy_by_model(
@@ -399,7 +402,9 @@ class TestCalculateVLMAccuracy:
         sample_vlm_evaluations: list[VLMEvaluation],
     ) -> None:
         """Test that VLM accuracy is calculated per model."""
-        accuracy = service._calculate_vlm_accuracy(sample_vlm_evaluations, sample_samples)
+        accuracy = service._calculate_accuracy_stats(
+            sample_vlm_evaluations, sample_samples, lambda s: s.model_id, ModelAccuracyStats
+        )
 
         assert "model-a" in accuracy
         assert "model-b" in accuracy
@@ -433,7 +438,9 @@ class TestCalculateVLMAccuracy:
             ),
         ]
 
-        accuracy = service._calculate_vlm_accuracy(evaluations, sample_samples)
+        accuracy = service._calculate_accuracy_stats(
+            evaluations, sample_samples, lambda s: s.model_id, ModelAccuracyStats
+        )
 
         assert "model-a" in accuracy
         assert accuracy["model-a"].total == 2
@@ -455,7 +462,9 @@ class TestCalculateVLMAccuracy:
             )
         ]
 
-        accuracy = service._calculate_vlm_accuracy(evaluations, sample_samples)
+        accuracy = service._calculate_accuracy_stats(
+            evaluations, sample_samples, lambda s: s.model_id, ModelAccuracyStats
+        )
         assert accuracy == {}
 
     def test_calculate_vlm_accuracy_all_evaluations_incorrect(
@@ -474,7 +483,9 @@ class TestCalculateVLMAccuracy:
             )
         ]
 
-        accuracy = service._calculate_vlm_accuracy(evaluations, sample_samples)
+        accuracy = service._calculate_accuracy_stats(
+            evaluations, sample_samples, lambda s: s.model_id, ModelAccuracyStats
+        )
 
         if "model-a" in accuracy:
             assert accuracy["model-a"].accuracy == 0.0
@@ -487,7 +498,9 @@ class TestCalculateCategoryAccuracy:
         self, service: AnalyticsService, sample_samples: list[ArtSample]
     ) -> None:
         """Test that category accuracy is empty with no evaluations."""
-        accuracy = service._calculate_category_accuracy([], sample_samples)
+        accuracy = service._calculate_accuracy_stats(
+            [], sample_samples, lambda s: s.category, CategoryAccuracyStats
+        )
         assert accuracy == {}
 
     def test_calculate_category_accuracy_by_category(
@@ -497,7 +510,9 @@ class TestCalculateCategoryAccuracy:
         sample_vlm_evaluations: list[VLMEvaluation],
     ) -> None:
         """Test that category accuracy is calculated per category."""
-        accuracy = service._calculate_category_accuracy(sample_vlm_evaluations, sample_samples)
+        accuracy = service._calculate_accuracy_stats(
+            sample_vlm_evaluations, sample_samples, lambda s: s.category, CategoryAccuracyStats
+        )
 
         assert "single_animal" in accuracy
 
@@ -512,7 +527,9 @@ class TestCalculateCategoryAccuracy:
         sample_vlm_evaluations: list[VLMEvaluation],
     ) -> None:
         """Test that category accuracy handles multiple categories."""
-        accuracy = service._calculate_category_accuracy(sample_vlm_evaluations, sample_samples)
+        accuracy = service._calculate_accuracy_stats(
+            sample_vlm_evaluations, sample_samples, lambda s: s.category, CategoryAccuracyStats
+        )
 
         assert len(accuracy) > 0
 
@@ -526,12 +543,12 @@ class TestCalculatePearsonCorrelation:
 
     def test_calculate_pearson_correlation_empty_lists(self, service: AnalyticsService) -> None:
         """Test that Pearson correlation returns None for empty lists."""
-        result = service._calculate_pearson_correlation([], [])
+        result = service.calculate_pearson_correlation([], [])
         assert result is None
 
     def test_calculate_pearson_correlation_less_than_three(self, service: AnalyticsService) -> None:
         """Test that Pearson correlation returns None with fewer than 3 data points."""
-        result = service._calculate_pearson_correlation([1.0, 2.0], [2.0, 3.0])
+        result = service.calculate_pearson_correlation([1.0, 2.0], [2.0, 3.0])
         assert result is None
 
     def test_calculate_pearson_correlation_mismatched_lengths(
@@ -539,7 +556,7 @@ class TestCalculatePearsonCorrelation:
     ) -> None:
         """Test that Pearson correlation raises ValueError for mismatched lengths."""
         with pytest.raises(ValueError, match="Lists must have the same length"):
-            service._calculate_pearson_correlation([1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0])
+            service.calculate_pearson_correlation([1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0])
 
     def test_calculate_pearson_correlation_perfect_positive(
         self, service: AnalyticsService
@@ -548,7 +565,7 @@ class TestCalculatePearsonCorrelation:
         x = [1.0, 2.0, 3.0, 4.0, 5.0]
         y = [2.0, 4.0, 6.0, 8.0, 10.0]
 
-        result = service._calculate_pearson_correlation(x, y)
+        result = service.calculate_pearson_correlation(x, y)
         assert result is not None
         assert result == pytest.approx(1.0, 0.01)
 
@@ -559,7 +576,7 @@ class TestCalculatePearsonCorrelation:
         x = [1.0, 2.0, 3.0, 4.0, 5.0]
         y = [10.0, 8.0, 6.0, 4.0, 2.0]
 
-        result = service._calculate_pearson_correlation(x, y)
+        result = service.calculate_pearson_correlation(x, y)
         assert result is not None
         assert result == pytest.approx(-1.0, 0.01)
 
@@ -571,7 +588,7 @@ class TestCalculatePearsonCorrelation:
         x = [random.random() for _ in range(100)]
         y = [random.random() for _ in range(100)]
 
-        result = service._calculate_pearson_correlation(x, y)
+        result = service.calculate_pearson_correlation(x, y)
         assert result is not None
         assert result == pytest.approx(0.0, abs=0.3)
 
@@ -580,7 +597,7 @@ class TestCalculatePearsonCorrelation:
         x = [1.0, 1.0, 1.0, 1.0]
         y = [2.0, 3.0, 4.0, 5.0]
 
-        result = service._calculate_pearson_correlation(x, y)
+        result = service.calculate_pearson_correlation(x, y)
         assert result is None
 
     def test_calculate_pearson_correlation_valid_range(self, service: AnalyticsService) -> None:
@@ -588,7 +605,7 @@ class TestCalculatePearsonCorrelation:
         x = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
         y = [3.0, 5.0, 2.0, 8.0, 4.0, 7.0, 1.0, 6.0]
 
-        result = service._calculate_pearson_correlation(x, y)
+        result = service.calculate_pearson_correlation(x, y)
         assert result is not None
         assert -1.0 <= result <= 1.0
 

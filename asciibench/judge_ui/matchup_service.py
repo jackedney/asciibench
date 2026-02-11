@@ -47,11 +47,6 @@ class MatchupService:
         self._model_pair_selector = model_pair_selector or ModelPairSelector()
         self._sample_selector = sample_selector or SampleSelector()
 
-    @staticmethod
-    def _make_sorted_pair(a: str, b: str) -> tuple[str, str]:
-        """Create a sorted pair of strings for consistent ordering."""
-        return (a, b) if a <= b else (b, a)
-
     def _get_pair_comparison_counts(self, votes: list[Vote]) -> Counter[tuple[str, str]]:
         """Count comparisons for each ordered pair of samples.
 
@@ -61,7 +56,7 @@ class MatchupService:
         """
         counts: Counter[tuple[str, str]] = Counter()
         for vote in votes:
-            pair = self._make_sorted_pair(vote.sample_a_id, vote.sample_b_id)
+            pair = self._model_pair_selector._make_sorted_pair(vote.sample_a_id, vote.sample_b_id)
             counts[pair] += 1
         return counts
 

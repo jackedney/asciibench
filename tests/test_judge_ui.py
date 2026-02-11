@@ -36,11 +36,13 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     from asciibench.judge_ui.analytics_service import AnalyticsService
     from asciibench.judge_ui.progress_service import ProgressService
 
+    # Patch the constant path variables at module level
     monkeypatch.setattr(main_module, "DATA_DIR", tmp_path)
     monkeypatch.setattr(main_module, "DATABASE_PATH", tmp_path / "database.jsonl")
     monkeypatch.setattr(main_module, "VOTES_PATH", tmp_path / "votes.jsonl")
     monkeypatch.setattr(main_module, "VLM_EVALUATIONS_PATH", tmp_path / "vlm_evaluations.jsonl")
 
+    # Create services
     repo = DataRepository(data_dir=tmp_path)
     matchup_service = MatchupService(
         database_path=tmp_path / "database.jsonl", votes_path=tmp_path / "votes.jsonl"
@@ -48,12 +50,6 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     undo_service = UndoService(votes_path=tmp_path / "votes.jsonl")
     progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
     analytics_service = AnalyticsService(repo=repo)
-
-    monkeypatch.setattr(main_module, "repo", repo)
-    monkeypatch.setattr(main_module, "matchup_service", matchup_service)
-    monkeypatch.setattr(main_module, "undo_service", undo_service)
-    monkeypatch.setattr(main_module, "progress_service", progress_service)
-    monkeypatch.setattr(main_module, "analytics_service", analytics_service)
 
     # Create a mock tournament service for tests that need it
     class MockTournamentService:
@@ -63,7 +59,37 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         def get_round_progress(self):
             return {"round_number": 0, "judged_count": 0, "total_count": 0}
 
-    monkeypatch.setattr(main_module, "tournament_service", MockTournamentService())
+    tournament_service = MockTournamentService()
+
+    # Store services on the app's state (they're initialized in lifespan)
+    def override_app_state():
+        # Initialize basic app.state if not already done
+        if not hasattr(app.state, "repo"):
+            app.state.settings = main_module.Settings()
+            app.state.config_service = main_module.ConfigService()
+            app.state.tournament_config = app.state.config_service.get_tournament_config()
+            app.state.generation_config = app.state.config_service.get_app_config()
+            app.state.repo = repo
+            app.state.analytics_service = analytics_service
+            app.state.matchup_service = matchup_service
+            app.state.progress_service = progress_service
+            app.state.undo_service = undo_service
+            app.state.tournament_service = tournament_service
+            app.state.generation_service = None
+            app.state.openrouter_client = None
+            app.state.vlm_evaluation_service = None
+            app.state.vlm_init_attempted = True
+        else:
+            # Override existing app.state values
+            app.state.repo = repo
+            app.state.analytics_service = analytics_service
+            app.state.matchup_service = matchup_service
+            app.state.progress_service = progress_service
+            app.state.undo_service = undo_service
+            app.state.tournament_service = tournament_service
+
+    # Initialize app.state before any tests run
+    override_app_state()
 
     return tmp_path
 
@@ -379,7 +405,9 @@ class TestComparisonPrioritization:
         )
         counts = matchup_service._get_pair_comparison_counts([vote])
         # Pair should be stored in sorted order
-        expected_pair = matchup_service._make_sorted_pair("sample-1", "sample-2")
+        expected_pair = matchup_service._model_pair_selector._make_sorted_pair(
+            "sample-1", "sample-2"
+        )
         assert counts[expected_pair] == 1
 
     def test_get_pair_comparison_counts_normalizes_order(
@@ -391,7 +419,9 @@ class TestComparisonPrioritization:
             Vote(sample_a_id="sample-2", sample_b_id="sample-1", winner="B"),
         ]
         counts = matchup_service._get_pair_comparison_counts(votes)
-        expected_pair = matchup_service._make_sorted_pair("sample-1", "sample-2")
+        expected_pair = matchup_service._model_pair_selector._make_sorted_pair(
+            "sample-1", "sample-2"
+        )
         assert counts[expected_pair] == 2
         assert len(counts) == 1  # Only one unique pair
 
@@ -425,7 +455,7 @@ class TestComparisonPrioritization:
             winner="A",
         )
         counts = matchup_service._get_model_pair_comparison_counts([vote], samples)
-        expected_pair = matchup_service._make_sorted_pair("model-a", "model-b")
+        expected_pair = matchup_service._model_pair_selector._make_sorted_pair("model-a", "model-b")
         assert counts[expected_pair] == 1
 
     def test_select_matchup_prioritizes_less_compared(
@@ -463,14 +493,16 @@ class TestComparisonPrioritization:
         pair_counts: dict[tuple[str, str], int] = {}
         for _ in range(100):
             sample_a, sample_b = matchup_service._select_matchup(samples, votes)
-            pair = matchup_service._make_sorted_pair(sample_a.model_id, sample_b.model_id)
+            pair = matchup_service._model_pair_selector._make_sorted_pair(
+                sample_a.model_id, sample_b.model_id
+            )
             pair_counts[pair] = pair_counts.get(pair, 0) + 1
 
         # model-a vs model-b should be selected less often than other pairs
         # because they already have 10 comparisons
-        ab_pair = matchup_service._make_sorted_pair("model-a", "model-b")
-        ac_pair = matchup_service._make_sorted_pair("model-a", "model-c")
-        bc_pair = matchup_service._make_sorted_pair("model-b", "model-c")
+        ab_pair = matchup_service._model_pair_selector._make_sorted_pair("model-a", "model-b")
+        ac_pair = matchup_service._model_pair_selector._make_sorted_pair("model-a", "model-c")
+        bc_pair = matchup_service._model_pair_selector._make_sorted_pair("model-b", "model-c")
 
         # The less-compared pairs should dominate
         assert ab_pair not in pair_counts or pair_counts.get(ab_pair, 0) == 0
@@ -2276,13 +2308,13 @@ class TestVLMEvalEndpoint:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test that VLM eval endpoint returns graceful message when not configured."""
-        import asciibench.judge_ui.main as main_module
+        from asciibench.judge_ui.main import app
 
         populate_database(temp_data_dir, sample_data)
 
         # Simulate service already attempted and failed to initialize
-        monkeypatch.setattr(main_module, "_vlm_init_attempted", True)
-        monkeypatch.setattr(main_module, "_vlm_evaluation_service", None)
+        app.state.vlm_init_attempted = True
+        app.state.vlm_evaluation_service = None
 
         sample_a_id = str(sample_data[0].id)
         sample_b_id = str(sample_data[2].id)
@@ -2309,13 +2341,13 @@ class TestVLMEvalEndpoint:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test that VLM eval shows pre-existing evaluations when service not configured."""
-        import asciibench.judge_ui.main as main_module
+        from asciibench.judge_ui.main import app
 
         populate_database(temp_data_dir, sample_data)
 
         # Ensure VLM service is not configured
-        monkeypatch.setattr(main_module, "_vlm_init_attempted", True)
-        monkeypatch.setattr(main_module, "_vlm_evaluation_service", None)
+        app.state.vlm_init_attempted = True
+        app.state.vlm_evaluation_service = None
 
         sample_a_id = str(sample_data[0].id)
         sample_b_id = str(sample_data[2].id)

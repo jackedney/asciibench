@@ -84,16 +84,14 @@ class ModelPairSelector:
         ]
 
         min_count = float("inf")
+        least_compared_pairs: list[tuple[str, str]] = []
         for pair in model_pairs:
             sorted_pair = self._make_sorted_pair(pair[0], pair[1])
             count = model_pair_counts.get(sorted_pair, 0)
             if count < min_count:
                 min_count = count
-
-        least_compared_pairs = []
-        for pair in model_pairs:
-            sorted_pair = self._make_sorted_pair(pair[0], pair[1])
-            if model_pair_counts.get(sorted_pair, 0) == min_count:
+                least_compared_pairs = [pair]
+            elif count == min_count:
                 least_compared_pairs.append(pair)
 
         return least_compared_pairs

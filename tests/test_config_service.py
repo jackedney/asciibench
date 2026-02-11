@@ -56,7 +56,7 @@ class TestConfigServiceGetModels:
         )
 
         config_service = ConfigService()
-        config_service._cache.models_loaded = False
+        config_service.clear_cache()
         models = config_service.get_models(path=str(config_file))
 
         assert len(models) == 2
@@ -76,7 +76,7 @@ class TestConfigServiceGetModels:
         )
 
         config_service = ConfigService()
-        config_service._cache.models_loaded = False
+        config_service.clear_cache()
 
         models1 = config_service.get_models(path=str(config_file))
         models2 = config_service.get_models(path=str(config_file))
@@ -86,7 +86,7 @@ class TestConfigServiceGetModels:
     def test_get_models_file_not_found(self, tmp_path):
         """Test that FileNotFoundError raises ConfigServiceError."""
         config_service = ConfigService()
-        config_service._cache.models_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_models(path=str(tmp_path / "nonexistent.yaml"))
@@ -104,7 +104,7 @@ class TestConfigServiceGetModels:
         )
 
         config_service = ConfigService()
-        config_service._cache.models_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_models(path=str(config_file))
@@ -131,7 +131,7 @@ class TestConfigServiceGetPrompts:
         )
 
         config_service = ConfigService()
-        config_service._cache.prompts_loaded = False
+        config_service.clear_cache()
         prompts = config_service.get_prompts(path=str(config_file))
 
         assert len(prompts) == 2
@@ -156,7 +156,7 @@ templates:
         )
 
         config_service = ConfigService()
-        config_service._cache.prompts_loaded = False
+        config_service.clear_cache()
         prompts = config_service.get_prompts(path=str(config_file))
 
         assert len(prompts) == 2
@@ -181,7 +181,7 @@ templates:
         )
 
         config_service = ConfigService()
-        config_service._cache.prompts_loaded = False
+        config_service.clear_cache()
         prompts = config_service.get_prompts(path=str(config_file))
 
         assert len(prompts) == 2
@@ -200,7 +200,7 @@ templates:
         )
 
         config_service = ConfigService()
-        config_service._cache.prompts_loaded = False
+        config_service.clear_cache()
 
         prompts1 = config_service.get_prompts(path=str(config_file))
         prompts2 = config_service.get_prompts(path=str(config_file))
@@ -210,7 +210,7 @@ templates:
     def test_get_prompts_file_not_found(self, tmp_path):
         """Test that FileNotFoundError raises ConfigServiceError."""
         config_service = ConfigService()
-        config_service._cache.prompts_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_prompts(path=str(tmp_path / "nonexistent.yaml"))
@@ -228,7 +228,7 @@ templates:
         )
 
         config_service = ConfigService()
-        config_service._cache.prompts_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_prompts(path=str(config_file))
@@ -254,7 +254,7 @@ templates:
         )
 
         config_service = ConfigService()
-        config_service._cache.prompts_loaded = False
+        config_service.clear_cache()
         prompts = config_service.get_prompts(path=str(config_file))
 
         assert len(prompts) == 1
@@ -277,7 +277,7 @@ templates:
         )
 
         config_service = ConfigService()
-        config_service._cache.prompts_loaded = False
+        config_service.clear_cache()
         prompts = config_service.get_prompts(path=str(config_file))
 
         assert len(prompts) == 1
@@ -301,7 +301,7 @@ class TestConfigServiceGetEvaluatorConfig:
         )
 
         config_service = ConfigService()
-        config_service._cache.evaluator_config_loaded = False
+        config_service.clear_cache()
         eval_config = config_service.get_evaluator_config(path=str(config_file))
 
         assert eval_config.vlm_models == ["openai/gpt-4o", "anthropic/claude-3.5-sonnet"]
@@ -319,7 +319,7 @@ class TestConfigServiceGetEvaluatorConfig:
         )
 
         config_service = ConfigService()
-        config_service._cache.evaluator_config_loaded = False
+        config_service.clear_cache()
         eval_config = config_service.get_evaluator_config(path=str(config_file))
 
         assert eval_config.similarity_threshold == 0.7  # Default value
@@ -336,7 +336,7 @@ class TestConfigServiceGetEvaluatorConfig:
         )
 
         config_service = ConfigService()
-        config_service._cache.evaluator_config_loaded = False
+        config_service.clear_cache()
 
         config1 = config_service.get_evaluator_config(path=str(config_file))
         config2 = config_service.get_evaluator_config(path=str(config_file))
@@ -346,7 +346,7 @@ class TestConfigServiceGetEvaluatorConfig:
     def test_get_evaluator_config_file_not_found(self, tmp_path):
         """Test that FileNotFoundError raises ConfigServiceError."""
         config_service = ConfigService()
-        config_service._cache.evaluator_config_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_evaluator_config(path=str(tmp_path / "nonexistent.yaml"))
@@ -363,7 +363,7 @@ class TestConfigServiceGetEvaluatorConfig:
         )
 
         config_service = ConfigService()
-        config_service._cache.evaluator_config_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_evaluator_config(path=str(config_file))
@@ -380,7 +380,7 @@ class TestConfigServiceGetEvaluatorConfig:
         )
 
         config_service = ConfigService()
-        config_service._cache.evaluator_config_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_evaluator_config(path=str(config_file))
@@ -405,7 +405,7 @@ class TestConfigServiceGetAppConfig:
         )
 
         config_service = ConfigService()
-        config_service._cache.app_config_loaded = False
+        config_service.clear_cache()
         app_config = config_service.get_app_config(path=str(config_file))
 
         assert app_config.attempts_per_prompt == 10
@@ -424,7 +424,7 @@ class TestConfigServiceGetAppConfig:
         )
 
         config_service = ConfigService()
-        config_service._cache.app_config_loaded = False
+        config_service.clear_cache()
         app_config = config_service.get_app_config(path=str(config_file))
 
         assert app_config.attempts_per_prompt == 3  # Custom value
@@ -442,7 +442,7 @@ class TestConfigServiceGetAppConfig:
         )
 
         config_service = ConfigService()
-        config_service._cache.app_config_loaded = False
+        config_service.clear_cache()
 
         config1 = config_service.get_app_config(path=str(config_file))
         config2 = config_service.get_app_config(path=str(config_file))
@@ -452,7 +452,7 @@ class TestConfigServiceGetAppConfig:
     def test_get_app_config_file_not_found(self, tmp_path):
         """Test that FileNotFoundError raises ConfigServiceError."""
         config_service = ConfigService()
-        config_service._cache.app_config_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_app_config(path=str(tmp_path / "nonexistent.yaml"))
@@ -469,7 +469,7 @@ class TestConfigServiceGetAppConfig:
         )
 
         config_service = ConfigService()
-        config_service._cache.app_config_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_app_config(path=str(config_file))
@@ -492,7 +492,7 @@ tournament:
         )
 
         config_service = ConfigService()
-        config_service._cache.tournament_config_loaded = False
+        config_service.clear_cache()
         tournament_config = config_service.get_tournament_config(path=str(config_file))
 
         assert tournament_config.round_size == 5
@@ -507,7 +507,7 @@ tournament:
         )
 
         config_service = ConfigService()
-        config_service._cache.tournament_config_loaded = False
+        config_service.clear_cache()
         tournament_config = config_service.get_tournament_config(path=str(config_file))
 
         assert tournament_config.round_size == 10  # Default value
@@ -524,7 +524,7 @@ tournament:
         )
 
         config_service = ConfigService()
-        config_service._cache.tournament_config_loaded = False
+        config_service.clear_cache()
         tournament_config = config_service.get_tournament_config(path=str(config_file))
 
         assert tournament_config.round_size == 15
@@ -541,7 +541,7 @@ tournament:
         )
 
         config_service = ConfigService()
-        config_service._cache.tournament_config_loaded = False
+        config_service.clear_cache()
 
         config1 = config_service.get_tournament_config(path=str(config_file))
         config2 = config_service.get_tournament_config(path=str(config_file))
@@ -551,7 +551,7 @@ tournament:
     def test_get_tournament_config_file_not_found(self, tmp_path):
         """Test that FileNotFoundError raises ConfigServiceError."""
         config_service = ConfigService()
-        config_service._cache.tournament_config_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_tournament_config(path=str(tmp_path / "nonexistent.yaml"))
@@ -570,7 +570,7 @@ tournament:
         )
 
         config_service = ConfigService()
-        config_service._cache.tournament_config_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_tournament_config(path=str(config_file))
@@ -589,7 +589,7 @@ tournament:
         )
 
         config_service = ConfigService()
-        config_service._cache.tournament_config_loaded = False
+        config_service.clear_cache()
 
         with pytest.raises(ConfigServiceError) as exc_info:
             config_service.get_tournament_config(path=str(config_file))
@@ -611,7 +611,7 @@ class TestConfigServiceClearCache:
         )
 
         config_service = ConfigService()
-        config_service._cache.models_loaded = False
+        config_service.clear_cache()
 
         models1 = config_service.get_models(path=str(config_file))
         config_service.clear_cache()
@@ -631,7 +631,7 @@ class TestConfigServiceClearCache:
         )
 
         config_service = ConfigService()
-        config_service._cache.prompts_loaded = False
+        config_service.clear_cache()
 
         prompts1 = config_service.get_prompts(path=str(config_file))
         config_service.clear_cache()
@@ -650,7 +650,7 @@ class TestConfigServiceClearCache:
         )
 
         config_service = ConfigService()
-        config_service._cache.evaluator_config_loaded = False
+        config_service.clear_cache()
 
         config1 = config_service.get_evaluator_config(path=str(config_file))
         config_service.clear_cache()
@@ -668,7 +668,7 @@ class TestConfigServiceClearCache:
         )
 
         config_service = ConfigService()
-        config_service._cache.app_config_loaded = False
+        config_service.clear_cache()
 
         config1 = config_service.get_app_config(path=str(config_file))
         config_service.clear_cache()
@@ -688,7 +688,7 @@ tournament:
         )
 
         config_service = ConfigService()
-        config_service._cache.tournament_config_loaded = False
+        config_service.clear_cache()
 
         config1 = config_service.get_tournament_config(path=str(config_file))
         config_service.clear_cache()
@@ -770,6 +770,35 @@ class TestConfigModels:
         assert len(config.templates) == 1
 
 
+class TestCacheKeyCollision:
+    """Tests for cache key collision between config types."""
+
+    def test_get_app_and_tournament_config_no_cache_collision(self, tmp_path):
+        """Test that get_app_config and get_tournament_config don't collide when using same path."""
+        from asciibench.common.config import TournamentConfig
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            """generation:
+  attempts_per_prompt: 10
+  temperature: 0.7
+  max_tokens: 2000
+tournament:
+  round_size: 5
+"""
+        )
+
+        config_service = ConfigService()
+        config_service.clear_cache()
+
+        app_config = config_service.get_app_config(path=str(config_file))
+        tournament_config = config_service.get_tournament_config(path=str(config_file))
+
+        assert isinstance(app_config, GenerationConfig)
+        assert isinstance(tournament_config, TournamentConfig)
+        assert app_config is not tournament_config
+
+
 class TestConfigServiceIntegration:
     """Integration tests for ConfigService with real config files."""
 
@@ -797,3 +826,46 @@ class TestConfigServiceIntegration:
         # Load app config
         app_config = config_service.get_app_config()
         assert isinstance(app_config, GenerationConfig)
+
+    def test_cache_invalidation_with_different_paths(self, tmp_path):
+        """Test that loading from a different path refreshes the cache."""
+        config_file1 = tmp_path / "models-v1.yaml"
+        config_file1.write_text(
+            """models:
+  - id: test/model-v1
+    name: Test Model V1
+"""
+        )
+
+        config_file2 = tmp_path / "models-v2.yaml"
+        config_file2.write_text(
+            """models:
+  - id: test/model-v2
+    name: Test Model V2
+"""
+        )
+
+        config_service = ConfigService()
+        config_service.clear_cache()
+
+        # Load first config
+        models1 = config_service.get_models(path=str(config_file1))
+        assert len(models1) == 1
+        assert models1[0].id == "test/model-v1"
+        assert models1[0].name == "Test Model V1"
+
+        # Load second config - should return different data
+        models2 = config_service.get_models(path=str(config_file2))
+        assert len(models2) == 1
+        assert models2[0].id == "test/model-v2"
+        assert models2[0].name == "Test Model V2"
+
+        # Load first config again - should return cached V1 data
+        models1_again = config_service.get_models(path=str(config_file1))
+        assert models1 is models1_again
+        assert models1_again[0].id == "test/model-v1"
+
+        # Load second config again - should return cached V2 data
+        models2_again = config_service.get_models(path=str(config_file2))
+        assert models2 is models2_again
+        assert models2_again[0].id == "test/model-v2"

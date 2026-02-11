@@ -12,6 +12,7 @@ import json
 import traceback
 from datetime import datetime
 from pathlib import Path
+from string import Template
 
 from rich.panel import Panel
 from rich.text import Text
@@ -38,6 +39,7 @@ DEMO_OUTPUTS_DIR = Path(".demo_outputs")
 RESULTS_JSON_PATH = DEMO_OUTPUTS_DIR / "results.json"
 DEMO_HTML_PATH = DEMO_OUTPUTS_DIR / "demo.html"
 ERRORS_LOG_PATH = DEMO_OUTPUTS_DIR / "errors.log"
+TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates" / "demo"
 
 logger = get_logger("generator.demo")
 
@@ -299,6 +301,27 @@ def show_stats(success_count: int, failure_count: int, running_cost: float) -> N
     console.print(stats_text)
 
 
+def _read_template(template_name: str) -> str:
+    """Read a template file from the templates directory.
+
+    Args:
+        template_name: Name of the template file (e.g., 'demo.html')
+
+    Returns:
+        Template file contents as string
+
+    Raises:
+        FileNotFoundError: If template file does not exist
+    """
+    template_path = TEMPLATE_DIR / template_name
+    if not template_path.exists():
+        raise FileNotFoundError(
+            f"Template file not found: {template_path}. "
+            f"Please ensure the template directory exists at {TEMPLATE_DIR}"
+        )
+    return template_path.read_text(encoding="utf-8")
+
+
 def generate_html() -> None:
     """Generate HTML output from results.json.
 
@@ -313,6 +336,9 @@ def generate_html() -> None:
     - Responsive layout for mobile
 
     Empty results show 'No results yet' message.
+
+    Raises:
+        FileNotFoundError: If template files are missing
     """
     results = load_demo_results()
 
@@ -325,396 +351,38 @@ def generate_html() -> None:
     total_cost = sum(r.cost or 0 for r in results)
     valid_pct = (valid_count / total_count * 100) if total_count > 0 else 0
 
-    html_content = """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ASCIIBench Demo - Skeleton ASCII Art</title>
-    <style>
-        :root {
-            --bg-primary: #f8fafc;
-            --bg-card: #ffffff;
-            --bg-code: #1e293b;
-            --text-primary: #0f172a;
-            --text-secondary: #64748b;
-            --text-muted: #94a3b8;
-            --border-color: #e2e8f0;
-            --accent-green: #10b981;
-            --accent-green-bg: #d1fae5;
-            --accent-green-text: #065f46;
-            --accent-red: #ef4444;
-            --accent-red-bg: #fee2e2;
-            --accent-red-text: #991b1b;
-            --accent-blue: #3b82f6;
-            --accent-purple: #8b5cf6;
-            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-            --radius-sm: 6px;
-            --radius-md: 10px;
-            --radius-lg: 16px;
-            --transition: all 0.2s ease;
-        }
+    # Read base template
+    base_template_str = _read_template("demo.html")
+    base_template = Template(base_template_str)
 
-        * {
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-                "Helvetica Neue", Arial, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 24px;
-            line-height: 1.6;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-        }
-
-        header {
-            text-align: center;
-            margin-bottom: 32px;
-            padding: 40px 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow-lg);
-        }
-
-        h1 {
-            color: #fff;
-            margin: 0 0 8px 0;
-            font-size: 2rem;
-            font-weight: 700;
-            letter-spacing: -0.025em;
-        }
-
-        .subtitle {
-            color: rgba(255, 255, 255, 0.85);
-            font-size: 1rem;
-            margin: 0;
-        }
-
-        .stats-bar {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            justify-content: center;
-            margin-bottom: 24px;
-            padding: 20px;
-            background: var(--bg-card);
-            border-radius: var(--radius-md);
-            box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-color);
-        }
-
-        .stat {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: var(--bg-primary);
-            border-radius: var(--radius-sm);
-            font-size: 0.9rem;
-            font-weight: 500;
-        }
-
-        .stat-icon {
-            font-size: 1.1rem;
-        }
-
-        .stat-value {
-            font-weight: 700;
-            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
-        }
-
-        .stat.valid .stat-value { color: var(--accent-green); }
-        .stat.invalid .stat-value { color: var(--accent-red); }
-        .stat.cost .stat-value { color: var(--accent-purple); }
-
-        .progress-container {
-            width: 100%;
-            margin-top: 12px;
-            padding-top: 16px;
-            border-top: 1px solid var(--border-color);
-        }
-
-        .progress-label {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            margin-bottom: 6px;
-        }
-
-        .progress-bar {
-            height: 8px;
-            background: var(--accent-red-bg);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--accent-green) 0%, #34d399 100%);
-            border-radius: 4px;
-            transition: width 0.3s ease;
-        }
-
-        .filter-controls {
-            display: flex;
-            justify-content: center;
-            gap: 8px;
-            margin-bottom: 24px;
-        }
-
-        .filter-btn {
-            padding: 10px 20px;
-            font-size: 0.9rem;
-            font-weight: 500;
-            cursor: pointer;
-            border: 2px solid var(--border-color);
-            border-radius: var(--radius-sm);
-            background: var(--bg-card);
-            color: var(--text-secondary);
-            transition: var(--transition);
-        }
-
-        .filter-btn:hover {
-            border-color: var(--accent-blue);
-            color: var(--accent-blue);
-        }
-
-        .filter-btn.active {
-            background: var(--accent-blue);
-            border-color: var(--accent-blue);
-            color: #fff;
-        }
-
-        .models-container {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-        }
-
-        .no-results {
-            text-align: center;
-            padding: 60px 24px;
-            color: var(--text-secondary);
-            font-size: 1.1rem;
-            background: var(--bg-card);
-            border-radius: var(--radius-md);
-            border: 2px dashed var(--border-color);
-        }
-
-        .model-section {
-            background: var(--bg-card);
-            border-radius: var(--radius-md);
-            padding: 24px;
-            box-shadow: var(--shadow-sm);
-            border: 1px solid var(--border-color);
-            transition: var(--transition);
-        }
-
-        .model-section:hover {
-            box-shadow: var(--shadow-md);
-            transform: translateY(-2px);
-        }
-
-        .model-section.invalid {
-            border-left: 4px solid var(--accent-red);
-        }
-
-        .model-section.valid-model {
-            border-left: 4px solid var(--accent-green);
-        }
-
-        .model-section.hidden {
-            display: none;
-        }
-
-        .model-header {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .model-name {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin: 0;
-        }
-
-        .model-id {
-            color: var(--text-muted);
-            font-size: 0.85rem;
-            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
-        }
-
-        .model-meta {
-            display: flex;
-            gap: 16px;
-            margin-left: auto;
-            align-items: center;
-        }
-
-        .meta-item {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
-        }
-
-        .valid-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .valid-badge.valid {
-            background: var(--accent-green-bg);
-            color: var(--accent-green-text);
-        }
-
-        .valid-badge.invalid {
-            background: var(--accent-red-bg);
-            color: var(--accent-red-text);
-        }
-
-        pre {
-            font-family: 'SF Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
-            background: var(--bg-code);
-            color: #e2e8f0;
-            padding: 20px;
-            border-radius: var(--radius-sm);
-            overflow-x: auto;
-            white-space: pre;
-            font-size: 13px;
-            line-height: 1.4;
-            margin: 0;
-        }
-
-        .invalid pre {
-            background: #7f1d1d;
-            color: #fecaca;
-        }
-
-        .timestamp {
-            color: var(--text-muted);
-            font-size: 0.8rem;
-            margin-top: 12px;
-            text-align: right;
-        }
-
-        @media (max-width: 768px) {
-            body {
-                padding: 16px;
-            }
-
-            header {
-                padding: 24px 16px;
-            }
-
-            h1 {
-                font-size: 1.5rem;
-            }
-
-            .stats-bar {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .stat {
-                justify-content: space-between;
-            }
-
-            .model-header {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-
-            .model-meta {
-                margin-left: 0;
-                flex-wrap: wrap;
-            }
-
-            .filter-controls {
-                flex-wrap: wrap;
-            }
-        }
-    </style>
-</head>
-<body>
-    <header>
-        <h1>ASCIIBench Demo</h1>
-        <p class="subtitle">Skeleton ASCII Art Generation</p>
-    </header>
-"""
-
+    # Build content section
     if results:
-        html_content += f"""
-    <div class="stats-bar">
-        <div class="stat">
-            <span class="stat-icon">📊</span>
-            <span>Total:</span>
-            <span class="stat-value">{total_count}</span>
-        </div>
-        <div class="stat valid">
-            <span class="stat-icon">✓</span>
-            <span>Valid:</span>
-            <span class="stat-value">{valid_count}</span>
-        </div>
-        <div class="stat invalid">
-            <span class="stat-icon">✗</span>
-            <span>Invalid:</span>
-            <span class="stat-value">{invalid_count}</span>
-        </div>
-        <div class="stat cost">
-            <span class="stat-icon">💰</span>
-            <span>Total Cost:</span>
-            <span class="stat-value">${total_cost:.4f}</span>
-        </div>
-        <div class="progress-container">
-            <div class="progress-label">
-                <span>Success Rate</span>
-                <span>{valid_pct:.1f}%</span>
-            </div>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: {valid_pct}%"></div>
-            </div>
-        </div>
-    </div>
+        # Build stats bar
+        stats_bar_template_str = _read_template("stats_bar.html")
+        stats_bar_template = Template(stats_bar_template_str)
+        stats_bar_html = stats_bar_template.substitute(
+            total_count=str(total_count),
+            valid_count=str(valid_count),
+            invalid_count=str(invalid_count),
+            total_cost=f"${total_cost:.4f}",
+            valid_pct=f"{valid_pct:.1f}%",
+            progress_width=f"{valid_pct}%",
+        )
 
-    <div class="filter-controls">
-        <button class="filter-btn active" onclick="filterModels('all')">All ({total_count})</button>
-        <button class="filter-btn" onclick="filterModels('valid')">Valid ({valid_count})</button>
-        <button class="filter-btn" onclick="filterModels('invalid')">
-            Invalid ({invalid_count})</button>
-    </div>
+        # Build filter controls
+        filter_controls_template_str = _read_template("filter_controls.html")
+        filter_controls_template = Template(filter_controls_template_str)
+        filter_controls_html = filter_controls_template.substitute(
+            total_count=str(total_count),
+            valid_count=str(valid_count),
+            invalid_count=str(invalid_count),
+        )
 
-    <div class="models-container">
-"""
+        # Build model cards
+        model_card_template_str = _read_template("model_card.html")
+        model_card_template = Template(model_card_template_str)
 
-    if not results:
-        html_content += """
-    <div class="no-results">
-        No results yet. Run <code>task demo</code> to generate ASCII art samples.
-    </div>
-"""
-    else:
+        model_cards_html = ""
         for result in results:
             timestamp_str = result.timestamp.strftime("%Y-%m-%d %H:%M:%S")
             valid_class = "valid-model" if result.is_valid else "invalid"
@@ -726,51 +394,36 @@ def generate_html() -> None:
             tokens_str = f"{result.output_tokens}" if result.output_tokens is not None else "N/A"
             data_valid = "true" if result.is_valid else "false"
 
-            html_content += f"""
-        <div class="model-section {valid_class}" data-valid="{data_valid}">
-            <div class="model-header">
-                <h2 class="model-name">{result.model_name}</h2>
-                <span class="model-id">{result.model_id}</span>
-                <div class="model-meta">
-                    <span class="meta-item">💰 {cost_str}</span>
-                    <span class="meta-item">🔤 {tokens_str} tokens</span>
-                    <span class="valid-badge {badge_class}">{badge_icon} {badge_text}</span>
-                </div>
-            </div>
-            <pre>{escaped_output}</pre>
-            <div class="timestamp">Generated: {timestamp_str}</div>
-        </div>
-"""
+            model_card_html = model_card_template.substitute(
+                valid_class=valid_class,
+                data_valid=data_valid,
+                model_name=result.model_name,
+                model_id=result.model_id,
+                cost_str=cost_str,
+                tokens_str=tokens_str,
+                badge_class=badge_class,
+                badge_icon=badge_icon,
+                badge_text=badge_text,
+                escaped_output=escaped_output,
+                timestamp_str=timestamp_str,
+            )
+            model_cards_html += model_card_html
+    else:
+        # No results - show empty state
+        stats_bar_html = ""
+        filter_controls_html = ""
+        model_cards_html = _read_template("no_results.html")
 
+    # Combine stats and filters into a single placeholder content
+    stats_and_filters_html = ""
     if results:
-        html_content += """
-    </div>
-"""
+        stats_and_filters_html = stats_bar_html + "\n" + filter_controls_html + "\n"
 
-    html_content += """
-    <script>
-        function filterModels(status) {
-            const sections = document.querySelectorAll('.model-section');
-            const buttons = document.querySelectorAll('.filter-btn');
-
-            buttons.forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-
-            sections.forEach(section => {
-                const isValid = section.dataset.valid === 'true';
-                if (status === 'all') {
-                    section.classList.remove('hidden');
-                } else if (status === 'valid') {
-                    section.classList.toggle('hidden', !isValid);
-                } else if (status === 'invalid') {
-                    section.classList.toggle('hidden', isValid);
-                }
-            });
-        }
-    </script>
-</body>
-</html>
-"""
+    # Substitute content into base template
+    html_content = base_template.substitute(
+        stats_and_filters=stats_and_filters_html,
+        content=model_cards_html,
+    )
 
     with DEMO_HTML_PATH.open("w", encoding="utf-8") as f:
         f.write(html_content)

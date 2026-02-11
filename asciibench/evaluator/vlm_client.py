@@ -11,6 +11,7 @@ import base64
 
 import httpx
 
+from asciibench.common.api_exceptions import raise_for_error_message, raise_for_httpx_status_error
 from asciibench.common.config import Settings
 from asciibench.common.logging import get_logger
 from asciibench.common.retry import retry
@@ -36,6 +37,20 @@ class RateLimitError(VLMClientError):
 
 class TransientError(VLMClientError):
     """Raised for transient API errors that can be retried (5xx, connection errors)."""
+
+
+_HTTPX_ERROR_MAP: dict[str, type[Exception]] = {
+    "rate_limit": RateLimitError,
+    "transient": TransientError,
+    "auth": AuthenticationError,
+    "model_not_found": ModelNotFoundError,
+}
+
+_GENERIC_ERROR_MAP: dict[str, type[Exception]] = {
+    "rate_limit": RateLimitError,
+    "auth": AuthenticationError,
+    "model_not_found": ModelNotFoundError,
+}
 
 
 class VLMClient:
@@ -136,43 +151,15 @@ class VLMClient:
             return response_text, cost
 
         except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-            error_text = e.response.text.lower() if e.response.text else ""
-
-            if status_code == 429:
-                raise RateLimitError(f"Rate limit exceeded: {e}") from e
-
-            if status_code in (502, 503, 504):
-                raise TransientError(f"Transient error ({status_code}): {e}") from e
-
-            if (
-                status_code == 401
-                or "unauthorized" in error_text
-                or "invalid api key" in error_text
-            ):
-                raise AuthenticationError(f"Authentication failed: {e}") from e
-
-            if status_code == 404 or "not found" in error_text or "model" in error_text:
-                raise ModelNotFoundError(f"Invalid model ID '{model_id}': {e}") from e
-
-            raise VLMClientError(f"API error: {e}") from e
+            raise_for_httpx_status_error(
+                e, _HTTPX_ERROR_MAP, VLMClientError, model_context=model_id
+            )
 
         except httpx.RequestError as e:
             raise TransientError(f"Request error: {e}") from e
 
         except Exception as e:
-            error_message = str(e).lower()
-
-            if "429" in error_message or "rate limit" in error_message:
-                raise RateLimitError(f"Rate limit exceeded: {e}") from e
-
-            if "404" in error_message or "not found" in error_message:
-                raise ModelNotFoundError(f"Invalid model ID '{model_id}': {e}") from e
-
-            if "unauthorized" in error_message or "authentication" in error_message:
-                raise AuthenticationError(f"Authentication failed: {e}") from e
-
-            raise VLMClientError(f"VLM client error: {e}") from e
+            raise_for_error_message(e, _GENERIC_ERROR_MAP, VLMClientError, model_context=model_id)
 
 
 def analyze_image(image_bytes: bytes, model_id: str) -> tuple[str, float]:

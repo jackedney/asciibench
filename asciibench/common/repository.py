@@ -17,29 +17,17 @@ Example:
     >>> samples_again = repo.get_valid_samples()
 """
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel
 
 from asciibench.common.models import ArtSample, VLMEvaluation, Vote
-
-try:
-    from asciibench.common.persistence import read_jsonl as _persistence_read_jsonl
-except (SyntaxError, ImportError):
-    _persistence_read_jsonl: Callable[[Path, type[Any]], list[Any]] | None = None
-
+from asciibench.common.persistence import read_jsonl
 
 T = TypeVar("T", bound=BaseModel)
-
-_ReadJsonlFn = Callable[[Path, type[Any]], list[Any]]
-
-
-def _read_jsonl_fn(path: Path, model_class: type[Any]) -> list[Any]:
-    return _read_jsonl(path, model_class)
 
 
 @dataclass
@@ -64,44 +52,6 @@ class CacheEntry(Generic[T]):
             return True
         expiry = self.cached_at + timedelta(seconds=ttl_seconds)
         return datetime.now(UTC) > expiry
-
-
-def _read_jsonl(path: Path, model_class: type[T]) -> list[T]:
-    """Read all lines from a JSONL file as model instances.
-
-    Args:
-        path: Path to the JSONL file
-        model_class: Pydantic model class to parse each line as
-
-    Returns:
-        List of model instances
-
-    Raises:
-        FileNotFoundError: If the file doesn't exist
-    """
-    if not path.exists():
-        raise FileNotFoundError(f"File not found: {path}")
-
-    results: list[T] = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                results.append(model_class.model_validate_json(line))
-
-    return results
-
-
-def _get_read_jsonl_fn():
-    """Get the read_jsonl function to use.
-
-    Returns:
-        The read_jsonl function from persistence module if available,
-        otherwise the local implementation.
-    """
-    if _persistence_read_jsonl is not None:
-        return _persistence_read_jsonl
-    return _read_jsonl
 
 
 class DataRepository:
@@ -200,8 +150,7 @@ class DataRepository:
                 f"Ensure that data directory exists and contains the required JSONL files."
             )
 
-        read_fn = _get_read_jsonl_fn()
-        data = read_fn(path, model_class)
+        data = read_jsonl(path, model_class)
         setattr(
             self,
             cache_attr_name,
