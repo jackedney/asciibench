@@ -338,9 +338,6 @@ class AnalyticsService:
         if n != len(y):
             raise ValueError("Lists must have the same length")
 
-        if n < 2:
-            return None
-
         mean_x = statistics.mean(x)
         mean_y = statistics.mean(y)
 
