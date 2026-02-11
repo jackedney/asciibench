@@ -4,6 +4,7 @@ This module provides decorators for handling exceptions in HTMX endpoints
 and rendering appropriate error templates.
 """
 
+import inspect
 import logging
 from collections.abc import Callable
 from functools import wraps
@@ -57,7 +58,10 @@ def htmx_error_handler(
         @wraps(func)
         async def wrapper(*args, **kwargs) -> HTMLResponse:
             try:
-                return await func(*args, **kwargs)
+                result = func(*args, **kwargs)
+                if inspect.isawaitable(result):
+                    result = await result
+                return result
             except Exception as e:
                 func_name = getattr(func, "__name__", str(func))
                 logging.exception(f"Error in {func_name}: {e}")
@@ -117,7 +121,10 @@ def htmx_error_handler_with_context(
         @wraps(func)
         async def wrapper(*args, **kwargs) -> HTMLResponse:
             try:
-                return await func(*args, **kwargs)
+                result = func(*args, **kwargs)
+                if inspect.isawaitable(result):
+                    result = await result
+                return result
             except Exception as e:
                 func_name = getattr(func, "__name__", str(func))
                 logging.exception(f"Error in {func_name}: {e}")
