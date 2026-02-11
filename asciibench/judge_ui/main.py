@@ -76,6 +76,8 @@ from asciibench.judge_ui.undo_service import UndoService
 
 templates = Jinja2Templates(directory="templates")
 
+logger = logging.getLogger(__name__)
+
 # Data file paths (constants)
 DATA_DIR = Path("data")
 DATABASE_PATH = DATA_DIR / "database.jsonl"
@@ -161,13 +163,17 @@ async def lifespan(app: FastAPI):
     )
 
     # Initialize tournament service
-    app.state.tournament_service = TournamentService(
-        generation_service=app.state.generation_service,
-        config_service=app.state.config_service,
-        repo=app.state.repo,
-        n=app.state.tournament_config.round_size,
-    )
-    await app.state.tournament_service.initialize()
+    try:
+        app.state.tournament_service = TournamentService(
+            generation_service=app.state.generation_service,
+            config_service=app.state.config_service,
+            repo=app.state.repo,
+            n=app.state.tournament_config.round_size,
+        )
+        await app.state.tournament_service.initialize()
+    except Exception as e:
+        logger.error(f"TournamentService initialization failed: {e}")
+        app.state.tournament_service = None
 
     # Initialize VLM evaluation service state
     # Type: VLMEvaluationService | None
@@ -177,7 +183,11 @@ async def lifespan(app: FastAPI):
     yield
 
     # Cleanup on shutdown
-    await app.state.tournament_service.shutdown()
+    if app.state.tournament_service is not None:
+        try:
+            await app.state.tournament_service.shutdown()
+        except Exception as e:
+            logger.error(f"TournamentService shutdown failed: {e}")
 
 
 app = FastAPI(title="ASCIIBench Judge UI", lifespan=lifespan)
