@@ -63,8 +63,6 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     # Store services on the app's state (they're initialized in lifespan)
     def override_app_state():
-        from asciibench.judge_ui.main import app
-
         # Initialize basic app.state if not already done
         if not hasattr(app.state, "repo"):
             app.state.settings = main_module.Settings()
