@@ -96,16 +96,14 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
     analytics_service = AnalyticsService(repo=repo)
 
+    monkeypatch.setattr(judge_main, "repo", repo)
+    monkeypatch.setattr(judge_main, "matchup_service", matchup_service)
+    monkeypatch.setattr(judge_main, "undo_service", undo_service)
+    monkeypatch.setattr(judge_main, "progress_service", progress_service)
+    monkeypatch.setattr(judge_main, "analytics_service", analytics_service)
     monkeypatch.setattr(judge_main, "VLM_EVALUATIONS_PATH", data_dir / "vlm_evaluations.jsonl")
-
-    app.state.repo = repo
-    app.state.matchup_service = matchup_service
-    app.state.undo_service = undo_service
-    app.state.progress_service = progress_service
-    app.state.analytics_service = analytics_service
-    app.state.vlm_evaluation_service = None
-    app.state.vlm_init_attempted = False
-    app.state.tournament_service = None
+    monkeypatch.setattr(judge_main, "_vlm_evaluation_service", None)
+    monkeypatch.setattr(judge_main, "_vlm_init_attempted", False)
 
     return data_dir
 
