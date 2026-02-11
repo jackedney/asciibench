@@ -220,14 +220,20 @@ class ConfigService:
             try:
                 with Path(path).open() as f:
                     data = yaml.safe_load(f)
-                if not isinstance(data, dict):
+                if data is None:
                     data = {}
+                elif not isinstance(data, dict):
+                    raise ValueError(
+                        f"{path}: expected a YAML mapping at the root, got {type(data).__name__}"
+                    )
                 parsed_value = parser_fn(data)
                 self._cache.cache[key] = parsed_value
                 logger.debug(f"Loaded {file_name} from {path}")
             except FileNotFoundError as e:
                 raise ConfigServiceError(f"{file_name} not found: {path}") from e
             except ValidationError as e:
+                raise ConfigServiceError(f"Invalid {file_name} structure: {e}") from e
+            except ValueError as e:
                 raise ConfigServiceError(f"Invalid {file_name} structure: {e}") from e
 
         return self._cache.cache[key]
