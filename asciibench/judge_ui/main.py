@@ -65,6 +65,10 @@ from asciibench.judge_ui.api_models import (
     VoteResponse,
 )
 from asciibench.judge_ui.generation_service import GenerationService
+from asciibench.judge_ui.htmx_error_handling import (
+    htmx_error_handler,
+    htmx_error_handler_with_context,
+)
 from asciibench.judge_ui.matchup_service import MatchupService
 from asciibench.judge_ui.progress_service import ProgressService
 from asciibench.judge_ui.tournament_service import TournamentService
@@ -362,120 +366,110 @@ async def get_progress(request: Request) -> ProgressResponse:
 
 
 @app.get("/htmx/matchup", response_class=HTMLResponse)
+@htmx_error_handler("partials/matchup.html")
 async def htmx_get_matchup(request: Request) -> HTMLResponse:
     """HTMX endpoint to get a matchup as HTML fragment.
 
     Returns rendered HTML for the matchup comparison area.
     On error, returns an error message HTML fragment.
     """
-    try:
-        # Get next matchup from tournament service
-        if request.app.state.tournament_service is None:
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {"error": "Tournament service not initialized"},
-            )
+    # Get next matchup from tournament service
+    if request.app.state.tournament_service is None:
+        return templates.TemplateResponse(
+            request,
+            "partials/matchup.html",
+            {"error": "Tournament service not initialized"},
+        )
 
-        matchup = request.app.state.tournament_service.get_next_matchup()
+    matchup = request.app.state.tournament_service.get_next_matchup()
 
-        if matchup is None:
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {
-                    "error": "No matchups available. "
-                    "All rounds complete or next round is being generated.",
-                },
-            )
-
-        # Check if sample IDs are populated
-        if matchup.sample_a_id is None or matchup.sample_b_id is None:
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {"error": "Sample data not ready for this matchup"},
-            )
-
-        # Load samples using cached lookup
-        sample_a = _get_sample_by_id(matchup.sample_a_id)
-        sample_b = _get_sample_by_id(matchup.sample_b_id)
-
-        if sample_a is None or sample_b is None:
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {"error": "Sample data not found for this matchup"},
-            )
-
-        # Randomize which sample is A vs B to prevent position bias
-        if random.random() < 0.5:
-            sample_a, sample_b = sample_b, sample_a
-
+    if matchup is None:
         return templates.TemplateResponse(
             request,
             "partials/matchup.html",
             {
-                "sample_a": {
-                    "id": str(sample_a.id),
-                    "sanitized_output": sample_a.sanitized_output,
-                },
-                "sample_b": {
-                    "id": str(sample_b.id),
-                    "sanitized_output": sample_b.sanitized_output,
-                },
-                "prompt": sample_a.prompt_text,
-                "matchup_id": str(matchup.id),
+                "error": "No matchups available. "
+                "All rounds complete or next round is being generated.",
             },
         )
-    except Exception as e:
+
+    # Check if sample IDs are populated
+    if matchup.sample_a_id is None or matchup.sample_b_id is None:
         return templates.TemplateResponse(
             request,
             "partials/matchup.html",
-            {"error": str(e)},
+            {"error": "Sample data not ready for this matchup"},
         )
+
+    # Load samples using cached lookup
+    sample_a = _get_sample_by_id(matchup.sample_a_id)
+    sample_b = _get_sample_by_id(matchup.sample_b_id)
+
+    if sample_a is None or sample_b is None:
+        return templates.TemplateResponse(
+            request,
+            "partials/matchup.html",
+            {"error": "Sample data not found for this matchup"},
+        )
+
+    # Randomize which sample is A vs B to prevent position bias
+    if random.random() < 0.5:
+        sample_a, sample_b = sample_b, sample_a
+
+    return templates.TemplateResponse(
+        request,
+        "partials/matchup.html",
+        {
+            "sample_a": {
+                "id": str(sample_a.id),
+                "sanitized_output": sample_a.sanitized_output,
+            },
+            "sample_b": {
+                "id": str(sample_b.id),
+                "sanitized_output": sample_b.sanitized_output,
+            },
+            "prompt": sample_a.prompt_text,
+            "matchup_id": str(matchup.id),
+        },
+    )
 
 
 @app.get("/htmx/prompt", response_class=HTMLResponse)
+@htmx_error_handler(
+    "partials/prompt.html", error_context_key="prompt", error_message_prefix="Error: "
+)
 async def htmx_get_prompt(request: Request) -> HTMLResponse:
     """HTMX endpoint to get the current prompt as HTML fragment.
 
     Returns rendered HTML for the prompt display area.
     """
-    try:
-        # Check if database file exists
-        if not DATABASE_PATH.exists():
-            return templates.TemplateResponse(
-                request,
-                "partials/prompt.html",
-                {"prompt": "Error: Database file not found"},
-            )
-
-        # Load valid samples from database
-        all_samples = _get_all_samples()
-        valid_samples = [s for s in all_samples if s.is_valid]
-
-        if len(valid_samples) < 2:
-            return templates.TemplateResponse(
-                request,
-                "partials/prompt.html",
-                {"prompt": "No samples available"},
-            )
-
-        # Select a matchup to get the prompt
-        sample_a, _ = request.app.state.matchup_service.get_matchup(valid_samples)
-
+    # Check if database file exists
+    if not DATABASE_PATH.exists():
         return templates.TemplateResponse(
             request,
             "partials/prompt.html",
-            {"prompt": sample_a.prompt_text},
+            {"prompt": "Error: Database file not found"},
         )
-    except Exception as e:
+
+    # Load valid samples from database
+    all_samples = _get_all_samples()
+    valid_samples = [s for s in all_samples if s.is_valid]
+
+    if len(valid_samples) < 2:
         return templates.TemplateResponse(
             request,
             "partials/prompt.html",
-            {"prompt": f"Error: {e}"},
+            {"prompt": "No samples available"},
         )
+
+    # Select a matchup to get the prompt
+    sample_a, _ = request.app.state.matchup_service.get_matchup(valid_samples)
+
+    return templates.TemplateResponse(
+        request,
+        "partials/prompt.html",
+        {"prompt": sample_a.prompt_text},
+    )
 
 
 @app.get("/htmx/progress", response_class=HTMLResponse)
@@ -506,158 +500,142 @@ async def htmx_get_progress(request: Request) -> HTMLResponse:
 
 
 @app.post("/htmx/vote", response_class=HTMLResponse)
+@htmx_error_handler("partials/matchup.html", error_message_prefix="Error submitting vote: ")
 async def htmx_submit_vote(request: Request) -> HTMLResponse:
     """HTMX endpoint to submit a vote and get new matchup as HTML.
 
     Accepts form data with sample_a_id, sample_b_id, winner, and matchup_id.
     Returns a new matchup HTML fragment after saving the vote.
     """
-    try:
-        # Parse form data
-        form_data = await request.form()
-        sample_a_id = form_data.get("sample_a_id")
-        sample_b_id = form_data.get("sample_b_id")
-        winner = form_data.get("winner")
-        matchup_id = form_data.get("matchup_id")
+    # Parse form data
+    form_data = await request.form()
+    sample_a_id = form_data.get("sample_a_id")
+    sample_b_id = form_data.get("sample_b_id")
+    winner = form_data.get("winner")
+    matchup_id = form_data.get("matchup_id")
 
-        if not all([sample_a_id, sample_b_id, winner]):
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {"error": "Missing required fields"},
-            )
-
-        # Validate winner value
-        if winner not in ["A", "B", "tie", "fail"]:
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {"error": f"Invalid winner value: {winner}"},
-            )
-
-        # Validate that sample_a_id exists in database
-        sample_a = _get_sample_by_id(str(sample_a_id))
-        if sample_a is None:
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {"error": f"Sample A not found: {sample_a_id}"},
-            )
-
-        # Validate that sample_b_id exists in database
-        sample_b = _get_sample_by_id(str(sample_b_id))
-        if sample_b is None:
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {"error": f"Sample B not found: {sample_b_id}"},
-            )
-
-        # Validate matchup_id as UUID if provided
-        validated_matchup_id: UUID | None = None
-        if matchup_id is not None:
-            try:
-                validated_matchup_id = UUID(str(matchup_id))
-            except ValueError:
-                return templates.TemplateResponse(
-                    request,
-                    "partials/matchup.html",
-                    {"error": f"Invalid matchup ID: {matchup_id}"},
-                )
-
-        # Create the vote
-        # winner is validated above to be one of "A", "B", "tie", "fail"
-        vote = Vote(
-            sample_a_id=str(sample_a_id),
-            sample_b_id=str(sample_b_id),
-            winner=cast(Literal["A", "B", "tie", "fail"], winner),
-        )
-
-        # Persist to votes.jsonl first (source of truth)
-        append_jsonl(VOTES_PATH, vote)
-
-        # Then update tournament state (reconstructed from votes on restart if this fails)
-        if request.app.state.tournament_service is not None and validated_matchup_id is not None:
-            await request.app.state.tournament_service.record_vote(
-                validated_matchup_id, str(vote.id)
-            )
-
-        # Clear the undo state since a new vote was submitted
-        request.app.state.undo_service.record_vote_submitted()
-
-        # Return reveal panel with model identities (instead of next matchup)
-        return templates.TemplateResponse(
-            request,
-            "partials/vote_reveal.html",
-            {
-                "sample_a": {
-                    "id": str(sample_a.id),
-                    "sanitized_output": sample_a.sanitized_output,
-                    "model_id": sample_a.model_id,
-                },
-                "sample_b": {
-                    "id": str(sample_b.id),
-                    "sanitized_output": sample_b.sanitized_output,
-                    "model_id": sample_b.model_id,
-                },
-                "prompt": sample_a.prompt_text,
-                "winner": winner,
-            },
-        )
-
-    except Exception as e:
+    if not all([sample_a_id, sample_b_id, winner]):
         return templates.TemplateResponse(
             request,
             "partials/matchup.html",
-            {"error": f"Error submitting vote: {e}"},
+            {"error": "Missing required fields"},
         )
+
+    # Validate winner value
+    if winner not in ["A", "B", "tie", "fail"]:
+        return templates.TemplateResponse(
+            request,
+            "partials/matchup.html",
+            {"error": f"Invalid winner value: {winner}"},
+        )
+
+    # Validate that sample_a_id exists in database
+    sample_a = _get_sample_by_id(str(sample_a_id))
+    if sample_a is None:
+        return templates.TemplateResponse(
+            request,
+            "partials/matchup.html",
+            {"error": f"Sample A not found: {sample_a_id}"},
+        )
+
+    # Validate that sample_b_id exists in database
+    sample_b = _get_sample_by_id(str(sample_b_id))
+    if sample_b is None:
+        return templates.TemplateResponse(
+            request,
+            "partials/matchup.html",
+            {"error": f"Sample B not found: {sample_b_id}"},
+        )
+
+    # Validate matchup_id as UUID if provided
+    validated_matchup_id: UUID | None = None
+    if matchup_id is not None:
+        try:
+            validated_matchup_id = UUID(str(matchup_id))
+        except ValueError:
+            return templates.TemplateResponse(
+                request,
+                "partials/matchup.html",
+                {"error": f"Invalid matchup ID: {matchup_id}"},
+            )
+
+    # Create the vote
+    # winner is validated above to be one of "A", "B", "tie", "fail"
+    vote = Vote(
+        sample_a_id=str(sample_a_id),
+        sample_b_id=str(sample_b_id),
+        winner=cast(Literal["A", "B", "tie", "fail"], winner),
+    )
+
+    # Persist to votes.jsonl first (source of truth)
+    append_jsonl(VOTES_PATH, vote)
+
+    # Then update tournament state (reconstructed from votes on restart if this fails)
+    if request.app.state.tournament_service is not None and validated_matchup_id is not None:
+        await request.app.state.tournament_service.record_vote(validated_matchup_id, str(vote.id))
+
+    # Clear the undo state since a new vote was submitted
+    request.app.state.undo_service.record_vote_submitted()
+
+    # Return reveal panel with model identities (instead of next matchup)
+    return templates.TemplateResponse(
+        request,
+        "partials/vote_reveal.html",
+        {
+            "sample_a": {
+                "id": str(sample_a.id),
+                "sanitized_output": sample_a.sanitized_output,
+                "model_id": sample_a.model_id,
+            },
+            "sample_b": {
+                "id": str(sample_b.id),
+                "sanitized_output": sample_b.sanitized_output,
+                "model_id": sample_b.model_id,
+            },
+            "prompt": sample_a.prompt_text,
+            "winner": winner,
+        },
+    )
 
 
 @app.post("/htmx/undo", response_class=HTMLResponse)
+@htmx_error_handler("partials/matchup.html", error_message_prefix="Error undoing vote: ")
 async def htmx_undo_vote(request: Request) -> HTMLResponse:
     """HTMX endpoint to undo the last vote and return status message.
 
     Returns the current matchup (unchanged) with an optional message,
     or an error message if undo fails.
     """
-    try:
-        # Check if last action was already an undo (prevent double-undo)
-        if request.app.state.undo_service.last_action_was_undo:
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {
-                    "error": "Cannot undo twice in a row. Submit a new vote first.",
-                },
-            )
-
-        last_vote = request.app.state.undo_service.undo_vote()
-
-        # Check if there was a vote to undo
-        if last_vote is None:
-            return templates.TemplateResponse(
-                request,
-                "partials/matchup.html",
-                {"error": "No votes to undo."},
-            )
-
-        # Find the matchup for this vote and tell tournament service to undo
-        if request.app.state.tournament_service is not None:
-            matchup = request.app.state.tournament_service.find_matchup_by_samples(
-                last_vote.sample_a_id, last_vote.sample_b_id
-            )
-            if matchup is not None:
-                await request.app.state.tournament_service.undo_last_vote(matchup.id)
-
-        # Return the current matchup (don't load a new one)
-        return await htmx_get_matchup(request)
-
-    except Exception as e:
+    # Check if last action was already an undo (prevent double-undo)
+    if request.app.state.undo_service.last_action_was_undo:
         return templates.TemplateResponse(
             request,
             "partials/matchup.html",
-            {"error": f"Error undoing vote: {e}"},
+            {
+                "error": "Cannot undo twice in a row. Submit a new vote first.",
+            },
         )
+
+    last_vote = request.app.state.undo_service.undo_vote()
+
+    # Check if there was a vote to undo
+    if last_vote is None:
+        return templates.TemplateResponse(
+            request,
+            "partials/matchup.html",
+            {"error": "No votes to undo."},
+        )
+
+    # Find the matchup for this vote and tell tournament service to undo
+    if request.app.state.tournament_service is not None:
+        matchup = request.app.state.tournament_service.find_matchup_by_samples(
+            last_vote.sample_a_id, last_vote.sample_b_id
+        )
+        if matchup is not None:
+            await request.app.state.tournament_service.undo_last_vote(matchup.id)
+
+    # Return the current matchup (don't load a new one)
+    return await htmx_get_matchup(request)
 
 
 def _deduplicate_evaluations(
@@ -691,6 +669,7 @@ def _deduplicate_evaluations(
 
 
 @app.get("/htmx/vlm-eval", response_class=HTMLResponse)
+@htmx_error_handler("partials/vlm_results.html")
 async def htmx_vlm_eval(request: Request) -> HTMLResponse:
     """HTMX endpoint to evaluate samples with VLM after a vote.
 
@@ -729,46 +708,38 @@ async def htmx_vlm_eval(request: Request) -> HTMLResponse:
             {"error": "VLM evaluation not configured"},
         )
 
-    try:
-        # Load samples
-        sample_a = _get_sample_by_id(sample_a_id)
-        sample_b = _get_sample_by_id(sample_b_id)
+    # Load samples
+    sample_a = _get_sample_by_id(sample_a_id)
+    sample_b = _get_sample_by_id(sample_b_id)
 
-        if not sample_a or not sample_b:
-            return templates.TemplateResponse(
-                request,
-                "partials/vlm_results.html",
-                {"error": "Sample not found"},
-            )
-
-        # Load existing evaluations for idempotency
-        existing_evaluations = request.app.state.repo.get_evaluations_or_empty()
-        existing_keys = {(e.sample_id, e.vlm_model_id) for e in existing_evaluations}
-
-        # Evaluate both samples (skips already-evaluated pairs)
-        new_results_a = await request.app.state.vlm_evaluation_service.evaluate_sample_all_models(
-            sample_a, existing_keys
-        )
-        new_results_b = await request.app.state.vlm_evaluation_service.evaluate_sample_all_models(
-            sample_b, existing_keys
-        )
-
-        # Collect all results (pre-existing + new) for these samples, deduplicated
-        results_a = _deduplicate_evaluations(existing_evaluations, new_results_a, sample_a_id)
-        results_b = _deduplicate_evaluations(existing_evaluations, new_results_b, sample_b_id)
-
+    if not sample_a or not sample_b:
         return templates.TemplateResponse(
             request,
             "partials/vlm_results.html",
-            {"results_a": results_a, "results_b": results_b},
+            {"error": "Sample not found"},
         )
-    except Exception:
-        logging.exception("Error during VLM evaluation")
-        return templates.TemplateResponse(
-            request,
-            "partials/vlm_results.html",
-            {"error": "VLM evaluation failed"},
-        )
+
+    # Load existing evaluations for idempotency
+    existing_evaluations = request.app.state.repo.get_evaluations_or_empty()
+    existing_keys = {(e.sample_id, e.vlm_model_id) for e in existing_evaluations}
+
+    # Evaluate both samples (skips already-evaluated pairs)
+    new_results_a = await request.app.state.vlm_evaluation_service.evaluate_sample_all_models(
+        sample_a, existing_keys
+    )
+    new_results_b = await request.app.state.vlm_evaluation_service.evaluate_sample_all_models(
+        sample_b, existing_keys
+    )
+
+    # Collect all results (pre-existing + new) for these samples, deduplicated
+    results_a = _deduplicate_evaluations(existing_evaluations, new_results_a, sample_a_id)
+    results_b = _deduplicate_evaluations(existing_evaluations, new_results_b, sample_b_id)
+
+    return templates.TemplateResponse(
+        request,
+        "partials/vlm_results.html",
+        {"results_a": results_a, "results_b": results_b},
+    )
 
 
 # =============================================================================
@@ -880,66 +851,36 @@ async def get_elo_vlm_correlation(request: Request) -> EloVLMCorrelationResponse
 
 
 @app.get("/htmx/analytics", response_class=HTMLResponse)
+@htmx_error_handler_with_context(
+    "partials/analytics.html",
+    {
+        "leaderboard": [],
+        "stability": {"score": 0, "is_stable": False, "warnings": [], "models": {}},
+        "elo_history": {},
+        "elo_history_json": "{}",
+        "head_to_head": {},
+        "models": [],
+        "total_votes": 0,
+    },
+    custom_error_message="An error occurred while generating analytics. Please try again.",
+)
 async def htmx_get_analytics(request: Request) -> HTMLResponse:
     """HTMX endpoint to get analytics dashboard as HTML fragment."""
-    try:
-        analytics = request.app.state.analytics_service.get_analytics_data()
+    analytics = request.app.state.analytics_service.get_analytics_data()
 
-        if not analytics.leaderboard:
-            return templates.TemplateResponse(
-                request,
-                "partials/analytics.html",
-                {
-                    "error": None,
-                    "leaderboard": [],
-                    "stability": {
-                        "score": 0.0,
-                        "is_stable": False,
-                        "warnings": ["No votes to analyze yet"],
-                        "models": {},
-                    },
-                    "elo_history": {},
-                    "elo_history_json": "{}",
-                    "head_to_head": {},
-                    "models": [],
-                    "total_votes": 0,
-                },
-            )
-
-        # Get sorted model list for head-to-head matrix
-        models = [entry.model_id for entry in analytics.leaderboard]
-
-        # Convert elo_history to JSON for Chart.js
-        elo_history_json = json.dumps(
-            {
-                model_id: [{"x": p.vote_count, "y": p.elo} for p in points]
-                for model_id, points in analytics.elo_history.items()
-            }
-        )
-
+    if not analytics.leaderboard:
         return templates.TemplateResponse(
             request,
             "partials/analytics.html",
             {
                 "error": None,
-                "leaderboard": analytics.leaderboard,
-                "stability": analytics.stability,
-                "elo_history": analytics.elo_history,
-                "elo_history_json": elo_history_json,
-                "head_to_head": analytics.head_to_head,
-                "models": models,
-                "total_votes": analytics.total_votes,
-            },
-        )
-    except Exception:
-        logging.exception("Error generating analytics")
-        return templates.TemplateResponse(
-            request,
-            "partials/analytics.html",
-            {
-                "error": "An error occurred while generating analytics. Please try again.",
                 "leaderboard": [],
-                "stability": {"score": 0, "is_stable": False, "warnings": [], "models": {}},
+                "stability": {
+                    "score": 0.0,
+                    "is_stable": False,
+                    "warnings": ["No votes to analyze yet"],
+                    "models": {},
+                },
                 "elo_history": {},
                 "elo_history_json": "{}",
                 "head_to_head": {},
@@ -948,94 +889,112 @@ async def htmx_get_analytics(request: Request) -> HTMLResponse:
             },
         )
 
+    # Get sorted model list for head-to-head matrix
+    models = [entry.model_id for entry in analytics.leaderboard]
+
+    # Convert elo_history to JSON for Chart.js
+    elo_history_json = json.dumps(
+        {
+            model_id: [{"x": p.vote_count, "y": p.elo} for p in points]
+            for model_id, points in analytics.elo_history.items()
+        }
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "partials/analytics.html",
+        {
+            "error": None,
+            "leaderboard": analytics.leaderboard,
+            "stability": analytics.stability,
+            "elo_history": analytics.elo_history,
+            "elo_history_json": elo_history_json,
+            "head_to_head": analytics.head_to_head,
+            "models": models,
+            "total_votes": analytics.total_votes,
+        },
+    )
+
 
 @app.get("/htmx/vlm-accuracy", response_class=HTMLResponse)
+@htmx_error_handler_with_context(
+    "partials/vlm_accuracy.html",
+    {"vlm_accuracy_data": []},
+    custom_error_message="Failed to load VLM accuracy data.",
+)
 async def htmx_get_vlm_accuracy(request: Request) -> HTMLResponse:
     """HTMX endpoint to get VLM accuracy table as HTML fragment."""
+    # Load models for display names
     try:
-        # Load models for display names
-        try:
-            models = load_models()
-        except (FileNotFoundError, Exception):
-            models = []
+        models = load_models()
+    except (FileNotFoundError, Exception):
+        models = []
 
-        model_lookup: dict[str, Model] = {m.id: m for m in models}
+    model_lookup: dict[str, Model] = {m.id: m for m in models}
 
-        # Get VLM accuracy data from service
-        vlm_response = request.app.state.analytics_service.get_vlm_accuracy_data()
-        by_model = vlm_response.by_model
+    # Get VLM accuracy data from service
+    vlm_response = request.app.state.analytics_service.get_vlm_accuracy_data()
+    by_model = vlm_response.by_model
 
-        if not by_model:
-            return templates.TemplateResponse(
-                request,
-                "partials/vlm_accuracy.html",
-                {"vlm_accuracy_data": []},
-            )
-
-        # Sort by accuracy descending and convert to list for template
-        sorted_models = sorted(by_model.items(), key=lambda x: x[1].accuracy, reverse=True)
-
-        vlm_accuracy_data = [
-            {
-                "model_id": model_id,
-                "model_name": model_lookup.get(model_id, Model(id=model_id, name=model_id)).name,
-                "total": stats.total,
-                "correct": stats.correct,
-                "accuracy": stats.accuracy,
-            }
-            for model_id, stats in sorted_models
-        ]
-
+    if not by_model:
         return templates.TemplateResponse(
             request,
             "partials/vlm_accuracy.html",
-            {"vlm_accuracy_data": vlm_accuracy_data},
+            {"vlm_accuracy_data": []},
         )
-    except Exception:
-        logging.exception("Error generating VLM accuracy")
-        return templates.TemplateResponse(
-            request,
-            "partials/vlm_accuracy.html",
-            {"vlm_accuracy_data": [], "error": "Failed to load VLM accuracy data."},
-        )
+
+    # Sort by accuracy descending and convert to list for template
+    sorted_models = sorted(by_model.items(), key=lambda x: x[1].accuracy, reverse=True)
+
+    vlm_accuracy_data = [
+        {
+            "model_id": model_id,
+            "model_name": model_lookup.get(model_id, Model(id=model_id, name=model_id)).name,
+            "total": stats.total,
+            "correct": stats.correct,
+            "accuracy": stats.accuracy,
+        }
+        for model_id, stats in sorted_models
+    ]
+
+    return templates.TemplateResponse(
+        request,
+        "partials/vlm_accuracy.html",
+        {"vlm_accuracy_data": vlm_accuracy_data},
+    )
 
 
 @app.get("/htmx/elo-vlm-correlation", response_class=HTMLResponse)
+@htmx_error_handler(
+    "partials/elo_vlm_correlation.html", custom_error_message="Failed to load correlation data."
+)
 async def htmx_get_elo_vlm_correlation(request: Request) -> HTMLResponse:
     """HTMX endpoint to get Elo-VLM correlation chart as HTML fragment."""
-    try:
-        # Get correlation data from API endpoint
-        correlation_response = await get_elo_vlm_correlation(request)
+    # Get correlation data from API endpoint
+    correlation_response = await get_elo_vlm_correlation(request)
 
-        # Convert correlation data to JSON for Chart.js
-        correlation_json = json.dumps(
-            {
-                "correlation_coefficient": correlation_response.correlation_coefficient,
-                "data": [
-                    {
-                        "x": point.elo_rating,
-                        "y": point.vlm_accuracy,
-                        "model_id": point.model_id,
-                        "model_name": point.model_name,
-                    }
-                    for point in correlation_response.data
-                ],
-            }
-        )
+    # Convert correlation data to JSON for Chart.js
+    correlation_json = json.dumps(
+        {
+            "correlation_coefficient": correlation_response.correlation_coefficient,
+            "data": [
+                {
+                    "x": point.elo_rating,
+                    "y": point.vlm_accuracy,
+                    "model_id": point.model_id,
+                    "model_name": point.model_name,
+                }
+                for point in correlation_response.data
+            ],
+        }
+    )
 
-        return templates.TemplateResponse(
-            request,
-            "partials/elo_vlm_correlation.html",
-            {
-                "correlation_json": correlation_json,
-                "correlation_coefficient": correlation_response.correlation_coefficient,
-                "data": correlation_response.data,
-            },
-        )
-    except Exception:
-        logging.exception("Error generating Elo-VLM correlation chart")
-        return templates.TemplateResponse(
-            request,
-            "partials/elo_vlm_correlation.html",
-            {"error": "Failed to load correlation data."},
-        )
+    return templates.TemplateResponse(
+        request,
+        "partials/elo_vlm_correlation.html",
+        {
+            "correlation_json": correlation_json,
+            "correlation_coefficient": correlation_response.correlation_coefficient,
+            "data": correlation_response.data,
+        },
+    )
