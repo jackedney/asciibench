@@ -3,6 +3,7 @@
 Tests the complete workflow from sample generation through judging to analysis.
 """
 
+from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -72,7 +73,7 @@ def sample_prompts() -> list[Prompt]:
 
 
 @pytest.fixture
-def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[Path, None, None]:
     """Set up temporary data directory for all modules."""
     import asciibench.judge_ui.main as judge_main
     from asciibench.common.repository import DataRepository
@@ -96,16 +97,35 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     progress_service = ProgressService(repo=repo, matchup_service=matchup_service)
     analytics_service = AnalyticsService(repo=repo)
 
-    monkeypatch.setattr(judge_main, "repo", repo)
-    monkeypatch.setattr(judge_main, "matchup_service", matchup_service)
-    monkeypatch.setattr(judge_main, "undo_service", undo_service)
-    monkeypatch.setattr(judge_main, "progress_service", progress_service)
-    monkeypatch.setattr(judge_main, "analytics_service", analytics_service)
     monkeypatch.setattr(judge_main, "VLM_EVALUATIONS_PATH", data_dir / "vlm_evaluations.jsonl")
-    monkeypatch.setattr(judge_main, "_vlm_evaluation_service", None)
-    monkeypatch.setattr(judge_main, "_vlm_init_attempted", False)
 
-    return data_dir
+    original_app_state = {}
+    for attr in [
+        "repo",
+        "matchup_service",
+        "undo_service",
+        "progress_service",
+        "analytics_service",
+        "VLM_EVALUATIONS_PATH",
+        "vlm_evaluation_service",
+        "vlm_init_attempted",
+    ]:
+        if hasattr(judge_main.app.state, attr):
+            original_app_state[attr] = getattr(judge_main.app.state, attr)
+
+    judge_main.app.state.repo = repo
+    judge_main.app.state.matchup_service = matchup_service
+    judge_main.app.state.undo_service = undo_service
+    judge_main.app.state.progress_service = progress_service
+    judge_main.app.state.analytics_service = analytics_service
+    judge_main.app.state.VLM_EVALUATIONS_PATH = data_dir / "vlm_evaluations.jsonl"
+    judge_main.app.state.vlm_evaluation_service = None
+    judge_main.app.state.vlm_init_attempted = False
+
+    yield data_dir
+
+    for attr, original_value in original_app_state.items():
+        setattr(judge_main.app.state, attr, original_value)
 
 
 class TestGeneratorIntegration:
