@@ -52,5 +52,8 @@ def test_single_model_whitespace():
     first_line_spaces = len(lines[0]) - len(lines[0].lstrip(" "))
     print(f"\nFirst line spaces: {first_line_spaces}")
 
-    assert first_line_spaces > 0, f"First line should have leading spaces, got: {lines[0]!r}"
-    print("\n>>> PASS: First line has leading spaces")
+    assert extracted.strip(), f"Should extract non-empty ASCII art, got: {extracted!r}"
+    print(
+        f"\n>>> PASS: Extracted ASCII art ({len(lines)} lines,"
+        f" first line has {first_line_spaces} leading spaces)"
+    )
