@@ -114,7 +114,7 @@ class TestSwissPairSelector:
     def test_select_pairs_with_elo_all_equal(self, selector: SwissPairSelector) -> None:
         """Test select_pairs with all Elo ratings equal - should handle gracefully."""
         models = ["m1", "m2", "m3", "m4"]
-        elo_ratings: dict[str, float] = {model: 1500.0 for model in models}  # noqa: C420
+        elo_ratings: dict[str, float] = dict.fromkeys(models, 1500.0)
         n = 2
 
         pairs = selector.select_pairs(models, elo_ratings, n)

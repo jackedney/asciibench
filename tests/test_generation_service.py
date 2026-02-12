@@ -1,6 +1,7 @@
 """Tests for GenerationService on-demand sample generation."""
 
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -137,7 +138,7 @@ class TestGenerateSample:
             total_tokens=30,
             cost=0.0001,
         )
-        service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
+        service.client.generate_async = cast(Any, AsyncMock(return_value=mock_response))
 
         with (
             patch(
@@ -180,7 +181,7 @@ class TestGenerateSample:
             total_tokens=15,
             cost=0.00005,
         )
-        service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
+        service.client.generate_async = cast(Any, AsyncMock(return_value=mock_response))
 
         with (
             patch(
@@ -206,7 +207,7 @@ class TestGenerateSample:
             total_tokens=None,
             cost=None,
         )
-        service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
+        service.client.generate_async = cast(Any, AsyncMock(return_value=mock_response))
 
         with (
             patch(
@@ -323,7 +324,7 @@ class TestEnsureSamplesForRound:
             total_tokens=25,
             cost=0.0001,
         )
-        service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
+        service.client.generate_async = cast(Any, AsyncMock(return_value=mock_response))
 
         with (
             patch(
@@ -363,7 +364,7 @@ class TestEnsureSamplesForRound:
             total_tokens=20,
             cost=0.0001,
         )
-        service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
+        service.client.generate_async = cast(Any, AsyncMock(return_value=mock_response))
 
         with (
             patch(
@@ -390,7 +391,7 @@ class TestEnsureSamplesForRound:
             total_tokens=20,
             cost=0.0001,
         )
-        service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
+        service.client.generate_async = cast(Any, AsyncMock(return_value=mock_response))
 
         existing_samples = []
 
@@ -417,7 +418,7 @@ class TestEnsureSamplesForRound:
             total_tokens=20,
             cost=0.0001,
         )
-        service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
+        service.client.generate_async = cast(Any, AsyncMock(return_value=mock_response))
 
         existing_samples = []
 
