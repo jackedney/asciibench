@@ -176,9 +176,6 @@ async def lifespan(app: FastAPI):
         logger.error(f"TournamentService initialization failed: {e}")
         app.state.tournament_service = None
 
-    # Initialize VLM evaluation service state
-    # Type: VLMEvaluationService | None
-    app.state.vlm_evaluation_service = None
     app.state.vlm_init_attempted = False
 
     # VLM evaluation background task state
@@ -771,13 +768,6 @@ async def htmx_vlm_eval(request: Request) -> HTMLResponse:
                 "partials/vlm_eval_progress.html",
                 {"sample_a_id": sample_a_id, "sample_b_id": sample_b_id},
             )
-
-    if request.app.state.vlm_init_attempted and request.app.state.vlm_evaluation_service is None:
-        return templates.TemplateResponse(
-            request,
-            "partials/vlm_results.html",
-            {"error": "VLM evaluation not configured"},
-        )
 
     if not request.app.state.vlm_init_attempted:
         request.app.state.vlm_init_attempted = True

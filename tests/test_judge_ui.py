@@ -77,7 +77,6 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             app.state.tournament_service = tournament_service
             app.state.generation_service = None
             app.state.openrouter_client = None
-            app.state.vlm_evaluation_service = None
             app.state.vlm_init_attempted = True
             app.state.vlm_eval_results = {}
             app.state.vlm_eval_tasks = {}
@@ -2316,9 +2315,11 @@ class TestVLMEvalEndpoint:
 
         populate_database(temp_data_dir, sample_data)
 
-        # Simulate service already attempted and failed to initialize
-        app.state.vlm_init_attempted = True
-        app.state.vlm_evaluation_service = None
+        app.state.vlm_init_attempted = False
+        monkeypatch.setattr(
+            "asciibench.evaluator.orchestrator.create_orchestrator",
+            lambda _: (_ for _ in ()).throw(ValueError("not configured")),
+        )
 
         sample_a_id = str(sample_data[0].id)
         sample_b_id = str(sample_data[2].id)
@@ -2349,9 +2350,11 @@ class TestVLMEvalEndpoint:
 
         populate_database(temp_data_dir, sample_data)
 
-        # Ensure VLM service is not configured
-        app.state.vlm_init_attempted = True
-        app.state.vlm_evaluation_service = None
+        app.state.vlm_init_attempted = False
+        monkeypatch.setattr(
+            "asciibench.evaluator.orchestrator.create_orchestrator",
+            lambda _: (_ for _ in ()).throw(ValueError("not configured")),
+        )
 
         sample_a_id = str(sample_data[0].id)
         sample_b_id = str(sample_data[2].id)
