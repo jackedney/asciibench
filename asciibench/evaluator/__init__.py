@@ -3,6 +3,7 @@ from asciibench.evaluator.orchestrator import (
     EvaluationWriter,
     ImageRenderer,
     VLMAnalyzer,
+    create_orchestrator,
     run_evaluation,
 )
 from asciibench.evaluator.renderer import render_ascii_to_image
@@ -17,6 +18,7 @@ __all__ = [
     "VLMAnalyzer",
     "VLMEvaluationService",
     "analyze_image",
+    "create_orchestrator",
     "extract_subject",
     "render_ascii_to_image",
     "run_evaluation",
