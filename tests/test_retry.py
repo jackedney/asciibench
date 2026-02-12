@@ -5,6 +5,7 @@ import functools
 import json
 import time
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -584,7 +585,7 @@ class TestRetryValidation:
         """Invalid max_retries type raises ValueError."""
         with pytest.raises(ValueError, match="max_retries must be an integer"):
 
-            @retry(max_retries="3")  # type: ignore[invalid-argument-type]
+            @retry(max_retries=cast(Any, "3"))
             def dummy_func():
                 pass
 
@@ -592,7 +593,7 @@ class TestRetryValidation:
         """Float max_retries raises ValueError."""
         with pytest.raises(ValueError, match="max_retries must be an integer"):
 
-            @retry(max_retries=3.5)  # type: ignore[invalid-argument-type]
+            @retry(max_retries=cast(Any, 3.5))
             def dummy_func():
                 pass
 
@@ -608,7 +609,7 @@ class TestRetryValidation:
         """Example: retry(base_delay_seconds='invalid') raises ValueError."""
         with pytest.raises(ValueError, match="base_delay_seconds must be a number"):
 
-            @retry(base_delay_seconds="invalid")  # type: ignore[invalid-argument-type]
+            @retry(base_delay_seconds=cast(Any, "invalid"))
             def dummy_func():
                 pass
 
@@ -644,7 +645,7 @@ class TestRetryValidation:
         """List instead of tuple raises TypeError."""
         with pytest.raises(TypeError, match="retryable_exceptions must be a tuple"):
 
-            @retry(retryable_exceptions=[Exception])  # type: ignore[invalid-argument-type]
+            @retry(retryable_exceptions=cast(Any, [Exception]))
             def dummy_func():
                 pass
 
@@ -652,7 +653,7 @@ class TestRetryValidation:
         """Non-Exception type in retryable_exceptions raises TypeError."""
         with pytest.raises(TypeError, match="retryable_exceptions must contain Exception types"):
 
-            @retry(retryable_exceptions=(Exception, "not_an_exception"))  # type: ignore[invalid-argument-type]
+            @retry(retryable_exceptions=cast(Any, (Exception, "not_an_exception")))
             def dummy_func():
                 pass
 
@@ -660,7 +661,7 @@ class TestRetryValidation:
         """Non-class in retryable_exceptions raises TypeError."""
         with pytest.raises(TypeError, match="retryable_exceptions must contain Exception types"):
 
-            @retry(retryable_exceptions=(Exception, 123))  # type: ignore[invalid-argument-type]
+            @retry(retryable_exceptions=cast(Any, (Exception, 123)))
             def dummy_func():
                 pass
 
@@ -1168,7 +1169,8 @@ class TestRetryableTaskExecutor:
         with pytest.raises(MaxRetriesError) as exc_info:
             executor.execute(always_failing_call)
 
-        history = exc_info.value.attempt_history  # type: ignore[attr-defined]
+        assert isinstance(exc_info.value, MaxRetriesError)
+        history = exc_info.value.attempt_history
         assert len(history) == 3
         assert history[0].attempt_number == 1
         assert "Error on attempt 1" in str(history[0].exception)
@@ -1436,12 +1438,12 @@ class TestRetryableTaskExecutorValidation:
     def test_string_max_attempts_raises_value_error(self) -> None:
         """Invalid max_attempts type raises ValueError."""
         with pytest.raises(ValueError, match="max_attempts must be an integer"):
-            RetryableTaskExecutor(max_attempts="3")  # type: ignore[invalid-argument-type]
+            RetryableTaskExecutor(max_attempts=cast(Any, "3"))
 
     def test_float_max_attempts_raises_value_error(self) -> None:
         """Float max_attempts raises ValueError."""
         with pytest.raises(ValueError, match="max_attempts must be an integer"):
-            RetryableTaskExecutor(max_attempts=3.5)  # type: ignore[invalid-argument-type]
+            RetryableTaskExecutor(max_attempts=cast(Any, 3.5))
 
     def test_negative_base_delay_raises_value_error(self) -> None:
         """Negative base_delay_seconds raises ValueError."""
@@ -1451,7 +1453,7 @@ class TestRetryableTaskExecutorValidation:
     def test_string_base_delay_raises_value_error(self) -> None:
         """Example: base_delay_seconds='invalid' raises ValueError."""
         with pytest.raises(ValueError, match="base_delay_seconds must be a number"):
-            RetryableTaskExecutor(base_delay_seconds="invalid")  # type: ignore[invalid-argument-type]
+            RetryableTaskExecutor(base_delay_seconds=cast(Any, "invalid"))
 
     def test_zero_base_delay_is_valid(self) -> None:
         """Zero base delay is valid."""
@@ -1466,21 +1468,19 @@ class TestRetryableTaskExecutorValidation:
     def test_list_retryable_exceptions_raises_type_error(self) -> None:
         """List instead of tuple raises TypeError."""
         with pytest.raises(TypeError, match="retryable_exceptions must be a tuple"):
-            RetryableTaskExecutor(retryable_exceptions=[Exception])  # type: ignore[invalid-argument-type]
+            RetryableTaskExecutor(retryable_exceptions=cast(Any, [Exception]))
 
     def test_non_exception_type_in_retryable_exceptions_raises_type_error(
         self,
     ) -> None:
         """Non-Exception type in retryable_exceptions raises TypeError."""
         with pytest.raises(TypeError, match="retryable_exceptions must contain Exception types"):
-            RetryableTaskExecutor(
-                retryable_exceptions=(Exception, "not_an_exception")  # type: ignore[invalid-argument-type]
-            )
+            RetryableTaskExecutor(retryable_exceptions=cast(Any, (Exception, "not_an_exception")))
 
     def test_non_class_in_retryable_exceptions_raises_type_error(self) -> None:
         """Non-class in retryable_exceptions raises TypeError."""
         with pytest.raises(TypeError, match="retryable_exceptions must contain Exception types"):
-            RetryableTaskExecutor(retryable_exceptions=(Exception, 123))  # type: ignore[invalid-argument-type]
+            RetryableTaskExecutor(retryable_exceptions=cast(Any, (Exception, 123)))
 
     def test_valid_retryable_exceptions_tuple(self) -> None:
         """Valid tuple of exception types works correctly."""

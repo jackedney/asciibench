@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 import pytest
@@ -50,7 +50,7 @@ def test_vote_invalid_winner():
         Vote(
             sample_a_id="sample1",
             sample_b_id="sample2",
-            winner="X",  # type: ignore[arg-type]
+            winner=cast(Any, "X"),
         )
     exc = exc_info.value
     assert isinstance(exc, ValidationError)
@@ -679,7 +679,7 @@ def test_round_state_created_at_default():
 def test_round_state_without_required_matchups_raises_validation_error():
     """RoundState without required matchups raises ValidationError."""
     with pytest.raises(ValidationError) as exc_info:
-        RoundState(round_number=1)  # type: ignore[call-arg]
+        cast(Any, RoundState)(round_number=1)
     exc = exc_info.value
     assert isinstance(exc, ValidationError)
     errors = exc.errors()
