@@ -394,6 +394,17 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
     matchup = request.app.state.tournament_service.get_next_matchup()
 
     if matchup is None:
+        status = request.app.state.tournament_service.get_generation_status()
+        if status["generating"]:
+            return templates.TemplateResponse(
+                request,
+                "partials/generation_progress.html",
+                {
+                    "generating": status["generating"],
+                    "completed": status["completed"],
+                    "total": status["total"],
+                },
+            )
         return templates.TemplateResponse(
             request,
             "partials/matchup.html",
