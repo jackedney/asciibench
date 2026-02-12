@@ -394,6 +394,17 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
     matchup = request.app.state.tournament_service.get_next_matchup()
 
     if matchup is None:
+        status = request.app.state.tournament_service.get_generation_status()
+        if status["generating"]:
+            return templates.TemplateResponse(
+                request,
+                "partials/generation_progress.html",
+                {
+                    "generating": status["generating"],
+                    "completed": status["completed"],
+                    "total": status["total"],
+                },
+            )
         return templates.TemplateResponse(
             request,
             "partials/matchup.html",
@@ -440,6 +451,32 @@ async def htmx_get_matchup(request: Request) -> HTMLResponse:
             },
             "prompt": sample_a.prompt_text,
             "matchup_id": str(matchup.id),
+        },
+    )
+
+
+@app.get("/htmx/generation-status", response_class=HTMLResponse)
+async def htmx_get_generation_status(request: Request) -> HTMLResponse:
+    """HTMX endpoint to get generation status as HTML fragment.
+
+    Returns rendered HTML for the generation progress display.
+    """
+    if request.app.state.tournament_service is None:
+        return templates.TemplateResponse(
+            request,
+            "partials/generation_progress.html",
+            {"generating": False, "completed": 0, "total": 0},
+        )
+
+    status = request.app.state.tournament_service.get_generation_status()
+
+    return templates.TemplateResponse(
+        request,
+        "partials/generation_progress.html",
+        {
+            "generating": status["generating"],
+            "completed": status["completed"],
+            "total": status["total"],
         },
     )
 

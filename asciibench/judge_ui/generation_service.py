@@ -10,10 +10,11 @@ Dependencies:
     - append_jsonl: Function to persist samples
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 from asciibench.common.config import GenerationConfig
-from asciibench.common.models import ArtSample, Prompt, RoundState
+from asciibench.common.models import ArtSample, Matchup, Prompt, RoundState
 from asciibench.common.persistence import append_jsonl
 from asciibench.generator.client import OpenRouterClient
 from asciibench.generator.sanitizer import extract_ascii_from_markdown
@@ -102,7 +103,10 @@ class GenerationService:
         return sample
 
     async def ensure_samples_for_round(
-        self, round_state: RoundState, existing_samples: list[ArtSample]
+        self,
+        round_state: RoundState,
+        existing_samples: list[ArtSample],
+        on_matchup_ready: Callable[[int, Matchup], None] | None = None,
     ) -> RoundState:
         """Ensure all samples for matchups in the round exist.
 
@@ -113,13 +117,15 @@ class GenerationService:
         Args:
             round_state: RoundState with matchups to populate
             existing_samples: List of existing samples to search for matches
+            on_matchup_ready: Optional callback called after each matchup is updated
+                with (index, updated_matchup) where index is 0-based
 
         Returns:
             Updated RoundState with sample IDs filled and generation_complete=True
         """
         updated_matchups = []
 
-        for matchup in round_state.matchups:
+        for index, matchup in enumerate(round_state.matchups):
             sample_a = self.find_existing_sample(
                 matchup.model_a_id, matchup.prompt_text, existing_samples
             )
@@ -153,6 +159,9 @@ class GenerationService:
                 }
             )
             updated_matchups.append(updated_matchup)
+
+            if on_matchup_ready is not None:
+                on_matchup_ready(index, updated_matchup)
 
         updated_round_state = round_state.model_copy(
             update={

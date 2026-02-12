@@ -14,6 +14,7 @@ Dependencies:
 """
 
 import asyncio
+import functools
 import logging
 import random
 from pathlib import Path
@@ -64,6 +65,10 @@ class TournamentService:
         self._current_round: RoundState | None = None
         self._next_round: RoundState | None = None
         self._background_task: asyncio.Task | None = None
+        self._initial_generation_task: asyncio.Task | None = None
+        self._generation_total: int = 0
+        self._generation_completed: int = 0
+        self._pending_update_tasks: set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
 
         self._rounds_path: Path = Path("data/rounds.jsonl")
@@ -92,14 +97,97 @@ class TournamentService:
             logger.info(f"Created round 1 with {len(self._current_round.matchups)} matchups")
 
         if self._current_round is not None and not self._current_round.generation_complete:
-            samples = self.repo.get_all_samples()
-            self._current_round = await self.generation_service.ensure_samples_for_round(
-                self._current_round, samples
-            )
-            self._persist_round_state(self._current_round)
+            self._start_initial_generation()
 
         if self._next_round is None and self._current_round is not None:
             self._start_background_generation()
+
+    def _start_initial_generation(self) -> None:
+        """Start background initial generation for the current round."""
+        if self._initial_generation_task is not None and not self._initial_generation_task.done():
+            logger.debug("Initial generation already in progress")
+            return
+
+        async def generate_initial_round() -> None:
+            try:
+                if self._current_round is None:
+                    return
+
+                async with self._lock:
+                    self._generation_total = len(self._current_round.matchups)
+                    self._generation_completed = 0
+
+                samples = self.repo.get_all_samples_or_empty()
+                callback = functools.partial(self._on_matchup_generated)
+
+                await self.generation_service.ensure_samples_for_round(
+                    self._current_round, samples, on_matchup_ready=callback
+                )
+
+                async with self._lock:
+                    if self._current_round is None:
+                        return
+
+                    round_number = self._current_round.round_number
+                    self._current_round = self._current_round.model_copy(
+                        update={"generation_complete": True}
+                    )
+                    self._persist_round_state(self._current_round)
+
+                logger.info(f"Initial generation complete for round {round_number}")
+            except Exception as e:
+                logger.error(f"Error in initial generation: {e}")
+
+        self._initial_generation_task = asyncio.create_task(generate_initial_round())
+
+    def _on_matchup_generated(self, index: int, matchup: Matchup) -> None:
+        """Callback called when a matchup's samples are generated.
+
+        Schedules a lock-protected update so all mutations to _current_round
+        and _generation_completed go through self._lock.
+
+        Args:
+            index: 0-based index of the matchup in the round
+            matchup: Updated matchup with sample_a_id and sample_b_id filled
+        """
+        task = asyncio.create_task(self._update_matchup_generated(index, matchup))
+        self._pending_update_tasks.add(task)
+        task.add_done_callback(self._pending_update_tasks.discard)
+
+    async def _update_matchup_generated(self, index: int, matchup: Matchup) -> None:
+        """Merge a generated matchup into _current_round under the lock.
+
+        Preserves existing is_judged and vote_id fields to avoid races
+        with record_vote/undo_last_vote.
+
+        Args:
+            index: 0-based index of the matchup in the round
+            matchup: Updated matchup with sample_a_id and sample_b_id filled
+        """
+        async with self._lock:
+            if self._current_round is None:
+                return
+
+            updated_matchups = list(self._current_round.matchups)
+            if 0 <= index < len(updated_matchups):
+                existing = updated_matchups[index]
+                merged = matchup.model_copy(
+                    update={
+                        "is_judged": existing.is_judged,
+                        "vote_id": existing.vote_id,
+                    }
+                )
+                updated_matchups[index] = merged
+                self._current_round = self._current_round.model_copy(
+                    update={"matchups": updated_matchups}
+                )
+                if existing.sample_a_id is None and existing.sample_b_id is None:
+                    self._generation_completed += 1
+                self._persist_round_state(self._current_round)
+                logger.debug(
+                    f"Matchup {index} generated, "
+                    f"progress: {self._generation_completed}/{self._generation_total}"
+                )
 
     def _load_latest_round(self) -> RoundState | None:
         """Load the latest round from rounds.jsonl.
@@ -254,7 +342,7 @@ class TournamentService:
                 next_round_number = current_round.round_number + 1
                 self._next_round = await self._create_round(next_round_number)
 
-                samples = self.repo.get_all_samples()
+                samples = self.repo.get_all_samples_or_empty()
                 self._next_round = await self.generation_service.ensure_samples_for_round(
                     self._next_round, samples
                 )
@@ -266,20 +354,25 @@ class TournamentService:
         self._background_task = asyncio.create_task(generate_next_round())
 
     def get_next_matchup(self) -> Matchup | None:
-        """Get a random unjudged matchup from the current round.
+        """Get a random unjudged matchup from the current round with both samples ready.
 
         Returns:
-            A random unjudged Matchup, or None if all judged or no current round
+            A random unjudged Matchup with sample_a_id and sample_b_id set,
+            or None if all judged or no current round or no ready matchups
         """
         if self._current_round is None:
             return None
 
-        unjudged_matchups = [m for m in self._current_round.matchups if not m.is_judged]
+        ready_matchups = [
+            m
+            for m in self._current_round.matchups
+            if not m.is_judged and m.sample_a_id is not None and m.sample_b_id is not None
+        ]
 
-        if not unjudged_matchups:
+        if not ready_matchups:
             return None
 
-        return random.choice(unjudged_matchups)
+        return random.choice(ready_matchups)
 
     async def record_vote(self, matchup_id: UUID, vote_id: str) -> None:
         """Record a vote for a matchup.
@@ -344,7 +437,7 @@ class TournamentService:
         else:
             next_round_number = self._current_round.round_number + 1
             self._current_round = await self._create_round(next_round_number)
-            samples = self.repo.get_all_samples()
+            samples = self.repo.get_all_samples_or_empty()
             self._current_round = await self.generation_service.ensure_samples_for_round(
                 self._current_round, samples
             )
@@ -388,6 +481,21 @@ class TournamentService:
 
     async def shutdown(self) -> None:
         """Shut down the tournament service and cancel background tasks."""
+        if self._initial_generation_task is not None and not self._initial_generation_task.done():
+            self._initial_generation_task.cancel()
+            try:
+                await self._initial_generation_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("Initial generation task cancelled")
+
+        for task in list(self._pending_update_tasks):
+            task.cancel()
+        if self._pending_update_tasks:
+            await asyncio.gather(*self._pending_update_tasks, return_exceptions=True)
+            self._pending_update_tasks.clear()
+            logger.info("Pending update tasks cancelled")
+
         if self._background_task is not None and not self._background_task.done():
             self._background_task.cancel()
             try:
@@ -442,4 +550,19 @@ class TournamentService:
             "judged_count": judged_count,
             "total_count": total_count,
             "next_round_ready": next_round_ready,
+        }
+
+    def get_generation_status(self) -> dict:
+        """Get generation progress status.
+
+        Returns:
+            Dictionary with generating: bool, completed: int, total: int
+        """
+        generating = (
+            self._initial_generation_task is not None and not self._initial_generation_task.done()
+        )
+        return {
+            "generating": generating,
+            "completed": self._generation_completed,
+            "total": self._generation_total,
         }

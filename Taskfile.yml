@@ -1,44 +1,26 @@
 version: '3'
 
 tasks:
+  css:
+    desc: Build Tailwind CSS
+    cmd: npx tailwindcss -i ./input.css -o ./static/css/output.css --minify
+
   dev:
-    desc: Run the Judge UI development server with hot reload
-    cmd: uv run uvicorn asciibench.judge_ui.main:app --reload
+    desc: Build CSS and run the Judge UI development server with hot reload
+    cmds:
+      - task: css
+      - uv run uvicorn asciibench.judge_ui.main:app --reload
 
   test:
     desc: Run tests with pytest
     cmd: uv run pytest
 
-  test-cov:
-    desc: Run tests with coverage
-    cmd: uv run pytest --cov=asciibench --cov-report=term-missing
-
-  lint:
-    desc: Run ruff linter
-    cmd: uv run ruff check .
-
-  lint-fix:
-    desc: Run ruff linter with auto-fix
-    cmd: uv run ruff check . --fix
-
-  format:
-    desc: Format code with ruff
-    cmd: uv run ruff format .
-
-  format-check:
-    desc: Check code formatting without making changes
-    cmd: uv run ruff format . --check
-
-  typecheck:
-    desc: Run type checking with ty
-    cmd: uv run ty check
-
   check:
-    desc: Run all checks (lint, format-check, typecheck, test)
+    desc: Run all checks (lint, format, typecheck, test)
     cmds:
-      - task: lint
-      - task: format-check
-      - task: typecheck
+      - uv run ruff check .
+      - uv run ruff format . --check
+      - uv run ty check
       - task: test
 
   generate:
