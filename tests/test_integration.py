@@ -109,6 +109,8 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[
         "VLM_EVALUATIONS_PATH",
         "vlm_evaluation_service",
         "vlm_init_attempted",
+        "vlm_eval_results",
+        "vlm_eval_tasks",
     ]:
         if hasattr(judge_main.app.state, attr):
             original_app_state[attr] = getattr(judge_main.app.state, attr)
@@ -121,6 +123,8 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[
     judge_main.app.state.VLM_EVALUATIONS_PATH = data_dir / "vlm_evaluations.jsonl"
     judge_main.app.state.vlm_evaluation_service = None
     judge_main.app.state.vlm_init_attempted = False
+    judge_main.app.state.vlm_eval_results = {}
+    judge_main.app.state.vlm_eval_tasks = {}
 
     yield data_dir
 

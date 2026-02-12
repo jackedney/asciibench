@@ -79,6 +79,8 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             app.state.openrouter_client = None
             app.state.vlm_evaluation_service = None
             app.state.vlm_init_attempted = True
+            app.state.vlm_eval_results = {}
+            app.state.vlm_eval_tasks = {}
         else:
             # Override existing app.state values
             app.state.repo = repo
@@ -87,6 +89,8 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             app.state.progress_service = progress_service
             app.state.undo_service = undo_service
             app.state.tournament_service = tournament_service
+            app.state.vlm_eval_results = {}
+            app.state.vlm_eval_tasks = {}
 
     # Initialize app.state before any tests run
     override_app_state()
