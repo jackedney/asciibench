@@ -19,6 +19,7 @@ node_modules/
 htmlcov/
 
 # Demo outputs
+demo_outputs/
 .demo_outputs/
 
 # Type checking and linting
