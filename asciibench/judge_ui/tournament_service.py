@@ -14,6 +14,7 @@ Dependencies:
 """
 
 import asyncio
+import functools
 import logging
 import random
 from pathlib import Path
@@ -112,45 +113,28 @@ class TournamentService:
                 if self._current_round is None:
                     return
 
-                self._generation_total = len(self._current_round.matchups)
-                self._generation_completed = 0
-                samples = self.repo.get_all_samples_or_empty()
+                async with self._lock:
+                    self._generation_total = len(self._current_round.matchups)
+                    self._generation_completed = 0
 
-                generated_round = await self.generation_service.ensure_samples_for_round(
-                    self._current_round, samples
+                samples = self.repo.get_all_samples_or_empty()
+                callback = functools.partial(self._on_matchup_generated)
+
+                await self.generation_service.ensure_samples_for_round(
+                    self._current_round, samples, on_matchup_ready=callback
                 )
 
                 async with self._lock:
                     if self._current_round is None:
                         return
 
-                    generated_by_id = {m.id: m for m in generated_round.matchups}
-                    updated_matchups = []
-                    for matchup in self._current_round.matchups:
-                        gen_matchup = generated_by_id.get(matchup.id)
-                        if gen_matchup and gen_matchup.sample_a_id and gen_matchup.sample_b_id:
-                            updated_matchup = matchup.model_copy(
-                                update={
-                                    "sample_a_id": gen_matchup.sample_a_id,
-                                    "sample_b_id": gen_matchup.sample_b_id,
-                                }
-                            )
-                            self._generation_completed += 1
-                        else:
-                            updated_matchup = matchup.model_copy()
-                        updated_matchups.append(updated_matchup)
-
+                    round_number = self._current_round.round_number
                     self._current_round = self._current_round.model_copy(
-                        update={
-                            "matchups": updated_matchups,
-                            "generation_complete": True,
-                        }
+                        update={"generation_complete": True}
                     )
                     self._persist_round_state(self._current_round)
 
-                logger.info(
-                    f"Initial generation complete for round {self._current_round.round_number}"
-                )
+                logger.info(f"Initial generation complete for round {round_number}")
             except Exception as e:
                 logger.error(f"Error in initial generation: {e}")
 
@@ -197,7 +181,9 @@ class TournamentService:
                 self._current_round = self._current_round.model_copy(
                     update={"matchups": updated_matchups}
                 )
-                self._generation_completed += 1
+                if existing.sample_a_id is None and existing.sample_b_id is None:
+                    self._generation_completed += 1
+                self._persist_round_state(self._current_round)
                 logger.debug(
                     f"Matchup {index} generated, "
                     f"progress: {self._generation_completed}/{self._generation_total}"
@@ -502,6 +488,13 @@ class TournamentService:
             except asyncio.CancelledError:
                 pass
             logger.info("Initial generation task cancelled")
+
+        for task in list(self._pending_update_tasks):
+            task.cancel()
+        if self._pending_update_tasks:
+            await asyncio.gather(*self._pending_update_tasks, return_exceptions=True)
+            self._pending_update_tasks.clear()
+            logger.info("Pending update tasks cancelled")
 
         if self._background_task is not None and not self._background_task.done():
             self._background_task.cancel()
