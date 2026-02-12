@@ -1,5 +1,6 @@
 """Tests for TournamentService round orchestration."""
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import uuid4
@@ -155,6 +156,62 @@ class TestInitialize:
         assert service._current_round.round_number == 1
         assert len(service._current_round.matchups) == 1
 
+    @pytest.mark.asyncio
+    async def test_initialize_non_blocking(
+        self,
+        service: TournamentService,
+        mock_generation_service: MagicMock,
+        mock_config_service: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test initialize() returns before _initial_generation_task completes."""
+        service._rounds_path = tmp_path / "rounds.jsonl"
+
+        generation_started = asyncio.Event()
+        generation_can_complete = asyncio.Event()
+
+        async def slow_ensure_samples_for_round(round_state, samples, on_matchup_ready=None):
+            generation_started.set()
+            await generation_can_complete.wait()
+            updated_matchups = []
+            for matchup in round_state.matchups:
+                updated_matchup = matchup.model_copy(
+                    update={
+                        "sample_a_id": str(uuid4()),
+                        "sample_b_id": str(uuid4()),
+                    }
+                )
+                updated_matchups.append(updated_matchup)
+            return round_state.model_copy(
+                update={
+                    "matchups": updated_matchups,
+                    "generation_complete": True,
+                }
+            )
+
+        mock_generation_service.ensure_samples_for_round = AsyncMock(
+            side_effect=slow_ensure_samples_for_round
+        )
+
+        with patch.object(service, "_start_background_generation"):
+            initialize_task = asyncio.create_task(service.initialize())
+
+        await generation_started.wait()
+
+        assert service._current_round is not None
+        assert service._initial_generation_task is not None
+        assert not service._initial_generation_task.done()
+        assert service._current_round.generation_complete is False
+
+        generation_can_complete.set()
+        await initialize_task
+
+        if service._initial_generation_task is not None:
+            await service._initial_generation_task
+
+        assert service._current_round.generation_complete is True
+
 
 class TestGetNextMatchup:
     """Tests for get_next_matchup method."""
@@ -223,6 +280,8 @@ class TestGetNextMatchup:
             prompt_text="Draw a cat",
             prompt_category="animal",
             is_judged=True,
+            sample_a_id=str(uuid4()),
+            sample_b_id=str(uuid4()),
         )
 
         service._current_round = RoundState(
@@ -447,7 +506,9 @@ class TestRecordVote:
         """Create a TournamentService instance for tests."""
         mock_generation_service = Mock(spec=GenerationService)
         mock_generation_service.ensure_samples_for_round = AsyncMock(
-            side_effect=lambda rs, s: rs.model_copy(update={"generation_complete": True})
+            side_effect=lambda rs, s, on_matchup_ready=None: rs.model_copy(
+                update={"generation_complete": True}
+            )
         )
         mock_config_service = MagicMock()
         mock_config_service.get_models.return_value = []
