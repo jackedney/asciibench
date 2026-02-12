@@ -1,37 +1,34 @@
 """GenerationService for on-demand sample generation.
 
-This module provides a service for generating individual samples on demand
+This module provides a service for generating samples on demand
 and persisting them immediately for tournament rounds.
 
 Dependencies:
-    - OpenRouterClient: API client for generating samples
-    - GenerationConfig: Configuration for sample generation
-    - extract_ascii_from_markdown: Function to extract ASCII from markdown
-    - append_jsonl: Function to persist samples
+    - asciibench.generator.concurrent: Concurrent generation primitive
+    - asciibench.common.config: GenerationConfig for settings
+    - asciibench.common.models: Data models for ArtSample, Matchup, RoundState
 """
 
 from collections.abc import Callable
-from pathlib import Path
 
 from asciibench.common.config import GenerationConfig
-from asciibench.common.models import ArtSample, Matchup, Prompt, RoundState
-from asciibench.common.persistence import append_jsonl
+from asciibench.common.models import ArtSample, Matchup, RoundState
 from asciibench.generator.client import OpenRouterClient
-from asciibench.generator.sanitizer import extract_ascii_from_markdown
+from asciibench.generator.concurrent import GenerationTask, generate_samples_concurrent
 
 
 class GenerationService:
-    """Service for generating individual samples on demand and persisting them.
+    """Service for generating samples on demand and persisting them.
 
     This service is used by the tournament system to generate missing samples
-    for matchups as needed, rather than pre-generating all samples upfront.
+    for matchups using concurrent API calls.
     """
 
     def __init__(
         self,
         client: OpenRouterClient,
         config: GenerationConfig,
-        database_path: Path,
+        database_path,
     ) -> None:
         """Initialize the GenerationService.
 
@@ -62,46 +59,6 @@ class GenerationService:
                 return sample
         return None
 
-    async def generate_sample(self, model_id: str, prompt: Prompt) -> ArtSample:
-        """Generate a single sample for the given model and prompt.
-
-        This method calls the OpenRouter API, extracts ASCII art from markdown,
-        creates an ArtSample, persists it, and returns it.
-
-        Args:
-            model_id: ID of the model to generate from
-            prompt: Prompt object with text and category
-
-        Returns:
-            Generated ArtSample instance
-
-        Raises:
-            Exception: If the API call fails (caller handles retry/skip)
-        """
-        response = await self.client.generate_async(
-            model_id=model_id,
-            prompt=prompt.text,
-            config=self.config,
-        )
-
-        sanitized_output = extract_ascii_from_markdown(response.text)
-
-        sample = ArtSample(
-            model_id=model_id,
-            prompt_text=prompt.text,
-            category=prompt.category,
-            attempt_number=1,
-            raw_output=response.text,
-            sanitized_output=sanitized_output,
-            is_valid=bool(sanitized_output),
-            output_tokens=response.completion_tokens,
-            cost=response.cost,
-        )
-
-        append_jsonl(self.database_path, sample)
-
-        return sample
-
     async def ensure_samples_for_round(
         self,
         round_state: RoundState,
@@ -110,9 +67,9 @@ class GenerationService:
     ) -> RoundState:
         """Ensure all samples for matchups in the round exist.
 
-        Iterates through matchups, finds or generates samples as needed,
-        fills in sample_a_id and sample_b_id, sets generation_complete=True,
-        and returns the updated RoundState.
+        Collects all unique (model_id, prompt_text) pairs from matchups,
+        generates missing samples concurrently, builds a lookup dict,
+        fills sample_a_id/sample_b_id on all matchups, and fires callbacks.
 
         Args:
             round_state: RoundState with matchups to populate
@@ -123,39 +80,62 @@ class GenerationService:
         Returns:
             Updated RoundState with sample IDs filled and generation_complete=True
         """
-        updated_matchups = []
+        pairs_to_generate: set[tuple[str, str, str]] = set()
 
+        for matchup in round_state.matchups:
+            pairs_to_generate.add(
+                (matchup.model_a_id, matchup.prompt_text, matchup.prompt_category)
+            )
+            pairs_to_generate.add(
+                (matchup.model_b_id, matchup.prompt_text, matchup.prompt_category)
+            )
+
+        existing_keys: set[tuple[str, str, int]] = {
+            (s.model_id, s.prompt_text, s.attempt_number) for s in existing_samples
+        }
+
+        tasks: list[GenerationTask] = []
+        for model_id, prompt_text, category in pairs_to_generate:
+            if (model_id, prompt_text, 1) not in existing_keys:
+                tasks.append(
+                    GenerationTask(
+                        model_id=model_id,
+                        prompt_text=prompt_text,
+                        category=category,
+                        attempt=1,
+                    )
+                )
+
+        generated_samples: list[ArtSample] = []
+        if tasks:
+            generated_samples = await generate_samples_concurrent(
+                tasks=tasks,
+                client=self.client,
+                config=self.config,
+                database_path=self.database_path,
+                existing_keys=existing_keys,
+                max_concurrent=10,
+            )
+
+        sample_lookup: dict[tuple[str, str], ArtSample] = {}
+        for sample in existing_samples:
+            key = (sample.model_id, sample.prompt_text)
+            if key not in sample_lookup:
+                sample_lookup[key] = sample
+        for sample in generated_samples:
+            key = (sample.model_id, sample.prompt_text)
+            if key not in sample_lookup:
+                sample_lookup[key] = sample
+
+        updated_matchups: list[Matchup] = []
         for index, matchup in enumerate(round_state.matchups):
-            sample_a = self.find_existing_sample(
-                matchup.model_a_id, matchup.prompt_text, existing_samples
-            )
-
-            sample_b = self.find_existing_sample(
-                matchup.model_b_id, matchup.prompt_text, existing_samples
-            )
-
-            if sample_a is None:
-                prompt = Prompt(
-                    text=matchup.prompt_text,
-                    category=matchup.prompt_category,
-                    template_type="unknown",
-                )
-                sample_a = await self.generate_sample(matchup.model_a_id, prompt)
-                existing_samples.append(sample_a)
-
-            if sample_b is None:
-                prompt = Prompt(
-                    text=matchup.prompt_text,
-                    category=matchup.prompt_category,
-                    template_type="unknown",
-                )
-                sample_b = await self.generate_sample(matchup.model_b_id, prompt)
-                existing_samples.append(sample_b)
+            sample_a = sample_lookup.get((matchup.model_a_id, matchup.prompt_text))
+            sample_b = sample_lookup.get((matchup.model_b_id, matchup.prompt_text))
 
             updated_matchup = matchup.model_copy(
                 update={
-                    "sample_a_id": str(sample_a.id),
-                    "sample_b_id": str(sample_b.id),
+                    "sample_a_id": str(sample_a.id) if sample_a else None,
+                    "sample_b_id": str(sample_b.id) if sample_b else None,
                 }
             )
             updated_matchups.append(updated_matchup)
