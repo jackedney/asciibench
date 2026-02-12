@@ -447,7 +447,7 @@ class TestEnsureSamplesForRound:
         sample_round_state: RoundState,
         sample_existing_samples: list[ArtSample],
     ) -> None:
-        """Test ensure_samples_for_round calls callback for each matchup."""
+        """Test ensure_samples_for_round calls callback for each matchup with correct index."""
         mock_response = OpenRouterResponse(
             text="```text\n  O\n /|\\\n```",
             prompt_tokens=10,
@@ -457,7 +457,31 @@ class TestEnsureSamplesForRound:
         )
         service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
 
-        callback_calls = []
+        round_state_3_matchups = RoundState(
+            round_number=1,
+            matchups=[
+                Matchup(
+                    model_a_id="model-a",
+                    model_b_id="model-b",
+                    prompt_text="Draw a cat",
+                    prompt_category="animal",
+                ),
+                Matchup(
+                    model_a_id="model-a",
+                    model_b_id="model-c",
+                    prompt_text="Draw a dog",
+                    prompt_category="animal",
+                ),
+                Matchup(
+                    model_a_id="model-d",
+                    model_b_id="model-e",
+                    prompt_text="Draw a bird",
+                    prompt_category="animal",
+                ),
+            ],
+        )
+
+        callback_calls: list[tuple[int, Matchup]] = []
 
         def callback(index: int, matchup: Matchup) -> None:
             callback_calls.append((index, matchup))
@@ -470,20 +494,16 @@ class TestEnsureSamplesForRound:
             patch("asciibench.judge_ui.generation_service.append_jsonl"),
         ):
             await service.ensure_samples_for_round(
-                sample_round_state, sample_existing_samples, on_matchup_ready=callback
+                round_state_3_matchups, sample_existing_samples, on_matchup_ready=callback
             )
 
-        assert len(callback_calls) == 2
+        assert len(callback_calls) == 3
 
-        first_index, first_matchup = callback_calls[0]
-        assert first_index == 0
-        assert first_matchup.sample_a_id is not None
-        assert first_matchup.sample_b_id is not None
-
-        second_index, second_matchup = callback_calls[1]
-        assert second_index == 1
-        assert second_matchup.sample_a_id is not None
-        assert second_matchup.sample_b_id is not None
+        for i in range(3):
+            index, matchup = callback_calls[i]
+            assert index == i
+            assert matchup.sample_a_id is not None
+            assert matchup.sample_b_id is not None
 
     @pytest.mark.asyncio
     async def test_ensure_samples_for_round_no_callback_when_none(
@@ -502,6 +522,8 @@ class TestEnsureSamplesForRound:
         )
         service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
 
+        callback_mock = MagicMock()
+
         with (
             patch(
                 "asciibench.judge_ui.generation_service.extract_ascii_from_markdown",
@@ -513,4 +535,5 @@ class TestEnsureSamplesForRound:
                 sample_round_state, sample_existing_samples, on_matchup_ready=None
             )
 
+        callback_mock.assert_not_called()
         assert result.generation_complete is True
