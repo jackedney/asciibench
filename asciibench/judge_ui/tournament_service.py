@@ -67,6 +67,7 @@ class TournamentService:
         self._initial_generation_task: asyncio.Task | None = None
         self._generation_total: int = 0
         self._generation_completed: int = 0
+        self._pending_update_tasks: set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
 
         self._rounds_path: Path = Path("data/rounds.jsonl")
@@ -115,12 +116,37 @@ class TournamentService:
                 self._generation_completed = 0
                 samples = self.repo.get_all_samples_or_empty()
 
-                self._current_round = await self.generation_service.ensure_samples_for_round(
-                    self._current_round, samples, on_matchup_ready=self._on_matchup_generated
+                generated_round = await self.generation_service.ensure_samples_for_round(
+                    self._current_round, samples
                 )
 
-                self._generation_completed = self._generation_total
-                self._persist_round_state(self._current_round)
+                async with self._lock:
+                    if self._current_round is None:
+                        return
+
+                    generated_by_id = {m.id: m for m in generated_round.matchups}
+                    updated_matchups = []
+                    for matchup in self._current_round.matchups:
+                        gen_matchup = generated_by_id.get(matchup.id)
+                        if gen_matchup and gen_matchup.sample_a_id and gen_matchup.sample_b_id:
+                            updated_matchup = matchup.model_copy(
+                                update={
+                                    "sample_a_id": gen_matchup.sample_a_id,
+                                    "sample_b_id": gen_matchup.sample_b_id,
+                                }
+                            )
+                            self._generation_completed += 1
+                        else:
+                            updated_matchup = matchup.model_copy()
+                        updated_matchups.append(updated_matchup)
+
+                    self._current_round = self._current_round.model_copy(
+                        update={
+                            "matchups": updated_matchups,
+                            "generation_complete": True,
+                        }
+                    )
+                    self._persist_round_state(self._current_round)
 
                 logger.info(
                     f"Initial generation complete for round {self._current_round.round_number}"
@@ -133,26 +159,49 @@ class TournamentService:
     def _on_matchup_generated(self, index: int, matchup: Matchup) -> None:
         """Callback called when a matchup's samples are generated.
 
-        Updates the matchup in _current_round and increments generation progress.
+        Schedules a lock-protected update so all mutations to _current_round
+        and _generation_completed go through self._lock.
 
         Args:
             index: 0-based index of the matchup in the round
             matchup: Updated matchup with sample_a_id and sample_b_id filled
         """
-        if self._current_round is None:
-            return
+        task = asyncio.create_task(self._update_matchup_generated(index, matchup))
+        self._pending_update_tasks.add(task)
+        task.add_done_callback(self._pending_update_tasks.discard)
 
-        updated_matchups = list(self._current_round.matchups)
-        if 0 <= index < len(updated_matchups):
-            updated_matchups[index] = matchup
-            self._current_round = self._current_round.model_copy(
-                update={"matchups": updated_matchups}
-            )
-            self._generation_completed += 1
-            logger.debug(
-                f"Matchup {index} generated, "
-                f"progress: {self._generation_completed}/{self._generation_total}"
-            )
+    async def _update_matchup_generated(self, index: int, matchup: Matchup) -> None:
+        """Merge a generated matchup into _current_round under the lock.
+
+        Preserves existing is_judged and vote_id fields to avoid races
+        with record_vote/undo_last_vote.
+
+        Args:
+            index: 0-based index of the matchup in the round
+            matchup: Updated matchup with sample_a_id and sample_b_id filled
+        """
+        async with self._lock:
+            if self._current_round is None:
+                return
+
+            updated_matchups = list(self._current_round.matchups)
+            if 0 <= index < len(updated_matchups):
+                existing = updated_matchups[index]
+                merged = matchup.model_copy(
+                    update={
+                        "is_judged": existing.is_judged,
+                        "vote_id": existing.vote_id,
+                    }
+                )
+                updated_matchups[index] = merged
+                self._current_round = self._current_round.model_copy(
+                    update={"matchups": updated_matchups}
+                )
+                self._generation_completed += 1
+                logger.debug(
+                    f"Matchup {index} generated, "
+                    f"progress: {self._generation_completed}/{self._generation_total}"
+                )
 
     def _load_latest_round(self) -> RoundState | None:
         """Load the latest round from rounds.jsonl.

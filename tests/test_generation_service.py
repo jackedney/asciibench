@@ -522,8 +522,6 @@ class TestEnsureSamplesForRound:
         )
         service.client.generate_async = AsyncMock(return_value=mock_response)  # type: ignore[assignment]
 
-        callback_mock = MagicMock()
-
         with (
             patch(
                 "asciibench.judge_ui.generation_service.extract_ascii_from_markdown",
@@ -535,5 +533,4 @@ class TestEnsureSamplesForRound:
                 sample_round_state, sample_existing_samples, on_matchup_ready=None
             )
 
-        callback_mock.assert_not_called()
         assert result.generation_complete is True

@@ -388,8 +388,8 @@ class TestGetNextMatchup:
         assert result.id == complete_matchup.id
 
 
-class TestOnMatchupGenerated:
-    """Tests for _on_matchup_generated callback method."""
+class TestUpdateMatchupGenerated:
+    """Tests for _update_matchup_generated async method."""
 
     @pytest.fixture
     def service(self, tmp_path: Path) -> TournamentService:
@@ -411,8 +411,11 @@ class TestOnMatchupGenerated:
         service._rounds_path = tmp_path / "rounds.jsonl"
         return service
 
-    def test_on_matchup_generated_updates_matchup(self, service: TournamentService) -> None:
-        """Test _on_matchup_generated updates matchup in _current_round."""
+    @pytest.mark.asyncio
+    async def test_update_matchup_generated_updates_matchup(
+        self, service: TournamentService
+    ) -> None:
+        """Test _update_matchup_generated updates matchup in _current_round."""
         matchup1 = Matchup(
             id=uuid4(),
             model_a_id="model-a",
@@ -441,16 +444,17 @@ class TestOnMatchupGenerated:
         updated_matchup = matchup1.model_copy(
             update={"sample_a_id": str(uuid4()), "sample_b_id": str(uuid4())}
         )
-        service._on_matchup_generated(0, updated_matchup)
+        await service._update_matchup_generated(0, updated_matchup)
 
         assert service._current_round.matchups[0].sample_a_id is not None
         assert service._current_round.matchups[0].sample_b_id is not None
         assert service._generation_completed == 1
 
-    def test_on_matchup_generated_bumps_generation_completed(
+    @pytest.mark.asyncio
+    async def test_update_matchup_generated_bumps_generation_completed(
         self, service: TournamentService
     ) -> None:
-        """Test _on_matchup_generated increments _generation_completed."""
+        """Test _update_matchup_generated increments _generation_completed."""
         matchup = Matchup(
             id=uuid4(),
             model_a_id="model-a",
@@ -471,14 +475,15 @@ class TestOnMatchupGenerated:
         updated_matchup = matchup.model_copy(
             update={"sample_a_id": str(uuid4()), "sample_b_id": str(uuid4())}
         )
-        service._on_matchup_generated(0, updated_matchup)
+        await service._update_matchup_generated(0, updated_matchup)
 
         assert service._generation_completed == 1
 
-    def test_on_matchup_generated_handles_no_current_round(
+    @pytest.mark.asyncio
+    async def test_update_matchup_generated_handles_no_current_round(
         self, service: TournamentService
     ) -> None:
-        """Test _on_matchup_generated handles case when no current round."""
+        """Test _update_matchup_generated handles case when no current round."""
         service._current_round = None
         service._generation_total = 1
         service._generation_completed = 0
@@ -493,9 +498,48 @@ class TestOnMatchupGenerated:
             sample_b_id=str(uuid4()),
         )
 
-        service._on_matchup_generated(0, updated_matchup)
+        await service._update_matchup_generated(0, updated_matchup)
 
         assert service._generation_completed == 0
+
+    @pytest.mark.asyncio
+    async def test_update_matchup_generated_preserves_vote_state(
+        self, service: TournamentService
+    ) -> None:
+        """Test _update_matchup_generated preserves is_judged and vote_id from existing matchup."""
+        vote_id = str(uuid4())
+        matchup = Matchup(
+            id=uuid4(),
+            model_a_id="model-a",
+            model_b_id="model-b",
+            prompt_text="Draw a cat",
+            prompt_category="animal",
+            is_judged=True,
+            vote_id=vote_id,
+        )
+
+        service._current_round = RoundState(
+            id=uuid4(),
+            round_number=1,
+            matchups=[matchup],
+        )
+        service._generation_total = 1
+        service._generation_completed = 0
+
+        generated_matchup = matchup.model_copy(
+            update={
+                "sample_a_id": str(uuid4()),
+                "sample_b_id": str(uuid4()),
+                "is_judged": False,
+                "vote_id": None,
+            }
+        )
+        await service._update_matchup_generated(0, generated_matchup)
+
+        assert service._current_round.matchups[0].is_judged is True
+        assert service._current_round.matchups[0].vote_id == vote_id
+        assert service._current_round.matchups[0].sample_a_id is not None
+        assert service._current_round.matchups[0].sample_b_id is not None
 
 
 class TestRecordVote:
