@@ -9,12 +9,15 @@ Dependencies:
     - asciibench.common.models: Data models for ArtSample, Matchup, RoundState
 """
 
+import logging
 from collections.abc import Callable
 
 from asciibench.common.config import GenerationConfig
 from asciibench.common.models import ArtSample, Matchup, RoundState
 from asciibench.generator.client import OpenRouterClient
 from asciibench.generator.concurrent import GenerationTask, generate_samples_concurrent
+
+logger = logging.getLogger(__name__)
 
 
 class GenerationService:
@@ -108,6 +111,16 @@ class GenerationService:
 
         generated_samples: list[ArtSample] = []
         if tasks:
+            models = {t.model_id for t in tasks}
+            logger.info(
+                "Dispatching %d LLM call(s) across %d model(s)",
+                len(tasks),
+                len(models),
+            )
+        else:
+            logger.info("All samples already exist, skipping generation")
+
+        if tasks:
             generated_samples = await generate_samples_concurrent(
                 tasks=tasks,
                 client=self.client,
@@ -116,6 +129,7 @@ class GenerationService:
                 existing_keys=existing_keys,
                 max_concurrent=10,
             )
+            logger.info("All %d LLM calls completed", len(tasks))
 
         sample_lookup: dict[tuple[str, str], ArtSample] = {}
         for sample in existing_samples:

@@ -28,7 +28,6 @@ HTMX integration:
     HTMX endpoints return HTML fragments for partial page updates.
 """
 
-import asyncio
 import json
 import logging
 import random
@@ -46,7 +45,7 @@ from fastapi.templating import Jinja2Templates
 
 from asciibench.common.config import Settings
 from asciibench.common.config_service import ConfigService
-from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
+from asciibench.common.models import ArtSample, Model, Vote
 from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
@@ -76,6 +75,12 @@ from asciibench.judge_ui.tournament_service import TournamentService
 from asciibench.judge_ui.undo_service import UndoService
 
 templates = Jinja2Templates(directory="templates")
+
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(levelname)s:     %(message)s",
+)
+logging.getLogger("asciibench").setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +133,24 @@ def _get_sample_by_id(sample_id: str | UUID) -> ArtSample | None:
     return indexed.get(target_id)
 
 
+def _create_vlm_orchestrator_factory():
+    """Create a factory function for VLM orchestrator.
+
+    Returns a callable that creates (orchestrator, repo, path) tuple
+    or None if VLM evaluation is not available.
+    """
+
+    def factory():
+        try:
+            from asciibench.evaluator.orchestrator import create_orchestrator
+
+            return create_orchestrator(VLM_EVALUATIONS_PATH)
+        except (ImportError, FileNotFoundError, ValueError):
+            return None
+
+    return factory
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI application.
@@ -165,24 +188,18 @@ async def lifespan(app: FastAPI):
 
     # Initialize tournament service
     try:
+        vlm_factory = _create_vlm_orchestrator_factory()
         app.state.tournament_service = TournamentService(
             generation_service=app.state.generation_service,
             config_service=app.state.config_service,
             repo=app.state.repo,
             n=app.state.tournament_config.round_size,
+            vlm_orchestrator_factory=vlm_factory,
         )
         await app.state.tournament_service.initialize()
     except Exception as e:
         logger.error(f"TournamentService initialization failed: {e}")
         app.state.tournament_service = None
-
-    app.state.vlm_init_attempted = False
-
-    # VLM evaluation background task state
-    # Type: dict[str, list[VLMEvaluation]] - keyed by '{sample_a_id}_{sample_b_id}'
-    app.state.vlm_eval_results = {}
-    # Type: dict[str, asyncio.Task] - keyed by '{sample_a_id}_{sample_b_id}'
-    app.state.vlm_eval_tasks = {}
 
     yield
 
@@ -687,145 +704,6 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
 
     # Return the current matchup (don't load a new one)
     return await htmx_get_matchup(request)
-
-
-def _deduplicate_evaluations(
-    existing_evaluations: list[VLMEvaluation],
-    new_evaluations: list[VLMEvaluation],
-    sample_id: str,
-) -> list[VLMEvaluation]:
-    """Deduplicate evaluations by vlm_model_id for a specific sample.
-
-    Args:
-        existing_evaluations: All existing evaluations from the repository
-        new_evaluations: New evaluations from the current request
-        sample_id: The sample ID to filter existing evaluations by
-
-    Returns:
-        Deduplicated list of evaluations with unique vlm_model_id values.
-        Existing evaluations are preferred over new ones.
-    """
-    seen: set[str] = set()
-    results: list[VLMEvaluation] = []
-
-    for e in [
-        *[e for e in existing_evaluations if e.sample_id == sample_id],
-        *new_evaluations,
-    ]:
-        if e.vlm_model_id not in seen:
-            seen.add(e.vlm_model_id)
-            results.append(e)
-
-    return results
-
-
-@app.get("/htmx/vlm-eval", response_class=HTMLResponse)
-@htmx_error_handler("partials/vlm_results.html")
-async def htmx_vlm_eval(request: Request) -> HTMLResponse:
-    """HTMX endpoint to evaluate samples with VLM after a vote.
-
-    Non-blocking implementation with HTMX polling:
-    - First request starts background evaluation task, returns progress partial
-    - Subsequent requests poll until done, then return results
-
-    Results are cached by '{sample_a_id}_{sample_b_id}' key.
-    Concurrent requests for same samples share the same task/results.
-    """
-
-    sample_a_id = request.query_params.get("sample_a_id")
-    sample_b_id = request.query_params.get("sample_b_id")
-
-    if not sample_a_id or not sample_b_id:
-        return templates.TemplateResponse(
-            request,
-            "partials/vlm_results.html",
-            {"error": "Missing sample IDs"},
-        )
-
-    task_key = f"{sample_a_id}_{sample_b_id}"
-
-    if request.app.state.vlm_eval_results.get(task_key) is not None:
-        cached = request.app.state.vlm_eval_results[task_key]
-        results_a = [e for e in cached if e.sample_id == sample_a_id]
-        results_b = [e for e in cached if e.sample_id == sample_b_id]
-        return templates.TemplateResponse(
-            request,
-            "partials/vlm_results.html",
-            {"results_a": results_a, "results_b": results_b},
-        )
-
-    running_task = request.app.state.vlm_eval_tasks.get(task_key)
-    if running_task is not None:
-        if running_task.done():
-            try:
-                running_task.result()
-            except Exception:
-                pass
-            request.app.state.vlm_eval_tasks.pop(task_key, None)
-        else:
-            return templates.TemplateResponse(
-                request,
-                "partials/vlm_eval_progress.html",
-                {"sample_a_id": sample_a_id, "sample_b_id": sample_b_id},
-            )
-
-    if not request.app.state.vlm_init_attempted:
-        request.app.state.vlm_init_attempted = True
-        try:
-            from asciibench.evaluator.orchestrator import create_orchestrator
-
-            create_orchestrator(VLM_EVALUATIONS_PATH)
-        except (ImportError, FileNotFoundError, ValueError) as e:
-            logging.info(f"VLM evaluation not available: {e.__class__.__name__}: {e}")
-            return templates.TemplateResponse(
-                request,
-                "partials/vlm_results.html",
-                {"error": "VLM evaluation not configured"},
-            )
-
-    sample_a = _get_sample_by_id(sample_a_id)
-    sample_b = _get_sample_by_id(sample_b_id)
-
-    if not sample_a or not sample_b:
-        return templates.TemplateResponse(
-            request,
-            "partials/vlm_results.html",
-            {"error": "Sample not found"},
-        )
-
-    async def run_vlm_evaluation() -> list[VLMEvaluation]:
-        from asciibench.evaluator.orchestrator import create_orchestrator
-
-        orchestrator, repo, _ = create_orchestrator(VLM_EVALUATIONS_PATH)
-        existing_evaluations = repo.get_evaluations_or_empty()
-        results = await orchestrator.run(
-            samples=[sample_a, sample_b],
-            existing_evaluations=existing_evaluations,
-            show_progress=False,
-        )
-        all_evals = list(existing_evaluations) + list(results)
-        return [e for e in all_evals if e.sample_id in (sample_a_id, sample_b_id)]
-
-    task = asyncio.create_task(run_vlm_evaluation())
-    request.app.state.vlm_eval_tasks[task_key] = task
-
-    def on_task_done(t: asyncio.Task) -> None:
-        try:
-            results = t.result()
-            request.app.state.vlm_eval_results[task_key] = results
-        except Exception as e:
-            logging.error(f"VLM evaluation failed: {e}")
-            request.app.state.vlm_eval_results[task_key] = []
-        finally:
-            request.app.state.vlm_eval_tasks.pop(task_key, None)
-
-    task.add_done_callback(on_task_done)
-
-    return templates.TemplateResponse(
-        request,
-        "partials/vlm_eval_progress.html",
-        {"sample_a_id": sample_a_id, "sample_b_id": sample_b_id},
-    )
 
 
 # =============================================================================
