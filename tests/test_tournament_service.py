@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from asciibench.common.models import Matchup, Model, Prompt, RoundState, Vote
+from asciibench.common.models import ArtSample, Matchup, Model, Prompt, RoundState, Vote
 from asciibench.judge_ui.generation_service import GenerationService
 from asciibench.judge_ui.tournament_service import TournamentService
 
@@ -793,3 +793,344 @@ class TestGetGenerationStatus:
         assert result["generating"] is False
         assert result["completed"] == 2
         assert result["total"] == 5
+
+
+class TestVLMEvaluation:
+    """Tests for VLM evaluation background task functionality."""
+
+    @pytest.fixture
+    def mock_generation_service(self) -> MagicMock:
+        """Create a mock GenerationService."""
+        return MagicMock(spec=GenerationService)
+
+    @pytest.fixture
+    def mock_config_service(self) -> MagicMock:
+        """Create a mock ConfigService."""
+        config = MagicMock()
+        config.get_models.return_value = [
+            Model(id="model-a", name="Model A"),
+            Model(id="model-b", name="Model B"),
+        ]
+        config.get_prompts.return_value = [
+            Prompt(text="Draw a cat", category="animal", template_type="simple"),
+        ]
+        return config
+
+    @pytest.fixture
+    def mock_repo(self, tmp_path: Path) -> MagicMock:
+        """Create a mock DataRepository."""
+        repo = MagicMock()
+        repo.get_all_samples.return_value = []
+        repo.get_votes.return_value = []
+        repo.get_evaluations_or_empty.return_value = []
+        return repo
+
+    @pytest.fixture
+    def service_without_vlm(
+        self,
+        mock_generation_service: MagicMock,
+        mock_config_service: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> TournamentService:
+        """Create a TournamentService without VLM factory."""
+        service = TournamentService(
+            generation_service=mock_generation_service,
+            config_service=mock_config_service,
+            repo=mock_repo,
+            n=1,
+        )
+        service._rounds_path = tmp_path / "rounds.jsonl"
+        return service
+
+    @pytest.fixture
+    def service_with_vlm(
+        self,
+        mock_generation_service: MagicMock,
+        mock_config_service: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> TournamentService:
+        """Create a TournamentService with VLM factory."""
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.run = AsyncMock(return_value=[])
+
+        def vlm_factory():
+            return (mock_orchestrator, mock_repo, tmp_path / "vlm_evaluations.jsonl")
+
+        service = TournamentService(
+            generation_service=mock_generation_service,
+            config_service=mock_config_service,
+            repo=mock_repo,
+            n=1,
+            vlm_orchestrator_factory=vlm_factory,
+        )
+        service._rounds_path = tmp_path / "rounds.jsonl"
+        return service
+
+    def test_init_accepts_vlm_factory(
+        self,
+        mock_generation_service: MagicMock,
+        mock_config_service: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test TournamentService __init__ accepts vlm_orchestrator_factory."""
+
+        def vlm_factory():
+            return None
+
+        service = TournamentService(
+            generation_service=mock_generation_service,
+            config_service=mock_config_service,
+            repo=mock_repo,
+            n=1,
+            vlm_orchestrator_factory=vlm_factory,
+        )
+
+        assert service._vlm_orchestrator_factory is vlm_factory
+
+    def test_init_vlm_factory_defaults_to_none(
+        self,
+        mock_generation_service: MagicMock,
+        mock_config_service: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test TournamentService __init__ defaults vlm_orchestrator_factory to None."""
+        service = TournamentService(
+            generation_service=mock_generation_service,
+            config_service=mock_config_service,
+            repo=mock_repo,
+            n=1,
+        )
+
+        assert service._vlm_orchestrator_factory is None
+
+    def test_start_vlm_evaluation_skips_without_factory(
+        self, service_without_vlm: TournamentService
+    ) -> None:
+        """Test _start_vlm_evaluation skips when no factory configured."""
+        sample = ArtSample(
+            id=uuid4(),
+            model_id="model-a",
+            prompt_text="Draw a cat",
+            category="animal",
+            attempt_number=1,
+            raw_output="cat art",
+            sanitized_output="cat art",
+            is_valid=True,
+        )
+
+        service_without_vlm._start_vlm_evaluation([sample])
+
+        assert service_without_vlm._vlm_task is None
+
+    def test_start_vlm_evaluation_skips_empty_samples(
+        self, service_with_vlm: TournamentService
+    ) -> None:
+        """Test _start_vlm_evaluation skips with empty samples."""
+        service_with_vlm._start_vlm_evaluation([])
+
+        assert service_with_vlm._vlm_task is None
+
+    @pytest.mark.asyncio
+    async def test_start_vlm_evaluation_creates_task(
+        self, service_with_vlm: TournamentService
+    ) -> None:
+        """Test _start_vlm_evaluation creates background task."""
+        sample = ArtSample(
+            id=uuid4(),
+            model_id="model-a",
+            prompt_text="Draw a cat",
+            category="animal",
+            attempt_number=1,
+            raw_output="cat art",
+            sanitized_output="cat art",
+            is_valid=True,
+        )
+
+        service_with_vlm._start_vlm_evaluation([sample])
+
+        assert service_with_vlm._vlm_task is not None
+        assert not service_with_vlm._vlm_task.done()
+
+        await service_with_vlm._vlm_task
+
+        assert service_with_vlm._vlm_task.done()
+
+    @pytest.mark.asyncio
+    async def test_start_vlm_evaluation_skips_if_task_running(
+        self, service_with_vlm: TournamentService
+    ) -> None:
+        """Test _start_vlm_evaluation skips if task already running."""
+        sample = ArtSample(
+            id=uuid4(),
+            model_id="model-a",
+            prompt_text="Draw a cat",
+            category="animal",
+            attempt_number=1,
+            raw_output="cat art",
+            sanitized_output="cat art",
+            is_valid=True,
+        )
+
+        service_with_vlm._start_vlm_evaluation([sample])
+        first_task = service_with_vlm._vlm_task
+
+        service_with_vlm._start_vlm_evaluation([sample])
+
+        assert service_with_vlm._vlm_task is first_task
+
+        if first_task:
+            await first_task
+
+    @pytest.mark.asyncio
+    async def test_shutdown_cancels_vlm_task(self, service_with_vlm: TournamentService) -> None:
+        """Test shutdown() cancels VLM task."""
+        sample = ArtSample(
+            id=uuid4(),
+            model_id="model-a",
+            prompt_text="Draw a cat",
+            category="animal",
+            attempt_number=1,
+            raw_output="cat art",
+            sanitized_output="cat art",
+            is_valid=True,
+        )
+
+        service_with_vlm._start_vlm_evaluation([sample])
+
+        await service_with_vlm.shutdown()
+
+        assert service_with_vlm._vlm_task is not None
+        assert service_with_vlm._vlm_task.cancelled() or service_with_vlm._vlm_task.done()
+
+    @pytest.mark.asyncio
+    async def test_vlm_failure_logs_warning(
+        self,
+        mock_generation_service: MagicMock,
+        mock_config_service: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test VLM failure logs warning but doesn't raise exception."""
+
+        def failing_factory():
+            raise RuntimeError("VLM error")
+
+        service = TournamentService(
+            generation_service=mock_generation_service,
+            config_service=mock_config_service,
+            repo=mock_repo,
+            n=1,
+            vlm_orchestrator_factory=failing_factory,
+        )
+        service._rounds_path = tmp_path / "rounds.jsonl"
+
+        sample = ArtSample(
+            id=uuid4(),
+            model_id="model-a",
+            prompt_text="Draw a cat",
+            category="animal",
+            attempt_number=1,
+            raw_output="cat art",
+            sanitized_output="cat art",
+            is_valid=True,
+        )
+
+        service._start_vlm_evaluation([sample])
+
+        assert service._vlm_task is not None
+
+        await service._vlm_task
+
+        assert service._vlm_task.done()
+
+    @pytest.mark.asyncio
+    async def test_background_generation_starts_vlm_evaluation(
+        self,
+        mock_generation_service: MagicMock,
+        mock_config_service: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test _start_background_generation calls _start_vlm_evaluation after completion."""
+        mock_orchestrator = MagicMock()
+        mock_orchestrator.run = AsyncMock(return_value=[])
+
+        def vlm_factory():
+            return (mock_orchestrator, mock_repo, tmp_path / "vlm_evaluations.jsonl")
+
+        sample_a_id = uuid4()
+        sample_b_id = uuid4()
+        sample_a = ArtSample(
+            id=sample_a_id,
+            model_id="model-a",
+            prompt_text="Draw a cat",
+            category="animal",
+            attempt_number=1,
+            raw_output="cat art",
+            sanitized_output="cat art",
+            is_valid=True,
+        )
+        sample_b = ArtSample(
+            id=sample_b_id,
+            model_id="model-b",
+            prompt_text="Draw a cat",
+            category="animal",
+            attempt_number=1,
+            raw_output="dog art",
+            sanitized_output="dog art",
+            is_valid=True,
+        )
+        mock_repo.get_all_samples_or_empty.return_value = [sample_a, sample_b]
+
+        mock_generation_service.ensure_samples_for_round = AsyncMock(
+            side_effect=lambda rs, s: rs.model_copy(
+                update={
+                    "matchups": [
+                        m.model_copy(
+                            update={
+                                "sample_a_id": str(sample_a_id),
+                                "sample_b_id": str(sample_b_id),
+                            }
+                        )
+                        for m in rs.matchups
+                    ],
+                    "generation_complete": True,
+                }
+            )
+        )
+
+        service = TournamentService(
+            generation_service=mock_generation_service,
+            config_service=mock_config_service,
+            repo=mock_repo,
+            n=1,
+            vlm_orchestrator_factory=vlm_factory,
+        )
+        service._rounds_path = tmp_path / "rounds.jsonl"
+
+        service._current_round = RoundState(
+            id=uuid4(),
+            round_number=1,
+            matchups=[
+                Matchup(
+                    id=uuid4(),
+                    model_a_id="model-a",
+                    model_b_id="model-b",
+                    prompt_text="Draw a cat",
+                    prompt_category="animal",
+                    is_judged=True,
+                )
+            ],
+            generation_complete=True,
+        )
+
+        service._start_background_generation()
+
+        assert service._background_task is not None
+        await service._background_task
+
+        mock_orchestrator.run.assert_called_once()

@@ -16,12 +16,13 @@ Dependencies:
 import asyncio
 import logging
 import random
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from asciibench.analyst.elo import calculate_elo
-from asciibench.common.models import Matchup, RoundState
+from asciibench.common.models import ArtSample, Matchup, RoundState
 from asciibench.common.persistence import append_jsonl, read_jsonl
 from asciibench.judge_ui.generation_service import GenerationService
 from asciibench.judge_ui.swiss_selector import PromptSelector, SwissPairSelector
@@ -29,6 +30,10 @@ from asciibench.judge_ui.swiss_selector import PromptSelector, SwissPairSelector
 if TYPE_CHECKING:
     from asciibench.common.config_service import ConfigService
     from asciibench.common.repository import DataRepository
+    from asciibench.evaluator.orchestrator import EvaluationOrchestrator
+
+    VLMMetadata = tuple[EvaluationOrchestrator, "DataRepository", Path]
+    VLMOrchestratorFactory = Callable[[], VLMMetadata | None]
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +52,7 @@ class TournamentService:
         config_service: "ConfigService",
         repo: "DataRepository",
         n: int,
+        vlm_orchestrator_factory: "VLMOrchestratorFactory | None" = None,
     ) -> None:
         """Initialize the TournamentService.
 
@@ -55,16 +61,21 @@ class TournamentService:
             config_service: Service for configuration access
             repo: Data repository for accessing samples and votes
             n: Round size from tournament config (number of closest pairs)
+            vlm_orchestrator_factory: Optional factory callable that creates VLM
+                evaluation orchestrator. Returns (orchestrator, repo, path) tuple
+                or None if VLM evaluation is not available.
         """
         self.generation_service = generation_service
         self.config_service = config_service
         self.repo = repo
         self.n = n
+        self._vlm_orchestrator_factory = vlm_orchestrator_factory
 
         self._current_round: RoundState | None = None
         self._next_round: RoundState | None = None
         self._background_task: asyncio.Task | None = None
         self._initial_generation_task: asyncio.Task | None = None
+        self._vlm_task: asyncio.Task | None = None
         self._generation_total: int = 0
         self._generation_completed: int = 0
         self._lock = asyncio.Lock()
@@ -115,6 +126,12 @@ class TournamentService:
                     self._generation_total = len(self._current_round.matchups)
                     self._generation_completed = 0
 
+                logger.info(
+                    "Starting initial generation for round %d (%d matchups)",
+                    self._current_round.round_number,
+                    len(self._current_round.matchups),
+                )
+
                 samples = self.repo.get_all_samples_or_empty()
 
                 updated_round = await self.generation_service.ensure_samples_for_round(
@@ -130,6 +147,10 @@ class TournamentService:
                     self._persist_round_state(self._current_round)
 
                 logger.info(f"Initial generation complete for round {updated_round.round_number}")
+
+                round_samples = self._get_samples_for_round(updated_round)
+                if round_samples:
+                    self._start_vlm_evaluation(round_samples)
             except Exception as e:
                 logger.error(f"Error in initial generation: {e}")
 
@@ -286,6 +307,7 @@ class TournamentService:
 
                 current_round = self._current_round
                 next_round_number = current_round.round_number + 1
+                logger.info("Starting background generation for round %d", next_round_number)
                 self._next_round = await self._create_round(next_round_number)
 
                 samples = self.repo.get_all_samples_or_empty()
@@ -294,10 +316,95 @@ class TournamentService:
                 )
 
                 logger.info(f"Background generation complete for round {next_round_number}")
+
+                if self._next_round is not None:
+                    round_samples = self._get_samples_for_round(self._next_round)
+                    if round_samples:
+                        self._start_vlm_evaluation(round_samples)
             except Exception as e:
                 logger.error(f"Error in background generation: {e}")
 
         self._background_task = asyncio.create_task(generate_next_round())
+
+    def _get_samples_for_round(self, round_state: RoundState) -> list[ArtSample]:
+        """Get ArtSample objects for all matchups in a round.
+
+        Args:
+            round_state: RoundState to get samples for
+
+        Returns:
+            List of ArtSample objects referenced by the round's matchups
+        """
+        samples = self.repo.get_all_samples_or_empty()
+        sample_by_id = {str(s.id): s for s in samples}
+
+        round_samples: list[ArtSample] = []
+        for matchup in round_state.matchups:
+            if matchup.sample_a_id and matchup.sample_a_id in sample_by_id:
+                round_samples.append(sample_by_id[matchup.sample_a_id])
+            if matchup.sample_b_id and matchup.sample_b_id in sample_by_id:
+                round_samples.append(sample_by_id[matchup.sample_b_id])
+
+        return round_samples
+
+    def _start_vlm_evaluation(self, samples: list[ArtSample]) -> None:
+        """Start background VLM evaluation for the given samples.
+
+        Runs EvaluationOrchestrator.run() in a background asyncio task.
+        VLM evaluation is fire-and-forget: failures are logged but do not
+        block tournament progress.
+
+        Args:
+            samples: List of ArtSample objects to evaluate with VLM
+        """
+        if self._vlm_orchestrator_factory is None:
+            logger.debug("VLM orchestrator factory not configured, skipping VLM evaluation")
+            return
+
+        if not samples:
+            logger.debug("No samples to evaluate with VLM")
+            return
+
+        if self._vlm_task is not None and not self._vlm_task.done():
+            logger.debug("VLM evaluation already in progress, skipping")
+            return
+
+        async def run_vlm_evaluation() -> None:
+            try:
+                factory = self._vlm_orchestrator_factory
+                if factory is None:
+                    logger.warning("VLM orchestrator factory became None, skipping evaluation")
+                    return
+
+                result = factory()
+                if result is None:
+                    logger.warning("VLM orchestrator factory returned None, skipping evaluation")
+                    return
+
+                orchestrator, repo, _ = result
+                valid_samples = [s for s in samples if s.is_valid]
+                if not valid_samples:
+                    logger.debug("No valid samples for VLM evaluation")
+                    return
+
+                existing_evaluations = repo.get_evaluations_or_empty()
+                logger.info(
+                    "Starting VLM evaluation for %d samples (%d valid)",
+                    len(samples),
+                    len(valid_samples),
+                )
+
+                await orchestrator.run(
+                    samples=valid_samples,
+                    existing_evaluations=existing_evaluations,
+                    show_progress=False,
+                )
+
+                logger.info("VLM evaluation completed for %d samples", len(valid_samples))
+            except Exception as e:
+                logger.warning("VLM evaluation failed (tournament continues): %s", e)
+
+        self._vlm_task = asyncio.create_task(run_vlm_evaluation())
 
     def get_next_matchup(self) -> Matchup | None:
         """Get a random unjudged matchup from the current round with both samples ready.
@@ -442,6 +549,14 @@ class TournamentService:
             except asyncio.CancelledError:
                 pass
             logger.info("Background generation task cancelled")
+
+        if self._vlm_task is not None and not self._vlm_task.done():
+            self._vlm_task.cancel()
+            try:
+                await self._vlm_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("VLM evaluation task cancelled")
 
     def find_matchup_by_samples(self, sample_a_id: str, sample_b_id: str) -> Matchup | None:
         """Find a matchup in the current round by sample IDs.
