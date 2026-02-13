@@ -1917,10 +1917,9 @@ class TestHTMXEndpoints:
         assert "model-b" in html
         # Winner indicator should be present
         assert "WINNER" in html
-        # Next matchup button should be present
-        assert "btn-next-matchup" in html
-        # VLM eval trigger should be present
-        assert "vlm-eval" in html
+        # Auto-advance trigger should be present
+        assert 'hx-get="/htmx/matchup"' in html
+        assert 'hx-trigger="load delay:2s"' in html
         # No hidden sample ID inputs (prevents voting during reveal)
         assert 'id="sample-a-id"' not in html
         assert 'id="sample-b-id"' not in html
