@@ -1,6 +1,7 @@
 {# HTMX partial template for post-vote reveal display #}
 {# Shows model identities with auto-advance after 2 seconds #}
 <div class="comparison-container grid grid-cols-1 md:grid-cols-2 gap-6"
+     data-reveal-state="true"
      hx-get="/htmx/matchup"
      hx-trigger="load delay:2s"
      hx-target="#matchup-container"
