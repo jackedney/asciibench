@@ -11,7 +11,6 @@ from asciibench.common.models import ArtSample, Model, OpenRouterResponse, Promp
 from asciibench.generator.client import OpenRouterClient, OpenRouterClientError
 from asciibench.generator.sampler import (
     _build_existing_sample_keys,
-    _sample_exists,
     generate_samples,
 )
 
@@ -62,34 +61,6 @@ class TestBuildExistingSampleKeys:
         assert ("openai/gpt-4o", "Draw a cat", 1) in result
         assert ("openai/gpt-4o", "Draw a cat", 2) in result
         assert ("anthropic/claude-3-opus", "Draw a dog", 1) in result
-
-
-class TestSampleExists:
-    """Tests for _sample_exists helper function."""
-
-    def test_returns_true_when_key_exists(self) -> None:
-        """Returns True when sample key exists in set."""
-        existing_keys = {
-            ("openai/gpt-4o", "Draw a cat", 1),
-            ("openai/gpt-4o", "Draw a cat", 2),
-        }
-
-        assert _sample_exists("openai/gpt-4o", "Draw a cat", 1, existing_keys) is True
-        assert _sample_exists("openai/gpt-4o", "Draw a cat", 2, existing_keys) is True
-
-    def test_returns_false_when_key_does_not_exist(self) -> None:
-        """Returns False when sample key doesn't exist in set."""
-        existing_keys = {
-            ("openai/gpt-4o", "Draw a cat", 1),
-        }
-
-        assert _sample_exists("openai/gpt-4o", "Draw a cat", 2, existing_keys) is False
-        assert _sample_exists("openai/gpt-4o", "Draw a dog", 1, existing_keys) is False
-        assert _sample_exists("anthropic/claude", "Draw a cat", 1, existing_keys) is False
-
-    def test_returns_false_for_empty_set(self) -> None:
-        """Returns False when set is empty."""
-        assert _sample_exists("openai/gpt-4o", "Draw a cat", 1, set()) is False
 
 
 class TestGenerateSamples:
@@ -644,9 +615,11 @@ class TestGenerateSamples:
         # Clear any previous run_id
         set_run_id(None)
 
-        # Configure logger to use custom log_path via monkeypatch for isolation
-        logger = get_logger("generator.sampler")
-        monkeypatch.setattr(logger, "log_path", log_path)
+        # Configure loggers to use custom log_path via monkeypatch for isolation
+        sampler_logger = get_logger("generator.sampler")
+        concurrent_logger = get_logger("generator.concurrent")
+        monkeypatch.setattr(sampler_logger, "log_path", log_path)
+        monkeypatch.setattr(concurrent_logger, "log_path", log_path)
 
         config = GenerationConfig(attempts_per_prompt=2)
         generate_samples(
@@ -699,9 +672,11 @@ class TestGenerateSamples:
         # Clear any previous request_id
         set_request_id(None)
 
-        # Configure logger to use custom log_path via monkeypatch for isolation
-        logger = get_logger("generator.sampler")
-        monkeypatch.setattr(logger, "log_path", log_path)
+        # Configure loggers to use custom log_path via monkeypatch for isolation
+        sampler_logger = get_logger("generator.sampler")
+        concurrent_logger = get_logger("generator.concurrent")
+        monkeypatch.setattr(sampler_logger, "log_path", log_path)
+        monkeypatch.setattr(concurrent_logger, "log_path", log_path)
 
         attempts_per_prompt = 2
         config = GenerationConfig(attempts_per_prompt=attempts_per_prompt)

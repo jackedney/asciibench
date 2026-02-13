@@ -747,8 +747,6 @@ class TestConfigModels:
         word_lists = WordLists()
         assert word_lists.objects == []
         assert word_lists.animals == []
-        assert word_lists.actions == []
-        assert word_lists.positions == []
 
     def test_prompts_config_legacy_format(self):
         """Test PromptsConfig with legacy format."""

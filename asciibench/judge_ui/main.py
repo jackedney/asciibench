@@ -45,7 +45,7 @@ from fastapi.templating import Jinja2Templates
 
 from asciibench.common.config import Settings
 from asciibench.common.config_service import ConfigService
-from asciibench.common.models import ArtSample, Model, VLMEvaluation, Vote
+from asciibench.common.models import ArtSample, Model, Vote
 from asciibench.common.persistence import (
     append_jsonl,
     read_jsonl,
@@ -75,6 +75,12 @@ from asciibench.judge_ui.tournament_service import TournamentService
 from asciibench.judge_ui.undo_service import UndoService
 
 templates = Jinja2Templates(directory="templates")
+
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(levelname)s:     %(message)s",
+)
+logging.getLogger("asciibench").setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +133,24 @@ def _get_sample_by_id(sample_id: str | UUID) -> ArtSample | None:
     return indexed.get(target_id)
 
 
+def _create_vlm_orchestrator_factory():
+    """Create a factory function for VLM orchestrator.
+
+    Returns a callable that creates (orchestrator, repo, path) tuple
+    or None if VLM evaluation is not available.
+    """
+
+    def factory():
+        try:
+            from asciibench.evaluator.orchestrator import create_orchestrator
+
+            return create_orchestrator(VLM_EVALUATIONS_PATH)
+        except (ImportError, FileNotFoundError, ValueError):
+            return None
+
+    return factory
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI application.
@@ -164,21 +188,18 @@ async def lifespan(app: FastAPI):
 
     # Initialize tournament service
     try:
+        vlm_factory = _create_vlm_orchestrator_factory()
         app.state.tournament_service = TournamentService(
             generation_service=app.state.generation_service,
             config_service=app.state.config_service,
             repo=app.state.repo,
             n=app.state.tournament_config.round_size,
+            vlm_orchestrator_factory=vlm_factory,
         )
         await app.state.tournament_service.initialize()
     except Exception as e:
         logger.error(f"TournamentService initialization failed: {e}")
         app.state.tournament_service = None
-
-    # Initialize VLM evaluation service state
-    # Type: VLMEvaluationService | None
-    app.state.vlm_evaluation_service = None
-    app.state.vlm_init_attempted = False
 
     yield
 
@@ -683,110 +704,6 @@ async def htmx_undo_vote(request: Request) -> HTMLResponse:
 
     # Return the current matchup (don't load a new one)
     return await htmx_get_matchup(request)
-
-
-def _deduplicate_evaluations(
-    existing_evaluations: list[VLMEvaluation],
-    new_evaluations: list[VLMEvaluation],
-    sample_id: str,
-) -> list[VLMEvaluation]:
-    """Deduplicate evaluations by vlm_model_id for a specific sample.
-
-    Args:
-        existing_evaluations: All existing evaluations from the repository
-        new_evaluations: New evaluations from the current request
-        sample_id: The sample ID to filter existing evaluations by
-
-    Returns:
-        Deduplicated list of evaluations with unique vlm_model_id values.
-        Existing evaluations are preferred over new ones.
-    """
-    seen: set[str] = set()
-    results: list[VLMEvaluation] = []
-
-    for e in [
-        *[e for e in existing_evaluations if e.sample_id == sample_id],
-        *new_evaluations,
-    ]:
-        if e.vlm_model_id not in seen:
-            seen.add(e.vlm_model_id)
-            results.append(e)
-
-    return results
-
-
-@app.get("/htmx/vlm-eval", response_class=HTMLResponse)
-@htmx_error_handler("partials/vlm_results.html")
-async def htmx_vlm_eval(request: Request) -> HTMLResponse:
-    """HTMX endpoint to evaluate samples with VLM after a vote.
-
-    Lazily initializes VLMEvaluationService on first call.
-    Evaluates both samples with all configured VLM models (idempotent).
-    Returns graceful fallback if VLM evaluation is not configured.
-    """
-
-    sample_a_id = request.query_params.get("sample_a_id")
-    sample_b_id = request.query_params.get("sample_b_id")
-
-    if not sample_a_id or not sample_b_id:
-        return templates.TemplateResponse(
-            request,
-            "partials/vlm_results.html",
-            {"error": "Missing sample IDs"},
-        )
-
-    # Lazy-init VLM evaluation service
-    if not request.app.state.vlm_init_attempted:
-        request.app.state.vlm_init_attempted = True
-        try:
-            from asciibench.evaluator.vlm_evaluation_service import (
-                VLMEvaluationService,
-            )
-
-            request.app.state.vlm_evaluation_service = VLMEvaluationService(VLM_EVALUATIONS_PATH)
-        except (ImportError, FileNotFoundError) as e:
-            logging.info(f"VLM evaluation service not available: {e.__class__.__name__}: {e}")
-            request.app.state.vlm_evaluation_service = None
-
-    if request.app.state.vlm_evaluation_service is None:
-        return templates.TemplateResponse(
-            request,
-            "partials/vlm_results.html",
-            {"error": "VLM evaluation not configured"},
-        )
-
-    # Load samples
-    sample_a = _get_sample_by_id(sample_a_id)
-    sample_b = _get_sample_by_id(sample_b_id)
-
-    if not sample_a or not sample_b:
-        return templates.TemplateResponse(
-            request,
-            "partials/vlm_results.html",
-            {"error": "Sample not found"},
-        )
-
-    # Load existing evaluations for idempotency
-    existing_evaluations = request.app.state.repo.get_evaluations_or_empty()
-    existing_keys = {(e.sample_id, e.vlm_model_id) for e in existing_evaluations}
-
-    # Evaluate both samples (skips already-evaluated pairs)
-    new_results_a = await request.app.state.vlm_evaluation_service.evaluate_sample_all_models(
-        sample_a, existing_keys
-    )
-    new_results_b = await request.app.state.vlm_evaluation_service.evaluate_sample_all_models(
-        sample_b, existing_keys
-    )
-
-    # Collect all results (pre-existing + new) for these samples, deduplicated
-    results_a = _deduplicate_evaluations(existing_evaluations, new_results_a, sample_a_id)
-    results_b = _deduplicate_evaluations(existing_evaluations, new_results_b, sample_b_id)
-
-    return templates.TemplateResponse(
-        request,
-        "partials/vlm_results.html",
-        {"results_a": results_a, "results_b": results_b},
-    )
 
 
 # =============================================================================

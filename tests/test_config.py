@@ -334,28 +334,6 @@ def test_load_prompts_single_animal_category():
         assert hasattr(prompt, "template_type")
 
 
-def test_load_prompts_animal_action_category():
-    """Test Category 3: Animal + Action prompts structure."""
-    prompts = load_prompts("prompts.yaml")
-    animal_action_prompts = [p for p in prompts if p.category == "animal_action"]
-
-    for prompt in animal_action_prompts:
-        assert hasattr(prompt, "text")
-        assert hasattr(prompt, "category")
-        assert hasattr(prompt, "template_type")
-
-
-def test_load_prompts_spatial_relationship_category():
-    """Test Category 4: Spatial Relationship prompts structure."""
-    prompts = load_prompts("prompts.yaml")
-    spatial_prompts = [p for p in prompts if p.category == "spatial_relationship"]
-
-    for prompt in spatial_prompts:
-        assert hasattr(prompt, "text")
-        assert hasattr(prompt, "category")
-        assert hasattr(prompt, "template_type")
-
-
 def test_load_prompts_all_unique():
     """Test that all 40 prompts are unique."""
     prompts = load_prompts("prompts.yaml")

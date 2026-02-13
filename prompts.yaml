@@ -1,6 +1,6 @@
 # Prompt templates for ASCIIBench
 # Templates are expanded using word lists to generate unique prompts
-# Total: 40 prompts (10 per category)
+# Total: 40 prompts (20 per category)
 
 # Word lists for template expansion
 word_lists:
@@ -15,6 +15,16 @@ word_lists:
     - windmill
     - sword
     - banana
+    - tree
+    - castle
+    - umbrella
+    - anchor
+    - lighthouse
+    - key
+    - skull
+    - crown
+    - diamond
+    - candle
   animals:
     - cat
     - dog
@@ -26,31 +36,19 @@ word_lists:
     - horse
     - penguin
     - otter
-  actions:
-    - sleeping
-    - running
-    - jumping
-    - flying
-    - swimming
-    - dancing
-    - climbing
-    - sitting
-    - eating
-    - playing
-  positions:
-    - above
-    - below
-    - beside
-    - inside
-    - behind
-    - in front of
-    - next to
-    - on top of
-    - underneath
-    - near
+    - fish
+    - turtle
+    - spider
+    - whale
+    - frog
+    - eagle
+    - dolphin
+    - crab
+    - shark
+    - octopus
 
 # Template definitions
-# Each template expands to 10 prompts using its word list
+# Each template expands to 20 prompts using its word list
 templates:
   - category: single_object
     template: "Draw a {object} in ASCII art"
@@ -58,59 +56,3 @@ templates:
   - category: single_animal
     template: "Draw a {animal} in ASCII art"
     word_list: animals
-  - category: animal_action
-    template: "Draw a {animal} {action} in ASCII art"
-    word_list_pairs:
-      - animal: cat
-        action: sleeping
-      - animal: dog
-        action: running
-      - animal: elephant
-        action: eating
-      - animal: owl
-        action: flying
-      - animal: otter
-        action: swimming
-      - animal: butterfly
-        action: sitting
-      - animal: snake
-        action: climbing
-      - animal: rabbit
-        action: jumping
-      - animal: horse
-        action: playing
-      - animal: penguin
-        action: dancing
-  - category: spatial_relationship
-    template: "Draw a {object_a} {position} a {object_b} in ASCII art"
-    word_list_pairs:
-      - object_a: cat
-        position: on top of
-        object_b: house
-      - object_a: car
-        position: beside
-        object_b: bicycle
-      - object_a: rocket
-        position: above
-        object_b: sailboat
-      - object_a: guitar
-        position: next to
-        object_b: clock
-      - object_a: banana
-        position: inside
-        object_b: windmill
-      - object_a: sword
-        position: underneath
-        object_b: banana
-      - object_a: clock
-        position: behind
-        object_b: house
-      - object_a: dog
-        position: near
-        object_b: car
-      - object_a: horse
-        position: in front of
-        object_b: bicycle
-      - object_a: elephant
-        position: below
-        object_b: rocket

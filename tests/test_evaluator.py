@@ -28,6 +28,7 @@ from asciibench.evaluator.orchestrator import (
     EvaluationWriter,
     ImageRenderer,
     VLMAnalyzer,
+    create_orchestrator,
 )
 from asciibench.evaluator.renderer import render_ascii_to_image
 from asciibench.evaluator.similarity import EmbeddingClient
@@ -807,3 +808,161 @@ class TestEvaluationOrchestrator:
 
         vlm_model_ids = {r.vlm_model_id for r in results}
         assert vlm_model_ids == {"openai/gpt-4o", "anthropic/claude-3-opus"}
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_run_without_progress(self):
+        """EvaluationOrchestrator.run with show_progress=False runs silently."""
+        mock_renderer = MagicMock(spec=ImageRenderer)
+        mock_renderer.render.return_value = b"fake_image"
+
+        mock_analyzer = MagicMock(spec=VLMAnalyzer)
+        mock_analyzer.analyze = AsyncMock(return_value=("A cat", 0.001, True))
+
+        mock_writer = MagicMock(spec=EvaluationWriter)
+
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o"],
+            similarity_threshold=0.7,
+            max_concurrency=2,
+        )
+
+        orchestrator = EvaluationOrchestrator(mock_renderer, mock_analyzer, mock_writer, config)
+
+        samples = [
+            ArtSample(
+                model_id="model1",
+                prompt_text="Draw a cat",
+                category="animals",
+                attempt_number=1,
+                raw_output="output",
+                sanitized_output="output",
+                is_valid=True,
+            )
+        ]
+
+        results = await orchestrator.run(samples, [], show_progress=False)
+
+        assert len(results) == 1
+        mock_renderer.render.assert_called_once()
+        mock_analyzer.analyze.assert_called_once()
+        mock_writer.write.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_run_with_progress_default(self):
+        """EvaluationOrchestrator.run defaults to show_progress=True."""
+        mock_renderer = MagicMock(spec=ImageRenderer)
+        mock_renderer.render.return_value = b"fake_image"
+
+        mock_analyzer = MagicMock(spec=VLMAnalyzer)
+        mock_analyzer.analyze = AsyncMock(return_value=("A cat", 0.001, True))
+
+        mock_writer = MagicMock(spec=EvaluationWriter)
+
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o"],
+            similarity_threshold=0.7,
+            max_concurrency=2,
+        )
+
+        orchestrator = EvaluationOrchestrator(mock_renderer, mock_analyzer, mock_writer, config)
+
+        samples = [
+            ArtSample(
+                model_id="model1",
+                prompt_text="Draw a cat",
+                category="animals",
+                attempt_number=1,
+                raw_output="output",
+                sanitized_output="output",
+                is_valid=True,
+            )
+        ]
+
+        results = await orchestrator.run(samples, [])
+
+        assert len(results) == 1
+
+
+class TestCreateOrchestrator:
+    """Tests for create_orchestrator factory function."""
+
+    def test_create_orchestrator_returns_tuple(self, tmp_path: Path):
+        """create_orchestrator returns (orchestrator, repo, path) tuple."""
+        evaluations_path = tmp_path / "vlm_evaluations.jsonl"
+
+        orchestrator, _, path = create_orchestrator(evaluations_path)
+
+        assert isinstance(orchestrator, EvaluationOrchestrator)
+        assert path == evaluations_path
+
+    def test_create_orchestrator_with_default_config(self, tmp_path: Path):
+        """create_orchestrator loads default config when None provided."""
+        evaluations_path = tmp_path / "vlm_evaluations.jsonl"
+
+        with patch("asciibench.common.yaml_config.load_evaluator_config") as mock_load:
+            mock_load.return_value = EvaluatorConfig(
+                vlm_models=["openai/gpt-4o"],
+                similarity_threshold=0.7,
+                max_concurrency=5,
+            )
+
+            create_orchestrator(evaluations_path, config=None)
+
+            mock_load.assert_called_once()
+
+    def test_create_orchestrator_with_custom_config(self, tmp_path: Path):
+        """create_orchestrator uses provided config."""
+        evaluations_path = tmp_path / "vlm_evaluations.jsonl"
+        config = EvaluatorConfig(
+            vlm_models=["custom/model"],
+            similarity_threshold=0.8,
+            max_concurrency=3,
+        )
+
+        orchestrator, _, _ = create_orchestrator(evaluations_path, config=config)
+
+        assert orchestrator._config.vlm_models == ["custom/model"]
+        assert orchestrator._config.similarity_threshold == 0.8
+
+    def test_create_orchestrator_empty_path_raises_error(self):
+        """create_orchestrator raises ValueError for empty path."""
+        with pytest.raises(ValueError, match="evaluations_path cannot be empty"):
+            create_orchestrator("")
+
+    @pytest.mark.asyncio
+    async def test_create_orchestrator_orchestrator_can_run(self, tmp_path: Path):
+        """Orchestrator from create_orchestrator can run evaluations."""
+        evaluations_path = tmp_path / "vlm_evaluations.jsonl"
+
+        config = EvaluatorConfig(
+            vlm_models=["openai/gpt-4o"],
+            similarity_threshold=0.7,
+            max_concurrency=2,
+        )
+
+        orchestrator, _, _ = create_orchestrator(evaluations_path, config=config)
+
+        with (
+            patch.object(orchestrator._renderer, "render", return_value=b"fake_image"),
+            patch.object(
+                orchestrator._vlm_analyzer,
+                "analyze",
+                new_callable=AsyncMock,
+                return_value=("A cat", 0.001, True),
+            ),
+        ):
+            samples = [
+                ArtSample(
+                    model_id="model1",
+                    prompt_text="Draw a cat",
+                    category="animals",
+                    attempt_number=1,
+                    raw_output="output",
+                    sanitized_output="output",
+                    is_valid=True,
+                )
+            ]
+
+            results = await orchestrator.run(samples, [], show_progress=False)
+
+            assert len(results) == 1

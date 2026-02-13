@@ -10,7 +10,7 @@ Dependencies:
 """
 
 import asyncio
-from collections.abc import AsyncGenerator, Callable, Coroutine
+from collections.abc import AsyncGenerator, Callable, Coroutine, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -224,6 +224,7 @@ class EvaluationOrchestrator:
         existing_evaluations: list[VLMEvaluation],
         progress_callback: EvaluationProgressCallbackType | None = None,
         limit: int | None = None,
+        show_progress: bool = True,
     ) -> list[VLMEvaluation]:
         """Run evaluation pipeline on samples.
 
@@ -232,6 +233,8 @@ class EvaluationOrchestrator:
             existing_evaluations: List of existing VLMEvaluation objects for idempotency
             progress_callback: Optional callback called after each evaluation
             limit: Optional limit on the number of evaluation tasks to process
+            show_progress: If True, display Rich progress bar (default: True).
+                If False, run silently without progress display for background tasks.
 
         Returns:
             List of newly created VLMEvaluation objects
@@ -239,6 +242,8 @@ class EvaluationOrchestrator:
         Example:
             >>> orchestrator = EvaluationOrchestrator(renderer, analyzer, writer, config)
             >>> results = await orchestrator.run(samples, existing_evaluations)
+            >>> # For background tasks without progress bar:
+            >>> results = await orchestrator.run(samples, existing_evaluations, show_progress=False)
         """
         existing_eval_keys = {(str(ev.sample_id), ev.vlm_model_id) for ev in existing_evaluations}
 
@@ -337,27 +342,38 @@ class EvaluationOrchestrator:
             async with semaphore:
                 return await process_task(sample, vlm_model_id)
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeRemainingColumn(),
-            expand=True,
-        ) as progress:
-            task = progress.add_task(
-                f"[cyan]Evaluating samples with {len(self._config.vlm_models)} VLM model(s)...",
-                total=len(tasks_to_process),
-            )
+        coroutines = [
+            process_with_semaphore(sample, vlm_model_id)
+            for sample, vlm_model_id in tasks_to_process
+        ]
 
-            async for result in _async_generator_with_progress(
-                [
-                    process_with_semaphore(sample, vlm_model_id)
-                    for sample, vlm_model_id in tasks_to_process
-                ],
-                progress,
-                task,
-            ):
+        if show_progress:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TimeRemainingColumn(),
+                expand=True,
+            ) as progress:
+                task = progress.add_task(
+                    f"[cyan]Evaluating samples with {len(self._config.vlm_models)} VLM model(s)...",
+                    total=len(tasks_to_process),
+                )
+
+                async for result in _async_generator_with_progress(
+                    coroutines,
+                    progress,
+                    task,
+                ):
+                    if result is not None:
+                        results.append(result)
+                        if progress_callback:
+                            progress_callback(
+                                len(results), len(tasks_to_process), result.vlm_model_id
+                            )
+        else:
+            for result in await asyncio.gather(*coroutines):
                 if result is not None:
                     results.append(result)
                     if progress_callback:
@@ -484,7 +500,7 @@ async def run_evaluation(
 
 
 async def _async_generator_with_progress(
-    coroutines: list[Coroutine[Any, Any, VLMEvaluation | None]],
+    coroutines: Sequence[Coroutine[Any, Any, VLMEvaluation | None]],
     progress: Progress,
     task_id: TaskID,
 ) -> AsyncGenerator[VLMEvaluation | None, None]:
@@ -502,3 +518,61 @@ async def _async_generator_with_progress(
         result = await future
         progress.update(task_id, advance=1)
         yield result
+
+
+def create_orchestrator(
+    evaluations_path: str | Path,
+    config: EvaluatorConfig | None = None,
+) -> tuple[EvaluationOrchestrator, DataRepository, Path]:
+    """Create an EvaluationOrchestrator instance with all dependencies.
+
+    This factory function creates a fully configured EvaluationOrchestrator
+    ready for use in background tasks without progress display.
+
+    Args:
+        evaluations_path: Path to vlm_evaluations.jsonl file. Must be a valid
+            path within the data directory.
+        config: EvaluatorConfig with settings. If None, loads from
+            evaluator_config.yaml.
+
+    Returns:
+        Tuple of (orchestrator, data_repository, evaluations_path) for use
+        in background evaluation tasks.
+
+    Raises:
+        ValueError: If evaluations_path is invalid or does not resolve to a
+            valid path.
+
+    Example:
+        >>> orchestrator, repo, path = create_orchestrator("data/vlm_evaluations.jsonl")
+        >>> samples = repo.get_all_samples_or_empty()
+        >>> valid_samples = [s for s in samples if s.is_valid]
+        >>> existing = repo.get_evaluations_or_empty()
+        >>> results = await orchestrator.run(valid_samples, existing, show_progress=False)
+
+    Negative case:
+        >>> create_orchestrator("")  # Raises ValueError
+        ValueError: evaluations_path cannot be empty
+    """
+    evaluations_path = Path(evaluations_path)
+
+    if not evaluations_path.name:
+        raise ValueError("evaluations_path cannot be empty")
+
+    if config is None:
+        from asciibench.common.yaml_config import load_evaluator_config
+
+        config = load_evaluator_config()
+
+    settings = Settings()
+    renderer_config = RendererConfig(font=config.font)
+    repo = DataRepository(data_dir=evaluations_path.parent)
+
+    renderer = ImageRenderer(renderer_config)
+    vlm_client = VLMClient(settings)
+    vlm_analyzer = VLMAnalyzer(vlm_client, config.similarity_threshold)
+    evaluation_writer = EvaluationWriter(evaluations_path)
+
+    orchestrator = EvaluationOrchestrator(renderer, vlm_analyzer, evaluation_writer, config)
+
+    return orchestrator, repo, evaluations_path

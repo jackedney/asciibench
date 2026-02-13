@@ -77,8 +77,6 @@ def temp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             app.state.tournament_service = tournament_service
             app.state.generation_service = None
             app.state.openrouter_client = None
-            app.state.vlm_evaluation_service = None
-            app.state.vlm_init_attempted = True
         else:
             # Override existing app.state values
             app.state.repo = repo
@@ -1919,10 +1917,9 @@ class TestHTMXEndpoints:
         assert "model-b" in html
         # Winner indicator should be present
         assert "WINNER" in html
-        # Next matchup button should be present
-        assert "btn-next-matchup" in html
-        # VLM eval trigger should be present
-        assert "vlm-eval" in html
+        # Auto-advance trigger should be present
+        assert 'hx-get="/htmx/matchup"' in html
+        assert 'hx-trigger="load delay:2s"' in html
         # No hidden sample ID inputs (prevents voting during reveal)
         assert 'id="sample-a-id"' not in html
         assert 'id="sample-b-id"' not in html
@@ -2295,64 +2292,3 @@ class TestVLMAccuracyEndpoint:
         assert "by_category" in data
         assert isinstance(data["by_model"], dict)
         assert isinstance(data["by_category"], dict)
-
-
-class TestVLMEvalEndpoint:
-    """Tests for the HTMX VLM evaluation endpoint."""
-
-    def test_vlm_eval_returns_not_configured(
-        self,
-        client: TestClient,
-        temp_data_dir: Path,
-        sample_data: list[ArtSample],
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test that VLM eval endpoint returns graceful message when not configured."""
-        from asciibench.judge_ui.main import app
-
-        populate_database(temp_data_dir, sample_data)
-
-        # Simulate service already attempted and failed to initialize
-        app.state.vlm_init_attempted = True
-        app.state.vlm_evaluation_service = None
-
-        sample_a_id = str(sample_data[0].id)
-        sample_b_id = str(sample_data[2].id)
-
-        response = client.get(f"/htmx/vlm-eval?sample_a_id={sample_a_id}&sample_b_id={sample_b_id}")
-        assert response.status_code == 200
-        assert "VLM evaluation not configured" in response.text
-
-    def test_vlm_eval_missing_sample_ids(
-        self,
-        client: TestClient,
-        temp_data_dir: Path,
-    ) -> None:
-        """Test that VLM eval endpoint returns error with missing sample IDs."""
-        response = client.get("/htmx/vlm-eval")
-        assert response.status_code == 200
-        assert "Missing sample IDs" in response.text
-
-    def test_vlm_eval_with_existing_evaluations(
-        self,
-        client: TestClient,
-        temp_data_dir: Path,
-        sample_data: list[ArtSample],
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test that VLM eval shows pre-existing evaluations when service not configured."""
-        from asciibench.judge_ui.main import app
-
-        populate_database(temp_data_dir, sample_data)
-
-        # Ensure VLM service is not configured
-        app.state.vlm_init_attempted = True
-        app.state.vlm_evaluation_service = None
-
-        sample_a_id = str(sample_data[0].id)
-        sample_b_id = str(sample_data[2].id)
-
-        response = client.get(f"/htmx/vlm-eval?sample_a_id={sample_a_id}&sample_b_id={sample_b_id}")
-        assert response.status_code == 200
-        # Should show "not configured" since the service is None
-        assert "VLM evaluation not configured" in response.text
