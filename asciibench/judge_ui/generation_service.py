@@ -43,7 +43,7 @@ class GenerationService:
         """
         self.client = client
         self.config = config
-        self.database_path = database_path
+        self.database_path = Path(database_path)
 
     async def ensure_samples_for_round(
         self,
