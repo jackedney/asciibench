@@ -123,8 +123,7 @@ async def generate_samples_async(
             generation_tasks.append(task)
 
     total_combinations = sum(
-        1 for t in generation_tasks
-        if (t.model_id, t.prompt_text, t.attempt) not in existing_keys
+        1 for t in generation_tasks if (t.model_id, t.prompt_text, t.attempt) not in existing_keys
     )
     generated_count = 0
     metrics = BatchMetrics()
