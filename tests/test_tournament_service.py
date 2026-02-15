@@ -957,7 +957,7 @@ class TestVLMEvaluation:
 
         await service_with_vlm._vlm_task
 
-        assert service_with_vlm._vlm_task.done()
+        assert service_with_vlm._vlm_task is None
 
     @pytest.mark.asyncio
     async def test_start_vlm_evaluation_skips_if_task_running(
@@ -1045,7 +1045,7 @@ class TestVLMEvaluation:
 
         await service._vlm_task
 
-        assert service._vlm_task.done()
+        assert service._vlm_task is None
 
     @pytest.mark.asyncio
     async def test_background_generation_starts_vlm_evaluation(
