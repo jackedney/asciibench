@@ -99,10 +99,6 @@ class GenerationService:
                 len(tasks),
                 len(models),
             )
-        else:
-            logger.info("All samples already exist, skipping generation")
-
-        if tasks:
             generated_samples = await generate_samples_concurrent(
                 tasks=tasks,
                 client=self.client,
@@ -112,6 +108,8 @@ class GenerationService:
                 max_concurrent=self.config.max_concurrent_requests,
             )
             logger.info("All %d LLM calls completed", len(tasks))
+        else:
+            logger.info("All samples already exist, skipping generation")
 
         sample_lookup: dict[tuple[str, str], ArtSample] = {}
         for sample in existing_samples:

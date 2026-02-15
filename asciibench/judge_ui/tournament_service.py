@@ -408,6 +408,7 @@ class TournamentService:
             finally:
                 pending = self._vlm_pending_samples
                 self._vlm_pending_samples = None
+                self._vlm_task = None
                 if pending:
                     logger.info("Running queued VLM evaluation for %d samples", len(pending))
                     self._start_vlm_evaluation(pending)

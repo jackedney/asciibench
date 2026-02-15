@@ -7,7 +7,6 @@ import pytest
 
 from asciibench.common.config import GenerationConfig
 from asciibench.common.models import ArtSample, Matchup, RoundState
-from asciibench.generator.client import OpenRouterClient
 from asciibench.generator.concurrent import GenerationTask
 from asciibench.judge_ui.generation_service import GenerationService
 
