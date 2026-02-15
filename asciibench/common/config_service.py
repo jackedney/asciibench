@@ -88,14 +88,10 @@ class WordLists(BaseModel):
     Attributes:
         objects: List of object names for templates
         animals: List of animal names for templates
-        actions: List of action verbs for templates
-        positions: List of positional words for templates
     """
 
     objects: list[str] = Field(default_factory=list)
     animals: list[str] = Field(default_factory=list)
-    actions: list[str] = Field(default_factory=list)
-    positions: list[str] = Field(default_factory=list)
 
 
 class PromptsConfig(BaseModel):

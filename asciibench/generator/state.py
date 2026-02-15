@@ -20,17 +20,15 @@ class BatchMetrics:
     total_samples: int = 0
     successful: int = 0
     failed: int = 0
-    total_duration_ms: float = 0.0
     total_cost: float = 0.0
 
-    def record_sample(self, success: bool, duration_ms: float, cost: float | None) -> None:
+    def record_sample(self, success: bool, cost: float | None) -> None:
         """Record metrics for a single sample generation."""
         self.total_samples += 1
         if success:
             self.successful += 1
         else:
             self.failed += 1
-        self.total_duration_ms += duration_ms
         if cost is not None:
             self.total_cost += cost
 
@@ -42,7 +40,6 @@ class BatchMetrics:
                 "total_samples": self.total_samples,
                 "successful": self.successful,
                 "failed": self.failed,
-                "total_duration_ms": round(self.total_duration_ms, 2),
                 "total_cost": round(self.total_cost, 6),
             },
         )
@@ -105,7 +102,7 @@ class SharedState:
             self.samples_processed += 1
             return self.samples_processed
 
-    async def record_sample(self, success: bool, duration_ms: float, cost: float | None) -> None:
+    async def record_sample(self, success: bool, cost: float | None) -> None:
         """Record a sample generation in a thread-safe manner.
 
         This method forwards the record to the underlying BatchMetrics
@@ -113,11 +110,10 @@ class SharedState:
 
         Args:
             success: Whether the sample generation was successful
-            duration_ms: Duration of the generation in milliseconds
             cost: Cost of the generation (may be None)
         """
         async with self._lock:
-            self.metrics.record_sample(success, duration_ms, cost)
+            self.metrics.record_sample(success, cost)
 
     async def increment_concurrent(self) -> int:
         """Atomically increment the current concurrent tasks counter.

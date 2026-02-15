@@ -188,7 +188,7 @@
 <p class="mt-6"><a href="/" class="text-slate-500 hover:text-slate-300 border-b border-slate-600 hover:border-slate-400">&lt;- Back to Home</a></p>
 
 <script>
-(function() {
+(() => {
     'use strict';
 
     // State
@@ -237,9 +237,9 @@
         htmx.ajax('GET', '/htmx/analytics', {
             target: '#analytics-container',
             swap: 'innerHTML'
-        }).then(function() {
+        }).then(() => {
             analyticsLoading.style.display = 'none';
-        }).catch(function(error) {
+        }).catch((error) => {
             analyticsLoading.style.display = 'none';
             analyticsContainer.innerHTML = '<p class="text-red-400 text-center py-4">Failed to load analytics. Please try again.</p>';
             console.error('Analytics loading error:', error);
@@ -366,7 +366,7 @@
      * Check if the UI is showing the vote reveal panel
      */
     function isInRevealState() {
-        return !!document.getElementById('btn-next-matchup');
+        return !!document.querySelector('[data-reveal-state="true"]');
     }
 
     /**
@@ -419,13 +419,6 @@
             return;
         }
 
-        // Handle SPACE to advance from reveal panel
-        if (key === ' ' && isInRevealState()) {
-            event.preventDefault();
-            document.getElementById('btn-next-matchup').click();
-            return;
-        }
-
         // Ignore if processing
         if (isProcessing) return;
 
@@ -470,7 +463,7 @@
     }
 
     // Set processing state during HTMX requests
-    document.body.addEventListener('htmx:beforeRequest', function(event) {
+    document.body.addEventListener('htmx:beforeRequest', (event) => {
         // Only set processing state for judge-related requests
         if (event.target.closest('#judge-content')) {
             isProcessing = true;
@@ -483,7 +476,7 @@
         }
     });
 
-    document.body.addEventListener('htmx:afterRequest', function(event) {
+    document.body.addEventListener('htmx:afterRequest', (event) => {
         // Only update processing state for judge-related requests
         if (event.target.closest('#judge-content')) {
             isProcessing = false;
@@ -497,7 +490,7 @@
     });
 
     // Trigger prompt update when matchup loads and apply current font
-    document.body.addEventListener('htmx:afterSwap', function(event) {
+    document.body.addEventListener('htmx:afterSwap', (event) => {
         if (event.target.id === 'matchup-container') {
             htmx.trigger(document.body, 'matchup-loaded');
             // Re-apply current font to newly loaded art displays
@@ -506,7 +499,7 @@
     });
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', () => {
         // Add keyboard event listener
         document.addEventListener('keydown', handleKeydown);
 
