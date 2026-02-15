@@ -11,6 +11,7 @@ Dependencies:
 
 import logging
 from collections.abc import Callable
+from pathlib import Path
 
 from asciibench.common.config import GenerationConfig
 from asciibench.common.models import ArtSample, Matchup, RoundState
@@ -31,7 +32,7 @@ class GenerationService:
         self,
         client: OpenRouterClient,
         config: GenerationConfig,
-        database_path,
+        database_path: str | Path,
     ) -> None:
         """Initialize the GenerationService.
 
