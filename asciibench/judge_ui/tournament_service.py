@@ -76,6 +76,7 @@ class TournamentService:
         self._background_task: asyncio.Task | None = None
         self._initial_generation_task: asyncio.Task | None = None
         self._vlm_task: asyncio.Task | None = None
+        self._vlm_pending_samples: list[ArtSample] | None = None
         self._generation_total: int = 0
         self._generation_completed: int = 0
         self._lock = asyncio.Lock()
@@ -366,7 +367,8 @@ class TournamentService:
             return
 
         if self._vlm_task is not None and not self._vlm_task.done():
-            logger.debug("VLM evaluation already in progress, skipping")
+            logger.warning("VLM evaluation already in progress, queueing for later")
+            self._vlm_pending_samples = samples
             return
 
         async def run_vlm_evaluation() -> None:
@@ -403,6 +405,12 @@ class TournamentService:
                 logger.info("VLM evaluation completed for %d samples", len(valid_samples))
             except Exception as e:
                 logger.warning("VLM evaluation failed (tournament continues): %s", e)
+            finally:
+                pending = self._vlm_pending_samples
+                self._vlm_pending_samples = None
+                if pending:
+                    logger.info("Running queued VLM evaluation for %d samples", len(pending))
+                    self._start_vlm_evaluation(pending)
 
         self._vlm_task = asyncio.create_task(run_vlm_evaluation())
 

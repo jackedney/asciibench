@@ -122,7 +122,10 @@ async def generate_samples_async(
             seen_keys.add(key)
             generation_tasks.append(task)
 
-    total_combinations = len(generation_tasks)
+    total_combinations = sum(
+        1 for t in generation_tasks
+        if (t.model_id, t.prompt_text, t.attempt) not in existing_keys
+    )
     generated_count = 0
     metrics = BatchMetrics()
 
@@ -130,7 +133,7 @@ async def generate_samples_async(
         nonlocal generated_count
         generated_count += 1
 
-        metrics.record_sample(sample.is_valid, 0.0, sample.cost)
+        metrics.record_sample(sample.is_valid, sample.cost)
 
         if progress_callback is not None:
             remaining = total_combinations - generated_count

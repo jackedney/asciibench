@@ -126,33 +126,30 @@ class TestRecordSample:
     def test_record_sample_success(self):
         """Test recording a successful sample."""
         state = SharedState()
-        asyncio.run(state.record_sample(success=True, duration_ms=100.0, cost=0.001))
+        asyncio.run(state.record_sample(success=True, cost=0.001))
         assert state.metrics.total_samples == 1
         assert state.metrics.successful == 1
         assert state.metrics.failed == 0
-        assert state.metrics.total_duration_ms == 100.0
         assert state.metrics.total_cost == 0.001
 
     def test_record_sample_failure(self):
         """Test recording a failed sample."""
         state = SharedState()
-        asyncio.run(state.record_sample(success=False, duration_ms=50.0, cost=None))
+        asyncio.run(state.record_sample(success=False, cost=None))
         assert state.metrics.total_samples == 1
         assert state.metrics.successful == 0
         assert state.metrics.failed == 1
-        assert state.metrics.total_duration_ms == 50.0
         assert state.metrics.total_cost == 0.0
 
     def test_record_sample_multiple(self):
         """Test recording multiple samples accumulates correctly."""
         state = SharedState()
-        asyncio.run(state.record_sample(success=True, duration_ms=100.0, cost=0.001))
-        asyncio.run(state.record_sample(success=True, duration_ms=150.0, cost=0.002))
-        asyncio.run(state.record_sample(success=False, duration_ms=50.0, cost=None))
+        asyncio.run(state.record_sample(success=True, cost=0.001))
+        asyncio.run(state.record_sample(success=True, cost=0.002))
+        asyncio.run(state.record_sample(success=False, cost=None))
         assert state.metrics.total_samples == 3
         assert state.metrics.successful == 2
         assert state.metrics.failed == 1
-        assert state.metrics.total_duration_ms == 300.0
         assert state.metrics.total_cost == 0.003
 
     def test_concurrent_record_sample(self):
@@ -161,14 +158,13 @@ class TestRecordSample:
 
         async def record(i):
             success = i % 2 == 0
-            await state.record_sample(success=success, duration_ms=float(i), cost=0.001)
+            await state.record_sample(success=success, cost=0.001)
 
         async def run_test():
             await asyncio.gather(*[record(i) for i in range(10)])
             assert state.metrics.total_samples == 10
             assert state.metrics.successful == 5
             assert state.metrics.failed == 5
-            assert state.metrics.total_duration_ms == sum(range(10))
             assert state.metrics.total_cost == pytest.approx(0.01)
 
         asyncio.run(run_test())
@@ -186,7 +182,7 @@ class TestIntegration:
             added = await state.check_and_add_key(key)
             if added:
                 await state.increment_processed()
-                await state.record_sample(success=True, duration_ms=100.0, cost=0.001)
+                await state.record_sample(success=True, cost=0.001)
 
         async def run_test():
             await asyncio.gather(*[task(i) for i in range(10)])

@@ -44,24 +44,6 @@ class GenerationService:
         self.config = config
         self.database_path = database_path
 
-    def find_existing_sample(
-        self, model_id: str, prompt_text: str, samples: list[ArtSample]
-    ) -> ArtSample | None:
-        """Find an existing sample matching the model and prompt.
-
-        Args:
-            model_id: ID of the model to match
-            prompt_text: Text of the prompt to match
-            samples: List of existing samples to search
-
-        Returns:
-            First matching valid sample, or None if no match found
-        """
-        for sample in samples:
-            if sample.model_id == model_id and sample.prompt_text == prompt_text:
-                return sample
-        return None
-
     async def ensure_samples_for_round(
         self,
         round_state: RoundState,
@@ -127,16 +109,20 @@ class GenerationService:
                 config=self.config,
                 database_path=self.database_path,
                 existing_keys=existing_keys,
-                max_concurrent=10,
+                max_concurrent=self.config.max_concurrent_requests,
             )
             logger.info("All %d LLM calls completed", len(tasks))
 
         sample_lookup: dict[tuple[str, str], ArtSample] = {}
         for sample in existing_samples:
+            if not sample.is_valid:
+                continue
             key = (sample.model_id, sample.prompt_text)
             if key not in sample_lookup:
                 sample_lookup[key] = sample
         for sample in generated_samples:
+            if not sample.is_valid:
+                continue
             key = (sample.model_id, sample.prompt_text)
             if key not in sample_lookup:
                 sample_lookup[key] = sample
